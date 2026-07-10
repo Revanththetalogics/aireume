@@ -67,6 +67,8 @@ const EMPTY_FORM = {
   idp_sso_url: '',
   idp_certificate: '',
   default_role: 'viewer',
+  groups_attribute: 'groups',
+  group_mappings: [],
   auto_provision: true,
   enforce_sso: false,
 }
@@ -127,6 +129,8 @@ export default function SSOPage() {
           idp_sso_url: data.idp_sso_url || '',
           idp_certificate: '',
           default_role: data.default_role || 'viewer',
+          groups_attribute: data.groups_attribute || 'groups',
+          group_mappings: data.group_mappings || [],
           auto_provision: data.auto_provision ?? true,
           enforce_sso: data.enforce_sso ?? false,
         })
@@ -196,6 +200,8 @@ export default function SSOPage() {
       enforce_sso: form.enforce_sso,
       auto_provision: form.auto_provision,
       default_role: form.default_role,
+      groups_attribute: form.groups_attribute || 'groups',
+      group_mappings: form.group_mappings || [],
       is_active: true,
     }
 
@@ -495,7 +501,76 @@ export default function SSOPage() {
                     <option value="recruiter">Recruiter</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <p className="text-xs text-slate-400 mt-1">Role assigned to newly provisioned users via SSO.</p>
+                  <p className="text-xs text-slate-400 mt-1">Role assigned when no IdP group mapping matches.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Groups SAML Attribute</label>
+                  <input
+                    value={form.groups_attribute}
+                    onChange={(e) => setForm({ ...form, groups_attribute: e.target.value })}
+                    placeholder="groups"
+                    className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-bold text-slate-700">IdP Group → Role Mappings</label>
+                    <button
+                      type="button"
+                      onClick={() => setForm({
+                        ...form,
+                        group_mappings: [...(form.group_mappings || []), { idp_group: '', role: 'viewer' }],
+                      })}
+                      className="text-xs font-semibold text-brand-600 hover:text-brand-800"
+                    >
+                      + Add mapping
+                    </button>
+                  </div>
+                  {(form.group_mappings || []).length === 0 ? (
+                    <p className="text-xs text-slate-400">No group mappings — all SSO users get the default role.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {form.group_mappings.map((m, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            value={m.idp_group}
+                            onChange={(e) => {
+                              const next = [...form.group_mappings]
+                              next[idx] = { ...next[idx], idp_group: e.target.value }
+                              setForm({ ...form, group_mappings: next })
+                            }}
+                            placeholder="IdP group name"
+                            className="flex-1 px-3 py-2 rounded-xl ring-1 ring-brand-200 text-sm"
+                          />
+                          <select
+                            value={m.role}
+                            onChange={(e) => {
+                              const next = [...form.group_mappings]
+                              next[idx] = { ...next[idx], role: e.target.value }
+                              setForm({ ...form, group_mappings: next })
+                            }}
+                            className="px-3 py-2 rounded-xl ring-1 ring-brand-200 text-sm"
+                          >
+                            <option value="viewer">viewer</option>
+                            <option value="recruiter">recruiter</option>
+                            <option value="admin">admin</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setForm({
+                              ...form,
+                              group_mappings: form.group_mappings.filter((_, i) => i !== idx),
+                            })}
+                            className="p-2 text-slate-400 hover:text-red-600"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Toggle switches */}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Users2, UserPlus, Shield, AlertCircle, Check, X } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
-import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus } from '../lib/api'
+import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus, getTenantAuditLogs } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
 const ROLES = ['admin', 'recruiter', 'viewer']
@@ -163,6 +163,44 @@ function TrainingDashboard() {
   )
 }
 
+function TenantAuditPanel() {
+  const [entries, setEntries] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getTenantAuditLogs({ limit: 20 })
+      .then((data) => setEntries(data.entries || []))
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5 space-y-3">
+      <h3 className="font-extrabold text-brand-900 tracking-tight">Activity Log</h3>
+      <p className="text-sm text-slate-500">Recent team and workflow events (admin only).</p>
+      {loading ? (
+        <div className="flex justify-center py-6">
+          <div className="w-6 h-6 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="text-sm text-slate-400 py-4">No audit events yet.</p>
+      ) : (
+        <div className="divide-y divide-brand-50 max-h-64 overflow-y-auto">
+          {entries.map((e) => (
+            <div key={e.id} className="py-2.5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-slate-700">{e.action}</span>
+                <span className="text-xs text-slate-400">{new Date(e.created_at).toLocaleString()}</span>
+              </div>
+              <p className="text-xs text-slate-500">{e.actor_email} · {e.resource_type}{e.resource_id ? ` #${e.resource_id}` : ''}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TeamPage() {
   const { user } = useAuth()
   const [members, setMembers]       = useState([])
@@ -238,6 +276,8 @@ export default function TeamPage() {
             </div>
           )}
         </div>
+
+        {isAdmin && <TenantAuditPanel />}
 
         {/* Training dashboard */}
         <TrainingDashboard />

@@ -19,6 +19,7 @@ function isPrimaryNavActive(pathname, itemPath) {
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
+import usePermissions from '../hooks/usePermissions'
 import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
 import JobCenter from './patterns/JobCenter'
@@ -123,7 +124,7 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
 /* ── Mobile bottom tab bar ───────────────────────────── */
 
-function MobileTabBar({ location }) {
+function MobileTabBar({ location, canWrite }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const sheetRef = useRef(null)
 
@@ -141,7 +142,7 @@ function MobileTabBar({ location }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [moreOpen])
 
-  const tabs = PRIMARY_NAV
+  const tabs = PRIMARY_NAV.filter(item => canWrite || item.path !== '/analyze')
 
   return (
     <>
@@ -266,6 +267,7 @@ function MobileMoreSheet({ onNavigate }) {
 
 export default function NavBar() {
   const { user, tenant, logout } = useAuth()
+  const { canWrite } = usePermissions()
   const location = useLocation()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef(null)
@@ -303,7 +305,7 @@ export default function NavBar() {
 
           {/* Desktop primary nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {PRIMARY_NAV.map(item => {
+            {PRIMARY_NAV.filter(item => canWrite || item.path !== '/analyze').map(item => {
               const active = isPrimaryNavActive(location.pathname, item.path)
               return (
                 <Link
@@ -375,7 +377,7 @@ export default function NavBar() {
       </header>
 
       {/* Mobile bottom tab bar */}
-      <MobileTabBar location={location} />
+      <MobileTabBar location={location} canWrite={canWrite} />
     </>
   )
 }

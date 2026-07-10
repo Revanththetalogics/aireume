@@ -5,7 +5,8 @@ import {
   ArrowLeft, ChevronDown, ChevronUp, FileText, UserCheck,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
-import { getHandoffPackage } from '../lib/api'
+import { getHandoffPackage, createHandoffShareLink } from '../lib/api'
+import usePermissions from '../hooks/usePermissions'
 import { safeStr } from '../lib/utils'
 
 // ── Sub-components ──────────────────────────────────────────────────────────────
@@ -228,15 +229,16 @@ function CandidateCard({ candidate }) {
 }
 
 function ComparisonMatrix({ matrix }) {
-  if (!matrix || !matrix.dimensions || !matrix.scores) return null
-  const names = Object.keys(matrix.scores)
+  if (!matrix || !matrix.dimensions) return null
+  const scoreMap = matrix.candidates || matrix.scores || {}
+  const names = Object.keys(scoreMap)
   if (names.length === 0) return null
 
   // Find max per dimension for highlighting
   const maxPerDim = matrix.dimensions.map((_, dimIdx) => {
     let max = -Infinity
     names.forEach(name => {
-      const val = matrix.scores[name]?.[dimIdx]
+      const val = scoreMap[name]?.[dimIdx]
       if (val != null && val > max) max = val
     })
     return max
@@ -268,7 +270,7 @@ function ComparisonMatrix({ matrix }) {
               <tr key={dim} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{dim}</td>
                 {names.map(name => {
-                  const score = matrix.scores[name]?.[dimIdx]
+                  const score = scoreMap[name]?.[dimIdx]
                   const isMax = score != null && score === maxPerDim[dimIdx]
                   return (
                     <td key={name} className="px-4 py-2.5 text-center">
@@ -289,17 +291,20 @@ function ComparisonMatrix({ matrix }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────────
 
-export default function HandoffPackage() {
+export default function HandoffPackage({ initialData = null, publicMode = false }) {
   const { id: jdId } = useParams()
   const navigate = useNavigate()
+  const { canWrite } = usePermissions()
   const contentRef = useRef(null)
 
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState(initialData)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState(null)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [linkLoading, setLinkLoading] = useState(false)
 
   useEffect(() => {
+    if (initialData || publicMode) return
     if (!jdId) return
     const load = async () => {
       try {
@@ -329,20 +334,17 @@ export default function HandoffPackage() {
   }
 
   const copyLink = async () => {
+    if (!jdId || !canWrite) return
+    setLinkLoading(true)
     try {
-      await navigator.clipboard.writeText(window.location.href)
+      const link = await createHandoffShareLink(jdId)
+      await navigator.clipboard.writeText(link.url)
       setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
+      setTimeout(() => setCopySuccess(false), 3000)
     } catch {
-      // Fallback
-      const input = document.createElement('input')
-      input.value = window.location.href
-      document.body.appendChild(input)
-      input.select()
-      document.execCommand('copy')
-      document.body.removeChild(input)
-      setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
+      setError('Could not create share link')
+    } finally {
+      setLinkLoading(false)
     }
   }
 
@@ -385,12 +387,14 @@ export default function HandoffPackage() {
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
+          {!publicMode && (
           <button
             onClick={() => navigate(-1)}
             className="p-2 hover:bg-brand-50 rounded-xl text-slate-400 hover:text-brand-600 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
+          )}
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">
               Hiring Manager Handoff
@@ -406,13 +410,17 @@ export default function HandoffPackage() {
             <Users className="w-4 h-4" />
             {candidates.length} candidate{candidates.length !== 1 ? 's' : ''}
           </span>
+          {canWrite && !publicMode && (
           <button
             onClick={copyLink}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-600 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+            disabled={linkLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-600 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             <Link2 className="w-3.5 h-3.5" />
-            {copySuccess ? 'Copied!' : 'Copy Link'}
+            {copySuccess ? 'HM link copied!' : linkLoading ? 'Creating link…' : 'Copy HM Link'}
           </button>
+          )}
+          {!publicMode && (
           <button
             onClick={exportAsPdf}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-lg hover:bg-brand-700 transition-colors"
@@ -420,6 +428,7 @@ export default function HandoffPackage() {
             <Download className="w-3.5 h-3.5" />
             Download PDF
           </button>
+          )}
         </div>
       </div>
 

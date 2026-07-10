@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import ScreeningResult, TrainingExample, User
 from app.backend.models.schemas import LabelRequest, TrainingStatusResponse
 
@@ -39,7 +40,7 @@ def _training_enabled() -> bool:
 @router.post("/label")
 def label_example(
     body: LabelRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db)
 ):
     result = db.query(ScreeningResult).filter(

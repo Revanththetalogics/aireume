@@ -50,6 +50,16 @@ const WEIGHT_PRESETS = {
   },
 }
 
+export { DEFAULT_WEIGHTS }
+
+export function isValidWeightTotal(weights) {
+  if (!weights || typeof weights !== 'object') return false
+  const positive = Object.entries(weights)
+    .filter(([key]) => key !== 'risk')
+    .reduce((sum, [, value]) => sum + (Number(value) || 0), 0)
+  return positive >= 0.98 && positive <= 1.02
+}
+
 export default function UniversalWeightsPanel({ 
   weights, 
   onChange, 

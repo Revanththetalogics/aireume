@@ -228,11 +228,12 @@ Generate a targeted interview kit. Return ONLY this JSON:
 
 RULES:
 - 8-10 total questions. Prioritize technical and experience; skip culture_fit (return empty array).
-- Keep every question under 140 characters — recruiters ask them live on a call.
+- Keep every question under 160 characters — recruiters ask them live on a call.
+- Sound like a senior recruiter speaking naturally. Vary phrasing across questions.
 - No overlapping templates (do not repeat "tell me about a project" across categories).
-- Technical: gap-probe missing must-haves ("X isn't on resume — have you used it?") AND validate matched skills with resume context (company/role).
-- Experience: anchor to candidate's companies/roles from resume — modules owned, integrations, production issues.
-- Behavioral: max 1 short question tied to a JD responsibility, not generic leadership/conflict.
+- Technical: for missing must-haves, ask conversationally ("The role needs X — how have you used that?") — never use "isn't on your resume".
+- Experience: anchor to candidate's companies/roles from resume; use domain-appropriate language (TA vs engineering vs SAP).
+- Behavioral: max 1 STAR-style question tied to a real JD responsibility; no placeholders or broken grammar.
 - Every question must reference specific skills, gaps, or resume context.
 - No generic questions like "Tell me about yourself".
 - Keep scoring_criteria concise (one sentence per level)."""

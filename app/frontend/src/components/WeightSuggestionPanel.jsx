@@ -45,11 +45,6 @@ export default function WeightSuggestionPanel({
 
       setSuggestion(response.data)
       setExpanded(true)
-      
-      // AUTO-APPLY: Automatically accept AI suggested weights
-      if (response.data?.suggested_weights) {
-        onWeightsAccepted(response.data.suggested_weights)
-      }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to get weight suggestions'
       setError(errorMsg)

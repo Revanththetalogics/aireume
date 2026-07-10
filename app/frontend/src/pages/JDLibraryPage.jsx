@@ -4,6 +4,10 @@ import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Fil
 import EmptyState from '../components/EmptyState'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
 import { ROLES } from '../lib/uxLabels'
+import UniversalWeightsPanel, { DEFAULT_WEIGHTS } from '../components/UniversalWeightsPanel'
+import { useOnboarding } from '../contexts/OnboardingContext'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { PageHeaderCard } from '../components/patterns'
 import { StaggerContainer, StaggerItem } from '../components/motion'
 
@@ -36,17 +40,28 @@ function parseTags(raw) {
   return { domain: null, seniority: null, skills: [], legacy: parts }
 }
 
+function parseTemplateWeights(raw) {
+  if (!raw) return { ...DEFAULT_WEIGHTS }
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return parsed && typeof parsed === 'object' ? { ...DEFAULT_WEIGHTS, ...parsed } : { ...DEFAULT_WEIGHTS }
+  } catch {
+    return { ...DEFAULT_WEIGHTS }
+  }
+}
+
 function TemplateModal({ template, onSave, onClose }) {
   const [name, setName] = useState(template?.name || '')
   const [jd, setJd] = useState(template?.jd_text || '')
   const [tags, setTags] = useState(template?.tags || '')
+  const [weights, setWeights] = useState(() => parseTemplateWeights(template?.scoring_weights))
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
     if (!name.trim() || !jd.trim()) return
     setSaving(true)
     try {
-      await onSave({ name, jd_text: jd, tags })
+      await onSave({ name, jd_text: jd, tags, scoring_weights: weights })
       onClose()
     } finally {
       setSaving(false)
@@ -58,7 +73,7 @@ function TemplateModal({ template, onSave, onClose }) {
       <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-2xl max-h-[90vh] flex flex-col card-animate">
         <div className="flex items-center justify-between p-5 border-b border-brand-50">
           <h3 className="font-extrabold text-brand-900 tracking-tight">
-            {template ? 'Edit Job Description' : 'New Job Description'}
+            {template ? 'Edit Role' : 'New Role'}
           </h3>
           <button onClick={onClose} aria-label="Close dialog" className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
             <X className="w-5 h-5 text-slate-400" />
@@ -66,7 +81,7 @@ function TemplateModal({ template, onSave, onClose }) {
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">JD Name</label>
+            <label className="block text-sm font-bold text-slate-700 mb-1.5">Role name</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -98,6 +113,14 @@ function TemplateModal({ template, onSave, onClose }) {
               {jd.length} characters • {jd.split(/\s+/).filter(Boolean).length} words
             </p>
           </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1.5">Scoring weights</label>
+            <UniversalWeightsPanel
+              weights={weights}
+              onChange={setWeights}
+              showValidation
+            />
+          </div>
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-brand-50">
           <button
@@ -111,7 +134,7 @@ function TemplateModal({ template, onSave, onClose }) {
             disabled={saving || !name.trim() || !jd.trim()}
             className="flex items-center gap-2 px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60 shadow-brand-sm"
           >
-            <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save JD'}
+            <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save role'}
           </button>
         </div>
       </div>
@@ -121,6 +144,8 @@ function TemplateModal({ template, onSave, onClose }) {
 
 export default function JDLibraryPage() {
   const navigate = useNavigate()
+  const { completeChecklistItem } = useOnboarding()
+  const { canWrite, isAdmin } = usePermissions()
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -147,7 +172,10 @@ export default function JDLibraryPage() {
 
   const handleSave = async (data) => {
     if (editing) await updateTemplate(editing.id, data)
-    else await createTemplate(data)
+    else {
+      await createTemplate(data)
+      completeChecklistItem('createdJob')
+    }
     setEditing(null)
     load()
   }
@@ -177,7 +205,8 @@ export default function JDLibraryPage() {
         jd_text: template.jd_text,
         weights: weights,
         role_category: template.tags,
-        template_id: template.id
+        template_id: template.id,
+        template_name: template.name,
       } 
     })
   }
@@ -251,15 +280,17 @@ export default function JDLibraryPage() {
           icon={Briefcase}
           title={ROLES.pageTitle}
           subtitle={ROLES.pageSubtitle}
-          actions={
+          actions={canWrite ? (
             <button
               onClick={() => { setEditing(null); setModalOpen(true) }}
               className="flex items-center gap-2 px-4 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
             >
               <Plus className="w-4 h-4" /> {ROLES.createCta}
             </button>
-          }
+          ) : null}
         />
+
+        <ViewerReadOnlyBanner />
 
         {/* Filters */}
         {templates.length > 0 && (
@@ -418,6 +449,7 @@ export default function JDLibraryPage() {
                         </div>
                       )}
                     </div>
+                    {canWrite && (
                     <div className="flex gap-1 shrink-0">
                       <button
                         onClick={() => { setEditing(t); setModalOpen(true) }}
@@ -425,13 +457,16 @@ export default function JDLibraryPage() {
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
+                      {isAdmin && (
                       <button
                         onClick={() => handleDelete(t.id)}
                         className="p-1.5 hover:bg-red-50 rounded-xl text-slate-400 hover:text-red-600 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      )}
                     </div>
+                    )}
                   </div>
 
                   {/* JD Preview */}
@@ -506,12 +541,14 @@ export default function JDLibraryPage() {
                   </div>
 
                   {/* Use Button */}
+                  {canWrite && (
                   <button
                     onClick={() => handleUse(t)}
                     className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-sm font-bold rounded-2xl hover:bg-brand-100 transition-colors"
                   >
                     <Sparkles className="w-4 h-4" /> Use This JD
                   </button>
+                  )}
                 </div>
                 </StaggerItem>
               )

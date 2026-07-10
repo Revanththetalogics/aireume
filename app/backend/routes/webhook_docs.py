@@ -11,6 +11,26 @@ router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 WEBHOOK_EVENTS = [
     {
+        "event": "analysis.completed",
+        "description": "Fired when a resume screening analysis finishes.",
+        "example_payload": {
+            "result_id": 42,
+        },
+    },
+    {
+        "event": "debrief.completed",
+        "description": "Fired when a recruiter completes a Live Screen debrief.",
+        "example_payload": {
+            "result_id": 42,
+            "candidate_name": "Jane Doe",
+            "role_title": "Talent Acquisition Specialist",
+            "recommendation": "advance",
+            "recruiter_score": 78,
+            "fit_score": 65,
+            "summary": "Strong stakeholder skills; light on workforce planning.",
+        },
+    },
+    {
         "event": "subscription.changed",
         "description": "Fired when a tenant's subscription plan or status changes.",
         "example_payload": {

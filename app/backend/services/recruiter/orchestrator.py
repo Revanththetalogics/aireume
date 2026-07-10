@@ -267,6 +267,7 @@ class RecruiterOrchestrator:
                     "response_duration": q.response_duration_seconds,
                     "is_follow_up": q.is_follow_up,
                     "question_id": q.id,
+                    "score": q.answer_score,
                 }
                 for q in stored_questions
             ]

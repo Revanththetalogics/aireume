@@ -331,6 +331,7 @@ class TemplateOut(BaseModel):
     tags: Optional[str] = None
     required_skills_override: Optional[str] = None
     nice_to_have_skills_override: Optional[str] = None
+    created_by: Optional[int] = None
     created_at: datetime
 
     class Config:
@@ -533,6 +534,19 @@ class EvaluationOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class ScoreFeedbackRequest(BaseModel):
+    """Recruiter feedback on whether the AI fit score felt accurate."""
+    sentiment: str  # right | high | low
+
+    @field_validator('sentiment')
+    @classmethod
+    def validate_sentiment(cls, v):
+        allowed = {'right', 'high', 'low'}
+        if v not in allowed:
+            raise ValueError(f'sentiment must be one of: {", ".join(sorted(allowed))}')
+        return v
+
+
 class DebriefRequest(BaseModel):
     """Request body for LLM debrief generation."""
     conversation_summary: str
@@ -541,8 +555,8 @@ class DebriefRequest(BaseModel):
     @field_validator('conversation_summary')
     @classmethod
     def validate_summary_length(cls, v):
-        if len(v.strip()) < 100:
-            raise ValueError('Conversation summary must be at least 100 characters')
+        if len(v.strip()) < 20:
+            raise ValueError('Conversation summary must be at least 20 characters')
         return v.strip()
 
     @field_validator('recommendation')

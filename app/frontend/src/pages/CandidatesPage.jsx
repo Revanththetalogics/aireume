@@ -12,6 +12,9 @@ import CandidateCard from '../components/CandidateCard'
 import ScoreBadge from '../components/ScoreBadge'
 import RecommendationBadge from '../components/RecommendationBadge'
 import QuickActions from '../components/QuickActions'
+import { useOnboarding } from '../contexts/OnboardingContext'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { StaggerContainer, StaggerItem } from '../components/motion'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -20,6 +23,15 @@ function safeStr(v) {
   if (typeof v === 'string') return v
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   try { return JSON.stringify(v) } catch { return String(v) }
+}
+
+/** Open latest screening report when available; otherwise candidate profile. */
+function openCandidateDestination(navigate, candidate) {
+  if (candidate?.latest_result_id) {
+    navigate(`/report?id=${candidate.latest_result_id}`)
+    return
+  }
+  navigate(`/candidates/${candidate.id}`)
 }
 
 
@@ -328,6 +340,8 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
 
 export default function CandidatesPage() {
   const navigate = useNavigate()
+  const { completeChecklistItem } = useOnboarding()
+  const { canWrite } = usePermissions()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialStatus = searchParams.get('status') || ''
   const initialNarrativeStatus = searchParams.get('narrative_status') || ''
@@ -413,6 +427,7 @@ export default function CandidatesPage() {
 
   const handleStatusChange = (resultId, newStatus) => {
     const prevStatus = candidates.find(c => c.latest_result_id === resultId)?.latest_status
+    if (newStatus === 'shortlisted') completeChecklistItem('shortlistedCandidate')
     optimisticUpdate({
       items: candidates,
       setItems: setCandidates,
@@ -494,7 +509,7 @@ export default function CandidatesPage() {
     onReject: (candidate) => {
       if (candidate?.latest_result_id) handleStatusChange(candidate.latest_result_id, 'rejected')
     },
-    onOpen: (candidate) => navigate(`/candidates/${candidate.id}`),
+    onOpen: (candidate) => openCandidateDestination(navigate, candidate),
     onSearch: () => searchInputRef.current?.focus(),
     enabled: true,
   })
@@ -552,6 +567,7 @@ export default function CandidatesPage() {
   return (
     <div>
       <main className="max-w-[95vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <ViewerReadOnlyBanner />
         <div className="flex items-center justify-between flex-wrap gap-3 card-animate">
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
@@ -678,7 +694,7 @@ export default function CandidatesPage() {
         ) : (
           <>
             {/* Bulk Action Bar — only in table view */}
-            {viewMode === 'table' && selectedIds.size > 0 && (
+            {viewMode === 'table' && canWrite && selectedIds.size > 0 && (
               <div className="sticky top-20 z-20 flex items-center gap-3 bg-brand-900 text-white px-5 py-3 rounded-2xl shadow-brand-lg card-animate">
                 <span className="text-sm font-bold">
                   {selectedIds.size} selected
@@ -758,7 +774,7 @@ export default function CandidatesPage() {
                 {displayedCandidates.map((c, idx) => (
                   <tr
                     key={c.id}
-                    onClick={() => navigate(`/candidates/${c.id}`)}
+                    onClick={() => openCandidateDestination(navigate, c)}
                     onMouseEnter={() => prefetchCandidate(c.id)}
                     onMouseLeave={cancelPrefetch}
                     className={`border-b border-brand-50 cursor-pointer hover:bg-gray-50 transition-colors ${
@@ -794,6 +810,7 @@ export default function CandidatesPage() {
                           candidateId={c.latest_result_id}
                           currentStatus={c.latest_status || 'pending'}
                           onStatusChange={handleStatusChange}
+                          readOnly={!canWrite}
                           compact
                         />
                       ) : (
@@ -885,7 +902,8 @@ export default function CandidatesPage() {
                       job_title: c.job_title || c.role_template_name,
                     }}
                     onStatusChange={handleStatusChange}
-                    onSelect={() => navigate(`/candidates/${c.id}`)}
+                    readOnly={!canWrite}
+                    onSelect={() => openCandidateDestination(navigate, c)}
                     selected={selectedIndex === idx}
                     onMouseEnter={() => prefetchCandidate(c.id)}
                     onMouseLeave={cancelPrefetch}

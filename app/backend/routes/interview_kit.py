@@ -10,6 +10,7 @@ from typing import List
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import (
     InterviewEvaluation, OverallAssessment, ScreeningResult, User,
 )
@@ -18,6 +19,7 @@ from app.backend.models.schemas import (
     OverallAssessmentUpsert,
     EvaluatorInfo, ScorecardDimension, ScorecardOut,
     DebriefRequest, DebriefContent, DebriefResponse,
+    ScoreFeedbackRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,7 @@ def upsert_evaluation(
     result_id: int,
     body: EvaluationUpsert,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
 ):
     _verify_result_access(result_id, current_user, db)
 
@@ -87,7 +89,7 @@ def upsert_evaluation(
 def get_evaluations(
     result_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
 ):
     _verify_result_access(result_id, current_user, db)
 
@@ -107,7 +109,7 @@ def upsert_overall_assessment(
     result_id: int,
     body: OverallAssessmentUpsert,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
 ):
     _verify_result_access(result_id, current_user, db)
 
@@ -249,7 +251,7 @@ async def generate_debrief(
     result_id: int,
     body: DebriefRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
 ):
     """Generate an LLM-powered debrief from recruiter conversation summary and evaluations."""
     result = _verify_result_access(result_id, current_user, db)
@@ -440,8 +442,53 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
 
     db.commit()
 
+    try:
+        from app.backend.services.webhook_service import dispatch_event_background
+        from app.backend.db.database import SessionLocal
+        dispatch_event_background(
+            SessionLocal,
+            result.tenant_id,
+            "debrief.completed",
+            {
+                "result_id": result_id,
+                "candidate_name": candidate_name,
+                "role_title": role_title,
+                "recommendation": recommendation,
+                "recruiter_score": recruiter_score,
+                "fit_score": fit_score,
+                "summary": body.conversation_summary[:500],
+            },
+        )
+    except Exception:
+        pass
+
     return DebriefResponse(
         debrief=DebriefContent(**debrief_content),
         recruiter_score=recruiter_score,
         recommendation=recommendation.capitalize(),
     )
+
+
+@router.post("/{result_id}/score-feedback")
+def submit_score_feedback(
+    result_id: int,
+    body: ScoreFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_recruiter_or_admin),
+):
+    """Store recruiter feedback on AI fit score accuracy for role-level calibration."""
+    result = _verify_result_access(result_id, current_user, db)
+    try:
+        analysis = json.loads(result.analysis_result) if result.analysis_result else {}
+    except (json.JSONDecodeError, TypeError):
+        analysis = {}
+
+    analysis["score_feedback"] = {
+        "sentiment": body.sentiment,
+        "fit_score": analysis.get("fit_score") or result.deterministic_score,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": current_user.id,
+    }
+    result.analysis_result = json.dumps(analysis)
+    db.commit()
+    return {"ok": True, "sentiment": body.sentiment}

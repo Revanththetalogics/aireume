@@ -21,7 +21,8 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import (
     Candidate,
     InterviewTemplate,
@@ -42,6 +43,8 @@ from app.backend.models.schemas import (
     ScreeningProjectOut,
     ScreeningProjectUpdate,
 )
+
+from app.backend.services.audit_service import log_tenant_event
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +93,7 @@ def _pc_to_out(pc: ScreeningProjectCandidate) -> ScreeningProjectCandidateOut:
 @router.post("", response_model=ScreeningProjectOut, status_code=status.HTTP_201_CREATED)
 def create_project(
     body: ScreeningProjectCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     template = db.query(RoleTemplate).filter(
@@ -109,6 +112,7 @@ def create_project(
         created_by=current_user.id,
     )
     db.add(project)
+    log_tenant_event(db, actor=current_user, action="project.create", resource_type="project", details={"name": project.name})
     db.commit()
     db.refresh(project)
     return _project_to_out(project, 0)
@@ -161,7 +165,7 @@ def get_project(
 def update_project(
     project_id: int,
     body: ScreeningProjectUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     project = db.query(ScreeningProject).filter(
@@ -201,7 +205,7 @@ def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     project = db.query(ScreeningProject).filter(
@@ -220,7 +224,7 @@ def delete_project(
 def add_candidates(
     project_id: int,
     body: ScreeningProjectCandidateAdd,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     project = db.query(ScreeningProject).filter(
@@ -282,7 +286,7 @@ def add_candidates(
 def remove_candidate(
     project_id: int,
     candidate_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     pc = db.query(ScreeningProjectCandidate).filter(
@@ -308,7 +312,7 @@ def update_candidate_status(
     project_id: int,
     candidate_id: int,
     body: ScreeningProjectCandidateStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     pc = db.query(ScreeningProjectCandidate).filter(
@@ -388,7 +392,7 @@ def _template_to_out(template: InterviewTemplate) -> InterviewTemplateOut:
 @router.post("/templates", response_model=InterviewTemplateOut, status_code=status.HTTP_201_CREATED)
 def create_template(
     body: InterviewTemplateCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Create an interview template with must-ask questions."""
@@ -450,7 +454,7 @@ def get_template(
 def update_template(
     template_id: int,
     body: InterviewTemplateUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     template = db.query(InterviewTemplate).filter(
@@ -481,7 +485,7 @@ def update_template(
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_template(
     template_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     template = db.query(InterviewTemplate).filter(

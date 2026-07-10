@@ -23,6 +23,7 @@ export default function CandidateCard({
   selected = false,
   onMouseEnter,
   onMouseLeave,
+  readOnly = false,
   className = '',
 }) {
   const {
@@ -146,6 +147,7 @@ export default function CandidateCard({
           candidateId={id}
           currentStatus={status}
           onStatusChange={onStatusChange}
+          readOnly={readOnly}
         />
       </div>
     </div>

@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from app.backend.services.profile_text_sanitizer import (
+    contains_placeholder_text,
     is_actionable_responsibility,
     sanitize_candidate_profile,
     sanitize_jd_responsibilities,
@@ -18,7 +19,32 @@ from app.backend.services.profile_text_sanitizer import (
     sanitize_skill_list,
 )
 
-MAX_QUESTION_LEN = 140
+MAX_QUESTION_LEN = 160
+
+_DOMAIN_PATTERNS: Dict[str, re.Pattern] = {
+    "talent_acquisition": re.compile(
+        r"talent acquisition|recruiter|recruiting|human resources|\bhr\b|hiring|onboarding|staffing",
+        re.IGNORECASE,
+    ),
+    "sap": re.compile(r"\bsap\b|erp|s/?4\s*hana|\bmm\b|fico|idoc", re.IGNORECASE),
+    "finance": re.compile(r"finance|financial analyst|accounting|fp&a|treasury", re.IGNORECASE),
+    "engineering": re.compile(
+        r"engineer|developer|software|backend|frontend|devops|data scien|architect",
+        re.IGNORECASE,
+    ),
+}
+
+_TA_IRRELEVANT_SKILLS = frozenset({
+    "machine learning", "deep learning", "kubernetes", "docker", "react", "angular",
+    "java", "python", "tensorflow", "pytorch", "aws", "azure", "gcp", "sap",
+    "blockchain", "cuda", "spark", "hadoop",
+})
+
+_GAP_PROBE_TEMPLATES = (
+    "The role calls for {skill} — how have you used that in {context}?",
+    "I don't see much {skill} on your resume — any hands-on exposure?",
+    "Walk me through your experience with {skill}, even from adjacent work.",
+)
 
 
 def _clamp_question(text: str, max_len: int = MAX_QUESTION_LEN) -> str:
@@ -96,26 +122,76 @@ def _question_item(
     }
 
 
-def _gap_probe_question(skill: str, domain_hint: str) -> Dict[str, Any]:
-    text = f"{skill} isn't on your resume — have you used it in {domain_hint}?"
+def _detect_role_family(jd_analysis: Dict[str, Any]) -> str:
+    blob = " ".join(
+        str(jd_analysis.get(key) or "")
+        for key in ("role_title", "title", "domain")
+    )
+    for family, pattern in _DOMAIN_PATTERNS.items():
+        if pattern.search(blob):
+            return family
+    return "general"
+
+
+def _is_probeable_skill(skill: str) -> bool:
+    clean = sanitize_profile_text(skill, 80)
+    if not clean or len(clean) < 2:
+        return False
+    if contains_placeholder_text(clean):
+        return False
+    if len(clean.split()) > 5:
+        return False
+    if re.search(r"\b\d{1,2}\s*[-–—]\s*\d{1,2}\s+years?\b", clean, re.I):
+        return False
+    if re.search(r"\byears?\s+of\s+experience\b|\bexperience\s+in\b", clean, re.I):
+        return False
+    return True
+
+
+def _skill_relevant_to_role(skill: str, jd_analysis: Dict[str, Any], role_family: str) -> bool:
+    if not _is_probeable_skill(skill):
+        return False
+    skill_lower = skill.lower().strip()
+    if role_family == "talent_acquisition" and skill_lower in _TA_IRRELEVANT_SKILLS:
+        return False
+    if role_family == "finance" and skill_lower in {"kubernetes", "react", "docker", "tensorflow"}:
+        return False
+    return True
+
+
+def _filter_missing_skills(
+    missing: List[str],
+    jd_analysis: Dict[str, Any],
+    role_family: str,
+) -> List[str]:
+    filtered: List[str] = []
+    for skill in missing:
+        if _skill_relevant_to_role(skill, jd_analysis, role_family):
+            filtered.append(skill)
+    return filtered
+
+
+def _gap_probe_question(skill: str, context: str, variant: int = 0) -> Dict[str, Any]:
+    template = _GAP_PROBE_TEMPLATES[variant % len(_GAP_PROBE_TEMPLATES)]
+    text = template.format(skill=skill, context=context or "this role")
     return _question_item(
         text,
         listen=[
-            f"Honest exposure to {skill}",
-            "Related tools or adjacent experience",
-            "Depth beyond buzzwords",
+            f"Practical {skill} examples",
+            "Related tools or transferable experience",
+            "Honest depth beyond buzzwords",
         ],
-        follow_ups=[f"What {skill} tasks have you done hands-on?"],
+        follow_ups=[f"Pick one example — what did you personally do with {skill}?"],
         strong=f"Clear hands-on {skill} example with context and outcome",
-        weak=f"Denies {skill} exposure and shows no adjacent experience",
+        weak=f"No exposure to {skill} and no credible adjacent experience",
     )
 
 
 def _validate_skill_question(skill: str, company: Optional[str]) -> Dict[str, Any]:
     if company:
-        text = f"At {company}, what did you personally deliver with {skill}?"
+        text = f"At {company}, what did you personally own involving {skill}?"
     else:
-        text = f"You list {skill} — walk me through one real project where you used it."
+        text = f"You mention {skill} — walk me through one project and your contribution."
     return _question_item(
         text,
         listen=[
@@ -129,13 +205,32 @@ def _validate_skill_question(skill: str, company: Optional[str]) -> Dict[str, An
     )
 
 
-def _experience_question(entry: Dict[str, Any], focus_skill: Optional[str] = None) -> Dict[str, Any]:
+def _experience_question(
+    entry: Dict[str, Any],
+    focus_skill: Optional[str] = None,
+    role_family: str = "general",
+) -> Dict[str, Any]:
     company = _short_label(entry.get("company") or "", 4) or "your last role"
     title = _role_title_for_entry(entry) or "your role"
-    if focus_skill:
+    if role_family == "talent_acquisition":
+        if focus_skill:
+            text = f"At {company}, how did you use {focus_skill} across sourcing, screening, and offer?"
+        else:
+            text = f"At {company} as {title}, walk me through a tough hire from intake to close."
+    elif role_family == "sap":
+        if focus_skill:
+            text = f"At {company}, what {focus_skill} work did you own — modules, config, or support?"
+        else:
+            text = f"At {company} as {title}, what SAP modules or integrations did you own?"
+    elif role_family == "finance":
+        if focus_skill:
+            text = f"At {company}, how did you apply {focus_skill} in reporting or analysis day to day?"
+        else:
+            text = f"At {company} as {title}, what analyses or models did you own end to end?"
+    elif focus_skill:
         text = f"At {company} as {title}, how did you apply {focus_skill} day to day?"
     else:
-        text = f"At {company} as {title}, what modules or integrations did you own?"
+        text = f"At {company} as {title}, what was your core scope and biggest deliverable?"
     return _question_item(
         text,
         listen=["Scope owned", "Tools/modules used", "Measurable outcome"],
@@ -156,47 +251,65 @@ def _production_issue_question(skill: str) -> Dict[str, Any]:
     )
 
 
-def _behavioral_for_role(jd_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _behavioral_for_role(jd_analysis: Dict[str, Any], role_family: str = "general") -> List[Dict[str, Any]]:
     resp = sanitize_jd_responsibilities(jd_analysis.get("key_responsibilities") or [])
-    short_resp = _short_label(resp[0], 8) if resp else ""
     role = _short_label(jd_analysis.get("role_title") or jd_analysis.get("title") or "", 4)
 
-    questions: List[Dict[str, Any]] = []
-    if short_resp and len(short_resp) > 10 and is_actionable_responsibility(short_resp):
-        text = f"Tell me about a time you had to {short_resp.lower()} under pressure."
-        questions.append(_question_item(
-            text,
-            listen=["Situation and action", "Trade-offs", "Result"],
-            follow_ups=["What was your specific role?"],
-        ))
+    for responsibility in resp[:3]:
+        short_resp = _short_label(responsibility, 10)
+        if short_resp and len(short_resp) > 10 and is_actionable_responsibility(short_resp):
+            text = f"Tell me about a time you had to {short_resp.lower()} — what was at stake?"
+            return [_question_item(
+                text,
+                listen=["Situation and action", "Trade-offs", "Result"],
+                follow_ups=["What was your specific role versus the team's?"],
+            )]
+
+    if role_family == "talent_acquisition":
+        text = "Tell me about a hiring manager who kept moving the goalposts — how did you handle it?"
+    elif role_family == "sap":
+        text = f"Describe a go-live or production issue you handled as a {role or 'consultant'}."
+    elif role_family == "finance":
+        text = "Tell me about a deadline-driven analysis where the data didn't cooperate — what did you do?"
     elif role:
-        text = f"Describe a go-live or UAT issue you handled as a {role}."
-        questions.append(_question_item(
-            text,
-            listen=["Problem clarity", "Stakeholder handling", "Resolution"],
-            follow_ups=["Who did you coordinate with to fix it?"],
-        ))
+        text = f"Describe a high-pressure situation in your {role} work — how did you prioritize?"
     else:
-        questions.append(_question_item(
-            "Describe a deadline slip on a project — what did you do to recover?",
-            listen=["Ownership", "Prioritization", "Outcome"],
-        ))
-    return questions[:1]
+        text = "Describe a deadline slip on a project — what did you do to recover?"
+
+    return [_question_item(
+        text,
+        listen=["Ownership", "Stakeholder handling", "Outcome"],
+        follow_ups=["What would you do differently next time?"],
+    )]
 
 
 def _build_briefing(
     profile: Dict[str, Any],
     matched: List[str],
     missing: List[str],
+    role_family: str = "general",
 ) -> Dict[str, Any]:
     name = profile.get("name") or "Candidate"
     role = profile.get("current_role") or "professional"
     years = profile.get("total_effective_years") or 0
+    strengths = [
+        f"Resume shows {s} — ask for a concrete example"
+        for s in matched[:3]
+    ] or ["Review strongest resume signals before the call"]
+    probes = [
+        f"JD needs {s} — light on resume, worth a direct question"
+        for s in missing[:3]
+    ] or ["Validate core role fit with one opening scope question"]
+    notes = []
+    if missing[:2]:
+        notes.append(f"Probe gaps: {', '.join(missing[:2])}")
+    if role_family == "talent_acquisition":
+        notes.append("Focus on full-cycle hiring, stakeholder management, and offer closing.")
     return {
         "profile_snapshot": f"{name} — {role}, {years} years experience.",
-        "strengths_to_confirm": [f"Confirm {s}" for s in matched[:3]] or ["Review resume strengths"],
-        "areas_to_probe": missing[:3] or ["Validate core role fit"],
-        "context_notes": [f"Probe unlisted {s}" for s in missing[:2]],
+        "strengths_to_confirm": strengths,
+        "areas_to_probe": probes,
+        "context_notes": notes or ["Keep the screen to 20–25 minutes; prioritize must-have gaps first."],
     }
 
 
@@ -240,6 +353,8 @@ def generate_targeted_interview_kit(
 
     work_entries = _work_entries(profile, parsed_data)
     domain_hint = _domain_hint(jd_analysis)
+    role_family = _detect_role_family(jd_analysis)
+    missing = _filter_missing_skills(missing, jd_analysis, role_family)
 
     tech_q: List[Dict[str, Any]] = []
     seen_texts: set[str] = set()
@@ -251,9 +366,9 @@ def generate_targeted_interview_kit(
         seen_texts.add(key)
         category.append(item)
 
-    # Gap probes — up to 3 missing must-haves
-    for skill in missing[:3]:
-        _add(tech_q, _gap_probe_question(skill, domain_hint))
+    # Gap probes — up to 3 missing must-haves (varied phrasing)
+    for idx, skill in enumerate(missing[:3]):
+        _add(tech_q, _gap_probe_question(skill, domain_hint, variant=idx))
 
     # Validate matched skills — up to 3, resume-personalized
     for skill in matched[:3]:
@@ -271,7 +386,14 @@ def generate_targeted_interview_kit(
     exp_q: List[Dict[str, Any]] = []
     primary_skill = matched[0] if matched else (required[0] if required else None)
     for entry in work_entries[:2]:
-        _add(exp_q, _experience_question(entry, primary_skill if len(exp_q) == 0 else None))
+        _add(
+            exp_q,
+            _experience_question(
+                entry,
+                primary_skill if len(exp_q) == 0 else None,
+                role_family=role_family,
+            ),
+        )
     if not exp_q and primary_skill:
         _add(exp_q, _question_item(
             f"Which project best shows your {primary_skill} work — what was your role?",
@@ -279,10 +401,10 @@ def generate_targeted_interview_kit(
         ))
     exp_q = exp_q[:3]
 
-    behavioral_q = _behavioral_for_role(jd_analysis)
+    behavioral_q = _behavioral_for_role(jd_analysis, role_family=role_family)
 
     return {
-        "candidate_briefing": _build_briefing(profile, matched, missing),
+        "candidate_briefing": _build_briefing(profile, matched, missing, role_family=role_family),
         "technical_questions": tech_q,
         "behavioral_questions": behavioral_q,
         "culture_fit_questions": [],
@@ -361,8 +483,19 @@ def generate_deep_technical_extras(
 def refresh_interview_questions_in_analysis(
     analysis: Dict[str, Any],
     parsed_data: Optional[Dict[str, Any]] = None,
+    *,
+    force: bool = False,
+    kit_status: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Regenerate interview kit from stored analysis fields (rescore / report view)."""
+    """Regenerate interview kit from stored analysis fields (rescore / report view).
+
+    Preserves LLM-enriched kits when ``kit_status`` is ``ready`` unless ``force`` is True.
+    """
+    existing = analysis.get("interview_questions")
+    status = (kit_status or analysis.get("interview_kit_status") or "").lower()
+    if not force and status == "ready" and count_kit_questions(existing) > 0:
+        return existing if isinstance(existing, dict) else {}
+
     profile = analysis.get("candidate_profile") or {}
     if parsed_data:
         if not profile.get("work_experience"):

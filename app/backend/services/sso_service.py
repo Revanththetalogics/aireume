@@ -134,6 +134,7 @@ def _build_authn_request(
 def _extract_assertion_attributes(assertion_elem: ET.Element) -> dict:
     """Extract attribute statement values from a SAML Assertion."""
     attrs = {}
+    multi_value_attrs: dict[str, list[str]] = {}
     attr_statement = assertion_elem.find(f".//{_ns_tag(SAML_ASSERTION_NS, 'AttributeStatement')}")
     if attr_statement is not None:
         for attr in attr_statement.findall(_ns_tag(SAML_ASSERTION_NS, "Attribute")):
@@ -143,19 +144,81 @@ def _extract_assertion_attributes(assertion_elem: ET.Element) -> dict:
                 for v in attr.findall(_ns_tag(SAML_ASSERTION_NS, "AttributeValue"))
                 if v.text
             ]
-            if values:
-                # Common SAML attribute names
-                if "emailaddress" in name.lower() or name.lower() == "email":
-                    attrs["email"] = values[0]
-                elif "givenname" in name.lower() or name.lower() == "first_name":
-                    attrs["first_name"] = values[0]
-                elif "surname" in name.lower() or name.lower() == "last_name":
-                    attrs["last_name"] = values[0]
-                elif "displayname" in name.lower() or name.lower() == "name":
-                    attrs["name"] = values[0]
-                else:
-                    attrs[name] = values[0]
+            if not values:
+                continue
+            lower_name = name.lower()
+            if "emailaddress" in lower_name or lower_name == "email":
+                attrs["email"] = values[0]
+            elif "givenname" in lower_name or lower_name == "first_name":
+                attrs["first_name"] = values[0]
+            elif "surname" in lower_name or lower_name == "last_name":
+                attrs["last_name"] = values[0]
+            elif "displayname" in lower_name or lower_name == "name":
+                attrs["name"] = values[0]
+            elif any(k in lower_name for k in ("memberof", "group", "role")):
+                multi_value_attrs.setdefault(name, []).extend(values)
+            else:
+                attrs[name] = values[0]
+                if len(values) > 1:
+                    multi_value_attrs.setdefault(name, []).extend(values)
+    if multi_value_attrs:
+        attrs["_multi"] = multi_value_attrs
     return attrs
+
+
+def _extract_idp_groups(attrs: dict, groups_attribute: str | None) -> list[str]:
+    """Normalize IdP group claims from SAML attributes."""
+    groups: list[str] = []
+    multi = attrs.get("_multi") or {}
+    attr_key = (groups_attribute or "groups").strip()
+
+    for name, values in multi.items():
+        short = name.split("/")[-1].split(":")[-1].lower()
+        key = attr_key.lower()
+        if key in short or short in {key, "memberof", "groups", "group", "roles"}:
+            groups.extend(values)
+
+    for candidate_key in (attr_key, "groups", "group", "memberOf", "roles"):
+        val = attrs.get(candidate_key)
+        if isinstance(val, str):
+            groups.append(val)
+        elif isinstance(val, list):
+            groups.extend(val)
+
+    # De-duplicate while preserving order
+    seen = set()
+    normalized = []
+    for g in groups:
+        g = (g or "").strip()
+        if g and g not in seen:
+            seen.add(g)
+            normalized.append(g)
+    return normalized
+
+
+def resolve_sso_role(db: Session, tenant_id: int, sso_config: SSOConfig, groups: list[str]) -> str:
+    """Pick highest-privilege mapped role from IdP groups, else default_role."""
+    from app.backend.models.db_models import SSOGroupRoleMapping
+
+    role_rank = {"viewer": 1, "recruiter": 2, "admin": 3}
+    best_role = sso_config.default_role or "viewer"
+    if best_role not in ALLOWED_SSO_ROLES:
+        best_role = "viewer"
+
+    if not groups:
+        return best_role
+
+    mappings = (
+        db.query(SSOGroupRoleMapping)
+        .filter(SSOGroupRoleMapping.tenant_id == tenant_id)
+        .all()
+    )
+    group_set = {g.lower() for g in groups}
+    for mapping in mappings:
+        if mapping.idp_group.lower() in group_set and mapping.role in ALLOWED_SSO_ROLES:
+            if role_rank.get(mapping.role, 0) > role_rank.get(best_role, 0):
+                best_role = mapping.role
+    return best_role
 
 
 def _extract_name_id(subject_elem: ET.Element) -> Optional[str]:
@@ -294,6 +357,7 @@ class SSOService:
             "name_id": name_id,
             "first_name": attrs.get("first_name"),
             "last_name": attrs.get("last_name"),
+            "groups": _extract_idp_groups(attrs, getattr(sso_config, "groups_attribute", None)),
         }
 
     def get_or_create_user(
@@ -310,22 +374,19 @@ class SSOService:
         is generated because the column is non-nullable.
         """
         email = user_attrs["email"]
+        groups = user_attrs.get("groups") or []
+        role = resolve_sso_role(db, tenant_id, sso_config, groups)
         user = db.query(User).filter(User.email == email, User.tenant_id == tenant_id).first()
 
         if user:
+            if user.role != role:
+                user.role = role
+                db.commit()
+                db.refresh(user)
             return user
 
         if not sso_config.auto_provision:
             raise ValueError("User not found and auto-provisioning is disabled")
-
-        # Determine and validate role for auto-provisioned user
-        role = sso_config.default_role or "viewer"
-        if role not in ALLOWED_SSO_ROLES:
-            logger.warning(
-                "Invalid SSO default_role '%s' for tenant %s, falling back to 'viewer'",
-                role, tenant_id,
-            )
-            role = "viewer"
 
         # Auto-provision user with random unusable password
         random_password = secrets.token_urlsafe(32)

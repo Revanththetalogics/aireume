@@ -68,18 +68,45 @@ export function estimateBatchEtaMs(batchStartTime, completed, total) {
   return avgPerFile * remaining
 }
 
+export function extractRoleTitle(jdParseResult, roleCategory, roleName) {
+  const manual = (roleName || '').trim()
+  if (manual) return manual
+
+  const parsed = (jdParseResult?.role_title || jdParseResult?.title || '').trim()
+  if (parsed && parsed.toLowerCase() !== 'not specified') return parsed
+
+  if (roleCategory && roleCategory !== 'general') {
+    return roleCategory
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
+  return ''
+}
+
+export function buildRoleTemplateName(roleName, jdParseResult, roleCategory) {
+  const name = extractRoleTitle(jdParseResult, roleCategory, roleName)
+  if (name) return name
+  return `Role - ${new Date().toLocaleDateString()}`
+}
+
+export function buildRoleTemplateTags(jdParseResult, roleCategory) {
+  const domain = (jdParseResult?.domain || '').trim()
+  if (domain && domain !== 'other' && domain !== 'general') return domain
+  if (roleCategory && roleCategory !== 'general') return roleCategory
+  return null
+}
+
 export function buildSetupSummary({
   roleCategory,
+  roleName,
   jdParseResult,
   skillOverrides,
   fileCount,
   jdMode,
   jdFile,
 }) {
-  const roleTitle =
-    jdParseResult?.role_title ||
-    jdParseResult?.title ||
-    (roleCategory && roleCategory !== 'general' ? roleCategory : null)
+  const roleTitle = extractRoleTitle(jdParseResult, roleCategory, roleName)
 
   const requiredCount =
     skillOverrides?.required_skills?.length ??
@@ -95,7 +122,7 @@ export function buildSetupSummary({
         : 'Job description'
 
   return {
-    roleTitle: roleTitle || 'Role',
+    roleTitle: roleTitle || 'Untitled role',
     requiredCount,
     fileCount,
     sourceLabel,

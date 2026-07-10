@@ -3,7 +3,9 @@ from sqlalchemy import (
     ForeignKey, Float, func, BigInteger, UniqueConstraint, Index, JSON, Uuid
 )
 from datetime import datetime, timezone
+import json
 import uuid
+from typing import Any
 from sqlalchemy.orm import relationship
 from app.backend.db.database import Base
 
@@ -250,11 +252,13 @@ class RoleTemplate(Base):
     tags            = Column(String(500), nullable=True)
     required_skills_override = Column(Text, nullable=True)  # JSON: ["skill1", "skill2"] or [{"skill": "...", "proficiency": "..."}]
     nice_to_have_skills_override = Column(Text, nullable=True)  # Same format
+    created_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant               = relationship("Tenant", back_populates="templates")
     results              = relationship("ScreeningResult", back_populates="role_template")
     transcript_analyses  = relationship("TranscriptAnalysis", back_populates="role_template")
+    created_by_user      = relationship("User", foreign_keys=[created_by])
 
 
 class SkillClassificationTemplate(Base):
@@ -742,11 +746,46 @@ class SSOConfig(Base):
     enforce_sso = Column(Boolean, default=False)       # If true, password login disabled for this tenant
     auto_provision = Column(Boolean, default=True)     # Auto-create user on first SSO login
     default_role = Column(String(50), default="viewer") # Default role for auto-provisioned users
+    groups_attribute = Column(String(100), nullable=True, server_default="groups")
 
     # Status
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class SSOGroupRoleMapping(Base):
+    """Map IdP group names to tenant roles on SSO login."""
+    __tablename__ = "sso_group_role_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    idp_group = Column(String(255), nullable=False)
+    role = Column(String(50), nullable=False)  # admin | recruiter | viewer
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+
+    __table_args__ = (UniqueConstraint("tenant_id", "idp_group", name="uq_sso_group_mapping"),)
+
+
+class HandoffShareLink(Base):
+    """Tokenized HM magic links for read-only handoff packages."""
+    __tablename__ = "handoff_share_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    label = Column(String(200), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    view_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    role_template = relationship("RoleTemplate")
+    created_by_user = relationship("User")
 
 
 # ─── Historical learning system ────────────────────────────────────────────────
@@ -1047,6 +1086,50 @@ class RecruiterInterviewQuestion(Base):
     __table_args__ = (
         Index("ix_recruiter_questions_session_seq", "session_id", "sequence_number"),
     )
+
+    def _evaluation_dict(self) -> dict[str, Any]:
+        if not self.evaluation_json:
+            return {}
+        try:
+            data = json.loads(self.evaluation_json)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_evaluation_dict(self, data: dict[str, Any]) -> None:
+        self.evaluation_json = json.dumps(data, default=str) if data else None
+
+    @property
+    def answer_score(self) -> int | None:
+        score = self._evaluation_dict().get("answer_score")
+        return int(score) if score is not None else None
+
+    @answer_score.setter
+    def answer_score(self, value: int | None) -> None:
+        data = self._evaluation_dict()
+        if value is None:
+            data.pop("answer_score", None)
+        else:
+            data["answer_score"] = int(value)
+        self._write_evaluation_dict(data)
+
+    @property
+    def copilot_observation(self) -> Any:
+        return self._evaluation_dict().get("copilot_observation")
+
+    @copilot_observation.setter
+    def copilot_observation(self, value: Any) -> None:
+        data = self._evaluation_dict()
+        if value is None:
+            data.pop("copilot_observation", None)
+        elif isinstance(value, str):
+            try:
+                data["copilot_observation"] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                data["copilot_observation"] = value
+        else:
+            data["copilot_observation"] = value
+        self._write_evaluation_dict(data)
 
 
 class RecruiterScorecard(Base):

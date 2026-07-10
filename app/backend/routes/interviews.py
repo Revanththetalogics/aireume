@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_internal_service
+from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import (
     Candidate,
     RecruiterAutoTriggerConfig,
@@ -91,15 +92,6 @@ def _normalize_scorecard_collection(
     return default if default is not None else {}
 
 
-def _require_recruiter_or_admin(current_user: User) -> None:
-    """Raise 403 if the user is not a recruiter or admin."""
-    if current_user.role not in {"admin", "recruiter"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Recruiter or admin access required",
-        )
-
-
 def _parse_scheduled_at(value: Optional[str]) -> Optional[datetime]:
     """Parse an ISO datetime string into a timezone-aware datetime."""
     if not value:
@@ -118,11 +110,10 @@ def _parse_scheduled_at(value: Optional[str]) -> Optional[datetime]:
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 async def create_interview_session(
     body: InterviewCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Create a unified interview session (quick, standard, or deep)."""
-    _require_recruiter_or_admin(current_user)
 
     depth = (body.depth or "quick").lower()
     if depth not in _ALLOWED_DEPTHS:
@@ -453,7 +444,7 @@ def get_interview_transcript(
 async def copilot_stream(
     session_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """SSE stream of recruiter copilot observations for a live interview.
@@ -462,7 +453,6 @@ async def copilot_stream(
     copilot observations in real-time. The stream closes when the
     interview session completes or the client disconnects.
     """
-    _require_recruiter_or_admin(current_user)
 
     session = db.execute(
         select(VoiceScreeningSession).where(
@@ -615,11 +605,10 @@ def get_interview_scorecard(
 @router.post("/sessions/{session_id}/cancel")
 async def cancel_interview_session(
     session_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Cancel an interview session and any pending calls."""
-    _require_recruiter_or_admin(current_user)
 
     session = db.execute(
         select(VoiceScreeningSession).where(
@@ -712,7 +701,7 @@ async def record_candidate_consent(
 @router.post("/sessions/{session_id}/pre-notify")
 def send_pre_notification(
     session_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Send a pre-interview notification to the candidate (SMS/email).
@@ -720,7 +709,6 @@ def send_pre_notification(
     Informs the candidate that an AI-conducted interview has been scheduled
     and provides a link to confirm consent.
     """
-    _require_recruiter_or_admin(current_user)
 
     voice_session = db.execute(
         select(VoiceScreeningSession).where(
@@ -796,11 +784,10 @@ def send_pre_notification(
 @router.post("/sessions/{session_id}/retry", status_code=status.HTTP_201_CREATED)
 async def retry_interview_session(
     session_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Retry a failed interview session."""
-    _require_recruiter_or_admin(current_user)
 
     session = db.execute(
         select(VoiceScreeningSession).where(
@@ -920,11 +907,10 @@ def get_interview_config(
 @router.put("/config")
 def update_interview_config(
     body: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Update merged voice + recruiter interview configuration."""
-    _require_recruiter_or_admin(current_user)
 
     voice_data = body.get("voice")
     recruiter_data = body.get("recruiter")
@@ -1546,8 +1532,9 @@ async def on_interview_complete(
                 response_duration_seconds=qr.get("response_duration"),
                 is_follow_up=is_follow_up,
                 parent_question_id=parent_question_id,
-                answer_score=int(answer_score) if answer_score is not None else None,
             )
+            if answer_score is not None:
+                new_q.answer_score = int(answer_score)
             db.add(new_q)
             existing_by_text[question_text] = new_q
 

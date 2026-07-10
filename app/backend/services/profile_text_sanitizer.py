@@ -70,6 +70,14 @@ _JOB_TITLE_ENDING_RE = re.compile(
 
 _PLACEHOLDER_VALUES = {"", "n/a", "na", "unknown", "not specified", "none"}
 
+_PLACEHOLDER_RE = re.compile(
+    r"\[[^\]]{2,}\]"  # [company name]
+    r"|\{[^}]+\}"  # {placeholder}
+    r"|<\s*[^>]+>"  # <placeholder>
+    r"|\b(?:tbd|xxx|insert\s+here|company\s+name|your\s+company)\b",
+    re.IGNORECASE,
+)
+
 
 def _looks_like_company(text: str) -> bool:
     clean = sanitize_profile_text(text)
@@ -175,10 +183,20 @@ def sanitize_work_experience(entries: Optional[List[Dict[str, Any]]]) -> List[Di
     return cleaned
 
 
+def contains_placeholder_text(text: Optional[str]) -> bool:
+    """True when text still has template placeholders or boilerplate tokens."""
+    clean = sanitize_profile_text(text, 220)
+    if not clean:
+        return False
+    return bool(_PLACEHOLDER_RE.search(clean))
+
+
 def is_actionable_responsibility(text: Optional[str]) -> bool:
     """True when a JD line is a verb-led duty, not a title/header blob."""
     clean = sanitize_profile_text(text, 220)
     if not clean or len(clean) < 20:
+        return False
+    if contains_placeholder_text(clean):
         return False
     if _HEADER_RESP_RE.match(clean):
         return False

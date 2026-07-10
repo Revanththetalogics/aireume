@@ -9,6 +9,46 @@ const CATEGORY_KEYS = [
   'experience_deep_dive_questions',
 ]
 
+const GAP_PROBE_TEMPLATES = [
+  (skill, context) => `The role calls for ${skill} — how have you used that in ${context}?`,
+  (skill) => `I don't see much ${skill} on your resume — any hands-on exposure?`,
+  (skill) => `Walk me through your experience with ${skill}, even from adjacent work.`,
+]
+
+function detectRoleFamily(roleTitle = '') {
+  const blob = (roleTitle || '').toLowerCase()
+  if (/talent acquisition|recruiter|recruiting|human resources|\bhr\b|hiring|onboarding|staffing/.test(blob)) {
+    return 'talent_acquisition'
+  }
+  if (/\bsap\b|erp|s\/?4|mm\b|fico/.test(blob)) return 'sap'
+  if (/finance|financial analyst|accounting|fp&a/.test(blob)) return 'finance'
+  if (/engineer|developer|software|backend|frontend|devops/.test(blob)) return 'engineering'
+  return 'general'
+}
+
+function isProbeableSkill(skill) {
+  if (!skill || typeof skill !== 'string') return false
+  const clean = skill.trim()
+  if (clean.split(/\s+/).length > 5) return false
+  if (/\b\d{1,2}\s*[-–—]\s*\d{1,2}\s+years?\b/i.test(clean)) return false
+  if (/\byears?\s+of\s+experience\b/i.test(clean)) return false
+  if (/\[.*\]|\{.*\}/.test(clean)) return false
+  return true
+}
+
+const TA_IRRELEVANT = new Set([
+  'machine learning', 'kubernetes', 'docker', 'react', 'python', 'java', 'sap', 'aws', 'azure',
+])
+
+function filterMissingSkills(missingSkills, roleTitle) {
+  const family = detectRoleFamily(roleTitle)
+  return (missingSkills || []).filter((skill) => {
+    if (!isProbeableSkill(skill)) return false
+    if (family === 'talent_acquisition' && TA_IRRELEVANT.has(skill.toLowerCase())) return false
+    return true
+  })
+}
+
 export function normalizeQuestion(q) {
   if (typeof q === 'string') return { text: q, what_to_listen_for: [], follow_ups: [] }
   if (q && typeof q === 'object') {
@@ -35,24 +75,31 @@ export function buildFallbackKit({
   roleTitle = '',
   workExperience = [],
 }) {
+  const context = roleTitle || 'this role'
+  const family = detectRoleFamily(roleTitle)
+  const filteredMissing = filterMissingSkills(missingSkills, roleTitle)
   const company = workExperience[0]?.company?.trim()
   const title = workExperience[0]?.title?.trim()
 
   const technical = [
-    ...missingSkills.slice(0, 3).map((skill) => ({
-      text: `${skill} isn't on your resume — have you used it for ${roleTitle || 'this role'}?`,
-      what_to_listen_for: [`Honest ${skill} exposure`, 'Adjacent experience'],
-      follow_ups: [`What ${skill} work have you done hands-on?`],
-      scoring_criteria: {
-        strong: `Clear ${skill} example with context`,
-        adequate: 'Some adjacent experience',
-        weak: 'No exposure and no transferable example',
-      },
-    })),
+    ...filteredMissing.slice(0, 3).map((skill, idx) => {
+      const template = GAP_PROBE_TEMPLATES[idx % GAP_PROBE_TEMPLATES.length]
+      const text = template.length === 2 ? template(skill, context) : template(skill)
+      return {
+        text,
+        what_to_listen_for: [`Practical ${skill} examples`, 'Adjacent experience'],
+        follow_ups: [`Pick one example — what did you do with ${skill}?`],
+        scoring_criteria: {
+          strong: `Clear ${skill} example with context`,
+          adequate: 'Some adjacent experience',
+          weak: 'No exposure and no transferable example',
+        },
+      }
+    }),
     ...matchedSkills.slice(0, 2).map((skill) => ({
       text: company
-        ? `At ${company}, what did you personally deliver with ${skill}?`
-        : `You list ${skill} — walk me through one real project where you used it.`,
+        ? `At ${company}, what did you personally own involving ${skill}?`
+        : `You mention ${skill} — walk me through one project and your contribution.`,
       what_to_listen_for: [`Hands-on ${skill}`, 'Personal contribution', 'Outcome'],
       follow_ups: [`What was the hardest part of that ${skill} work?`],
       scoring_criteria: {
@@ -65,11 +112,25 @@ export function buildFallbackKit({
 
   const experience = []
   if (company && title) {
-    experience.push({
-      text: `At ${company} as ${title}, what modules or integrations did you own?`,
-      what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
-      follow_ups: ['What broke in production and how did you fix it?'],
-    })
+    if (family === 'talent_acquisition') {
+      experience.push({
+        text: `At ${company} as ${title}, walk me through a tough hire from intake to close.`,
+        what_to_listen_for: ['Full-cycle ownership', 'Stakeholders', 'Outcome'],
+        follow_ups: ['What made that search difficult?'],
+      })
+    } else if (family === 'sap') {
+      experience.push({
+        text: `At ${company} as ${title}, what SAP modules or integrations did you own?`,
+        what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
+        follow_ups: ['What broke in production and how did you fix it?'],
+      })
+    } else {
+      experience.push({
+        text: `At ${company} as ${title}, what was your core scope and biggest deliverable?`,
+        what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
+        follow_ups: ['What was the hardest part of that work?'],
+      })
+    }
   }
   if (matchedSkills[0]) {
     experience.push({
@@ -79,17 +140,23 @@ export function buildFallbackKit({
     })
   }
 
-  const behavioral = roleTitle
+  const behavioral = family === 'talent_acquisition'
     ? [{
-        text: `Describe a go-live or UAT issue you handled as a ${roleTitle}.`,
-        what_to_listen_for: ['Problem clarity', 'Stakeholder handling', 'Resolution'],
-        follow_ups: ['Who did you coordinate with?'],
+        text: 'Tell me about a hiring manager who kept moving the goalposts — how did you handle it?',
+        what_to_listen_for: ['Stakeholder management', 'Pushback', 'Outcome'],
+        follow_ups: ['What would you do differently?'],
       }]
-    : [{
-        text: 'Describe a deadline slip — what did you do to recover?',
-        what_to_listen_for: ['Ownership', 'Prioritization', 'Outcome'],
-        follow_ups: [],
-      }]
+    : roleTitle
+      ? [{
+          text: `Describe a high-pressure situation in your ${roleTitle} work — how did you prioritize?`,
+          what_to_listen_for: ['Problem clarity', 'Stakeholder handling', 'Resolution'],
+          follow_ups: ['Who did you coordinate with?'],
+        }]
+      : [{
+          text: 'Describe a deadline slip — what did you do to recover?',
+          what_to_listen_for: ['Ownership', 'Prioritization', 'Outcome'],
+          follow_ups: [],
+        }]
 
   if (technical.length === 0 && experience.length === 0) {
     technical.push({
@@ -100,6 +167,16 @@ export function buildFallbackKit({
   }
 
   return {
+    candidate_briefing: {
+      profile_snapshot: company && title ? `${title} background at ${company}.` : 'Review resume before the call.',
+      strengths_to_confirm: matchedSkills.slice(0, 3).map(
+        (s) => `Resume shows ${s} — ask for a concrete example`,
+      ),
+      areas_to_probe: filteredMissing.slice(0, 3).map(
+        (s) => `JD needs ${s} — light on resume, worth a direct question`,
+      ),
+      context_notes: ['Keep the screen to 20–25 minutes; prioritize must-have gaps first.'],
+    },
     technical_questions: technical.slice(0, 5),
     behavioral_questions: behavioral.slice(0, 1),
     culture_fit_questions: [],
@@ -118,10 +195,11 @@ export function resolveInterviewKit(interviewQuestions, analysisData, roleTitle)
   const fallback = buildFallbackKit({
     missingSkills: analysisData?.missing_skills || [],
     matchedSkills: analysisData?.matched_skills || [],
-    roleTitle,
-    workExperience: analysisData?.work_experience
-      || analysisData?.candidate_profile?.work_experience
-      || [],
+    roleTitle: roleTitle || analysisData?.jd_analysis?.role_title || '',
+    workExperience:
+      analysisData?.work_experience ||
+      analysisData?.candidate_profile?.work_experience ||
+      [],
   })
   const fallbackCount = countKitQuestions(fallback)
   if (fallbackCount > 0) {
@@ -192,9 +270,9 @@ function sanitizeProbeLine(line) {
   const gapIdx = text.search(/\s—\sHIGH priority gap/i)
   if (gapIdx > 0) text = text.slice(0, gapIdx).trim()
   text = text.replace(/^\?\s*/, '').replace(/^Probe:\s*/i, '')
-  if (text.length > 48) {
+  if (text.length > 72) {
     const words = text.split(/\s+/)
-    text = words.slice(0, 6).join(' ') + (words.length > 6 ? '…' : '')
+    text = words.slice(0, 10).join(' ') + (words.length > 10 ? '…' : '')
   }
   return text
 }
@@ -202,11 +280,19 @@ function sanitizeProbeLine(line) {
 /** Keep teleprompter questions scannable during a live call. */
 export function spokenQuestionText(text, maxLen = 220) {
   if (!text || typeof text !== 'string') return String(text ?? '')
-  const t = text.trim()
-  if (t.length <= maxLen) return t
-  const sentenceEnd = t.search(/[.!?]\s/)
-  if (sentenceEnd > 40 && sentenceEnd < maxLen) return t.slice(0, sentenceEnd + 1)
-  return t.slice(0, maxLen).trimEnd() + '…'
+  let spoken = text.trim()
+  const swaps = [
+    ['The role calls for', 'This role needs'],
+    ["I don't see much", 'I noticed'],
+    ['on your resume', 'on the resume'],
+  ]
+  for (const [from, to] of swaps) {
+    if (spoken.includes(from)) spoken = spoken.replace(from, to)
+  }
+  if (spoken.length <= maxLen) return spoken
+  const sentenceEnd = spoken.search(/[.!?]\s/)
+  if (sentenceEnd > 40 && sentenceEnd < maxLen) return spoken.slice(0, sentenceEnd + 1)
+  return spoken.slice(0, maxLen).trimEnd() + '…'
 }
 
 export const CATEGORY_META = {
@@ -246,9 +332,9 @@ export function shouldWarnRoleMismatch(fitScore) {
 }
 
 export function getQuestionPriority(qText, missingSkills, matchedSkills) {
-  const lower = qText.toLowerCase()
-  if (missingSkills.some((s) => lower.includes(s.toLowerCase()))) return 'high'
-  if (matchedSkills.some((s) => lower.includes(s.toLowerCase()))) return 'low'
+  const lower = (qText || '').toLowerCase()
+  if ((missingSkills || []).some((s) => lower.includes(s.toLowerCase()))) return 'high'
+  if ((matchedSkills || []).some((s) => lower.includes(s.toLowerCase()))) return 'low'
   return 'medium'
 }
 
@@ -263,4 +349,62 @@ export function ratingToStars(rating) {
   if (rating === 'adequate') return 3
   if (rating === 'weak') return 1
   return 0
+}
+
+export function applyVoiceTone(text, tone = 'conversational') {
+  if (!text || typeof text !== 'string') return ''
+  if (tone === 'formal') {
+    return text
+      .replace(/^The role calls for/i, 'This position requires')
+      .replace(/I don't see much/i, 'Your background shows limited')
+      .replace(/Walk me through/i, 'Please describe')
+      .replace(/You mention/i, 'Your resume indicates')
+  }
+  return spokenQuestionText(text)
+}
+
+export function buildGlanceBullets(briefing, flatQuestions, limit = 5) {
+  const bullets = []
+  ;(briefing?.areas_to_probe || []).slice(0, 2).forEach((line) => {
+    bullets.push(line.startsWith('JD needs') ? line : `Probe: ${line}`)
+  })
+  ;(briefing?.strengths_to_confirm || []).slice(0, 1).forEach((line) => {
+    bullets.push(line.startsWith('Resume') ? line : `Confirm: ${line}`)
+  })
+  for (const item of flatQuestions || []) {
+    if (bullets.length >= limit) break
+    const text = item?.question?.text
+    if (text) bullets.push(text)
+  }
+  return bullets.slice(0, limit)
+}
+
+export function formatHmDebriefText({
+  candidateName = 'Candidate',
+  roleTitle = 'Role',
+  fitScore = null,
+  recommendation = '',
+  summary = '',
+  debrief = null,
+}) {
+  const recLabel = (recommendation || '').replace(/_/g, ' ')
+  const lines = [
+    `Screening summary — ${candidateName}`,
+    `Role: ${roleTitle}`,
+    fitScore != null ? `Pre-screen fit: ${fitScore}%` : null,
+    recLabel ? `Recommendation: ${recLabel}` : null,
+    '',
+    'Summary',
+    summary || '(no summary)',
+  ].filter((line) => line !== null)
+
+  if (debrief) {
+    if (debrief.overview) lines.push('', 'Overview', debrief.overview)
+    if (debrief.strengths) lines.push('', 'Strengths', debrief.strengths)
+    if (debrief.concerns) lines.push('', 'Concerns', debrief.concerns)
+    if (debrief.recommendation_rationale) {
+      lines.push('', 'Rationale', debrief.recommendation_rationale)
+    }
+  }
+  return lines.join('\n')
 }

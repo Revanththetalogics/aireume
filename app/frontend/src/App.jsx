@@ -6,6 +6,7 @@ import { NotificationProvider } from './contexts/NotificationContext'
 import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
+import RequireWriteAccess from './components/RequireWriteAccess'
 import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -16,6 +17,7 @@ const DashboardNew = lazy(() => import('./pages/DashboardNew'))
 const AnalyzePage  = lazy(() => import('./pages/AnalyzePage'))
 const JDLibraryPage = lazy(() => import('./pages/JDLibraryPage'))
 const HandoffPackage = lazy(() => import('./components/HandoffPackage'))
+const PublicHandoffPage = lazy(() => import('./pages/PublicHandoffPage'))
 const JDCandidatesPage = lazy(() => import('./pages/JDCandidatesPage'))
 
 // Existing pages
@@ -130,13 +132,14 @@ function App() {
               <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
               <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
               <Route path="/check-email" element={<CheckEmailPage />} />
+              <Route path="/handoff/:token" element={<Suspense fallback={<PageLoader />}><PublicHandoffPage /></Suspense>} />
               
               {/* Onboarding direct-access route */}
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
               
               {/* New routes */}
               <Route path="/"           element={<Shell><OnboardingGate><DashboardNew /></OnboardingGate></Shell>} />
-              <Route path="/analyze"    element={<Shell><OnboardingGate><AnalyzePage /></OnboardingGate></Shell>} />
+              <Route path="/analyze"    element={<Shell><OnboardingGate><RequireWriteAccess><AnalyzePage /></RequireWriteAccess></OnboardingGate></Shell>} />
               <Route path="/jd-library" element={<Shell><OnboardingGate><JDLibraryPage /></OnboardingGate></Shell>} />
               <Route path="/jd-library/:id/handoff" element={<Shell><OnboardingGate><HandoffPackage /></OnboardingGate></Shell>} />
               <Route path="/jd-library/:id/candidates" element={<Shell><OnboardingGate><JDCandidatesPage /></OnboardingGate></Shell>} />

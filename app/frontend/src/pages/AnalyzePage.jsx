@@ -23,8 +23,9 @@ import {
 } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 import { useNotification } from '../contexts/NotificationContext'
+import { useOnboarding } from '../contexts/OnboardingContext'
 import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
-import UniversalWeightsPanel from '../components/UniversalWeightsPanel'
+import UniversalWeightsPanel, { isValidWeightTotal } from '../components/UniversalWeightsPanel'
 import SkillClassificationEditor from '../components/SkillClassificationEditor'
 import { FitBadge, RecommendBadge, EnrichmentStatusBadges } from '../components/Badges'
 import {
@@ -40,6 +41,9 @@ import { mergeNarrativePollResult, isNarrativePending, isKitPending, isReportCac
 import {
   ANALYZE_STEPS,
   buildSetupSummary,
+  buildRoleTemplateName,
+  buildRoleTemplateTags,
+  extractRoleTitle,
   getActiveAnalyzeStep,
   isAnalyzeStepComplete,
   canNavigateToAnalyzeStep,
@@ -140,6 +144,7 @@ export default function AnalyzePage() {
     addNotification,
     trackQueueBatch,
   } = useNotification()
+  const { completeChecklistItem } = useOnboarding()
 
   // Step 1: Job Description
   const [jdText, setJdText] = useState('')
@@ -193,10 +198,12 @@ export default function AnalyzePage() {
   const [parsingJd, setParsingJd]             = useState(false)
   const [skillsConfirmed, setSkillsConfirmed] = useState(false)
   const [parseError, setParseError]           = useState(null)
+  const [roleName, setRoleName]               = useState('')
   const [streamStage, setStreamStage]         = useState(null)
   const [singleFileName, setSingleFileName]   = useState(null)
   const debounceRef = useRef(null)
   const skipAutoParseRef = useRef(false)
+  const roleNameTouchedRef = useRef(false)
   const streamingResultsRef = useRef([])
   const streamingFailedRef = useRef([])
   const sessionRestoredRef = useRef(false)
@@ -375,7 +382,7 @@ export default function AnalyzePage() {
       // Restore skill overrides if available
       if (location.state.skillOverrides) {
         setSkillOverrides(location.state.skillOverrides)
-        setSkillsConfirmed(location.state.skillsConfirmed ?? true)
+        setSkillsConfirmed(location.state.skillsConfirmed ?? false)
       }
       if (location.state.jdParseResult) {
         setJdParseResult(location.state.jdParseResult)
@@ -384,6 +391,10 @@ export default function AnalyzePage() {
       if (location.state.template_id) {
         setLoadedFromLibrary(true)
         setLoadedTemplateId(location.state.template_id)
+      }
+      if (location.state.template_name) {
+        setRoleName(location.state.template_name)
+        roleNameTouchedRef.current = true
       }
     }
   }, [location.state])
@@ -404,7 +415,7 @@ export default function AnalyzePage() {
           // Restore skill overrides if available
           if (location.state.skillOverrides) {
             setSkillOverrides(location.state.skillOverrides)
-            setSkillsConfirmed(location.state.skillsConfirmed ?? true)
+            setSkillsConfirmed(location.state.skillsConfirmed ?? false)
           }
           if (location.state.jdParseResult) {
             setJdParseResult(location.state.jdParseResult)
@@ -474,6 +485,13 @@ export default function AnalyzePage() {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [jdText, jdMode])
+
+  // Auto-fill role name from parsed JD title until recruiter edits it
+  useEffect(() => {
+    if (roleNameTouchedRef.current) return
+    const extracted = extractRoleTitle(jdParseResult, roleCategory, '')
+    if (extracted) setRoleName(extracted)
+  }, [jdParseResult, roleCategory])
 
   // ── Auto-parse JD file on upload ──
   useEffect(() => {
@@ -704,6 +722,8 @@ export default function AnalyzePage() {
     setJdText(template.jd_text)
     setJdMode('text')
     setShowJdLibrary(false)
+    setRoleName(template.name || '')
+    roleNameTouchedRef.current = Boolean(template.name)
     
     // Robust override parser — handles null, "", "null", "[]", JSON strings, arrays
     const parseOverride = (val) => {
@@ -784,6 +804,10 @@ export default function AnalyzePage() {
       setError('Please upload at least one resume')
       return
     }
+    if (!isValidWeightTotal(weights)) {
+      setError('Scoring weights must sum to 100% (98–102% allowed). Adjust weights in Advanced settings.')
+      return
+    }
 
     // Check usage limits
     const check = await checkBeforeAnalysis(files.length)
@@ -842,18 +866,19 @@ export default function AnalyzePage() {
       // Only save JD template if it's NEW (not loaded from library)
       // This prevents duplicate JD creation
       if (!loadedFromLibrary) {
-        const templateName = `${roleCategory || 'General'} - ${new Date().toLocaleDateString()}`
+        const templateName = buildRoleTemplateName(roleName, jdParseResult, roleCategory)
+        const templateTags = buildRoleTemplateTags(jdParseResult, roleCategory)
         if (jdMode === 'text') {
           await createTemplate({
             name: templateName,
             jd_text: jdText,
             scoring_weights: weights,
-            tags: roleCategory,
+            tags: templateTags,
             required_skills_override: skillOverrides ? JSON.stringify(skillOverrides.required_skills) : null,
             nice_to_have_skills_override: skillOverrides ? JSON.stringify(skillOverrides.nice_to_have_skills) : null,
           })
         } else {
-          await createTemplateFromFile(templateName, jdFile, roleCategory, weights)
+          await createTemplateFromFile(templateName, jdFile, templateTags, weights)
         }
       } else if (loadedTemplateId && skillOverrides) {
         // Template already exists — update it with the latest skill overrides
@@ -897,6 +922,7 @@ export default function AnalyzePage() {
           })
         }
         navigate('/report', { state: { result } })
+        completeChecklistItem('analyzedResume')
       } else if (runInBackground && files.length >= BACKGROUND_BATCH_MIN) {
         const batch = await submitBatchToQueue(
           files,
@@ -1027,6 +1053,7 @@ export default function AnalyzePage() {
             },
             onDone: (total, successful, failedCount) => {
               setAnalysisDone(true)
+              completeChecklistItem('analyzedResume')
               // Persist batch results for back-navigation (use refs to avoid stale closure)
               try {
                 sessionStorage.setItem('aria_batch_results', JSON.stringify({
@@ -1101,6 +1128,7 @@ export default function AnalyzePage() {
   const activeStep = getActiveAnalyzeStep(showResults, currentStep)
   const setupSummary = buildSetupSummary({
     roleCategory,
+    roleName,
     jdParseResult,
     skillOverrides,
     fileCount: getEffectiveBatchTotal(analysisProgress, fileStatuses),
@@ -1278,6 +1306,31 @@ export default function AnalyzePage() {
               </button>
             ))}
           </div>
+
+          {/* Role name — used when saving to library */}
+          {!loadedFromLibrary && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
+            <div className="mb-4">
+              <label htmlFor="role-name" className="block text-sm font-semibold text-brand-900 mb-1.5">
+                Role name
+              </label>
+              <input
+                id="role-name"
+                type="text"
+                value={roleName}
+                onChange={(e) => {
+                  roleNameTouchedRef.current = true
+                  setRoleName(e.target.value)
+                }}
+                placeholder={extractRoleTitle(jdParseResult, roleCategory, '') || 'e.g. Talent Acquisition Specialist'}
+                className="w-full px-4 py-3 border border-brand-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
+              />
+              <p className="text-xs text-slate-500 mt-1.5">
+                {parsingJd
+                  ? 'Detecting role title from job description…'
+                  : 'Saved to your Roles library when you analyze. Edit if the detected title is wrong.'}
+              </p>
+            </div>
+          )}
 
           {/* JD Input */}
           {jdMode === 'text' && (

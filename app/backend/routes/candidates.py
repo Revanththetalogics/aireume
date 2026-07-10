@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.backend.db.database import get_db, SessionLocal
-from app.backend.middleware.auth import get_current_user, require_active_subscription
+from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.rbac import require_recruiter_or_admin, require_active_recruiter
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
 from app.backend.services.audit_service import log_field_change
@@ -50,7 +51,7 @@ _VALID_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
 @router.post("/import/csv")
 async def import_candidates_csv(
     file_id: str = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -413,7 +414,11 @@ def get_screening_result(
     if not merged_data.get("work_experience"):
         merged_data["work_experience"] = parsed.get("work_experience", [])
 
-    refresh_interview_questions_in_analysis(merged_data, parsed_data=parsed)
+    refresh_interview_questions_in_analysis(
+        merged_data,
+        parsed_data=parsed,
+        kit_status=getattr(result, "interview_kit_status", None),
+    )
 
     # Set defaults for all fields expected by ReportPage / ResultCard
     merged_data.setdefault("fit_score", None)
@@ -630,7 +635,7 @@ def get_candidate_pipeline(
 def update_candidate_name(
     candidate_id: int,
     body: CandidateNameUpdate,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     candidate = db.query(Candidate).filter(
@@ -725,7 +730,7 @@ def update_candidate_name(
 def update_candidate(
     candidate_id: int,
     body: CandidateNameUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     candidate = db.query(Candidate).filter(
@@ -754,7 +759,7 @@ def update_candidate(
 def correct_parsed_data(
     candidate_id: int,
     body: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Correct mis-parsed resume data (skills, work experience, education, contact info).
@@ -1000,7 +1005,11 @@ def get_candidate(
         if not merged_data.get("work_experience"):
             merged_data["work_experience"] = parsed.get("work_experience", [])
 
-        refresh_interview_questions_in_analysis(merged_data, parsed_data=parsed)
+        refresh_interview_questions_in_analysis(
+        merged_data,
+        parsed_data=parsed,
+        kit_status=getattr(result, "interview_kit_status", None),
+    )
 
         # Ensure all fields expected by ReportPage / ResultCard have defaults
         merged_data.setdefault("fit_score", None)
@@ -1353,7 +1362,7 @@ def get_candidate_notes(
 def add_candidate_note(
     candidate_id: int,
     body: dict,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """Add a note to a candidate."""
@@ -1394,7 +1403,7 @@ def add_candidate_note(
 def delete_candidate_note(
     candidate_id: int,
     note_id: int,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """Delete a note. Only the note author can delete their own notes."""
@@ -1417,7 +1426,7 @@ def delete_candidate_note(
 async def analyze_existing_candidate(
     candidate_id: int,
     body: AnalyzeJdRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -1679,7 +1688,7 @@ def download_candidate_resume(
 @router.post("/compare")
 async def compare_candidates_skill_matrix(
     data: CandidateSkillCompareRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """Compare multiple candidates against a JD with skill-level detail."""
@@ -1964,7 +1973,7 @@ def bulk_update_status(
     jd_id: int,
     body: dict,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -2170,7 +2179,7 @@ def record_candidate_outcome(
     candidate_id: int,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
 ):
     """Record a hiring outcome for a candidate's screening result."""
     # Validate candidate exists and belongs to tenant
@@ -2239,7 +2248,7 @@ def record_outcome_feedback(
     outcome_id: int,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
 ):
     """Record post-hire quality feedback for an outcome."""
     rating = body.get("rating")
@@ -2302,7 +2311,7 @@ def gdpr_hard_delete_candidate(
     candidate_id: int,
     reason: str = "gdpr_request",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """GDPR Article 17 — Right to be forgotten. Permanently deletes candidate and all associated data."""
     from app.backend.services.gdpr_service import hard_delete_candidate
@@ -2331,7 +2340,7 @@ def gdpr_anonymize_candidate(
     candidate_id: int,
     reason: str = "retention_expiry",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Anonymize candidate PII while preserving aggregate analytics data."""
     from app.backend.services.gdpr_service import anonymize_candidate

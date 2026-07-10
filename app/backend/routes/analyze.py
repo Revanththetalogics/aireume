@@ -29,7 +29,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import update, func
 
 from app.backend.db.database import get_db, SessionLocal
-from app.backend.middleware.auth import get_current_user, require_active_subscription
+from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.rbac import require_active_recruiter
+from app.backend.services.audit_service import log_field_change, log_tenant_event
 from app.backend.services.jd_quality_scorer import score_jd_quality
 from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate, ScreeningProject, ScreeningProjectCandidate
 from app.backend.models.schemas import (
@@ -1189,7 +1191,7 @@ async def jd_parse_preview(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     team_id: Optional[str] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """Preview parsed JD structure with confidence metadata per skill.
@@ -1486,7 +1488,7 @@ async def _process_single_resume(
 @router.post("/analyze/suggest-weights")
 async def suggest_weights_endpoint(
     job_description: str = Form(...),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """AI-powered weight suggestion based on job description."""
@@ -1617,7 +1619,7 @@ async def analyze_endpoint(
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
     project_id: Optional[int] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -1961,7 +1963,7 @@ async def analyze_stream_endpoint(
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
     project_id: Optional[int] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -2360,7 +2362,7 @@ async def batch_analyze_chunked_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -2615,7 +2617,7 @@ async def batch_analyze_stream_endpoint(
     scoring_weights: str = Form(None),
     skill_overrides: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """
@@ -3057,7 +3059,7 @@ async def batch_analyze_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
@@ -3281,7 +3283,7 @@ def update_status(
     result_id: int,
     body: dict,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     result = db.query(ScreeningResult).filter(
@@ -3296,8 +3298,27 @@ def update_status(
     if new_status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {allowed_statuses}")
 
+    old_status = result.status
     result.status = new_status
     result.status_updated_at = datetime.now(timezone.utc)
+    log_field_change(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        entity_type="screening_result",
+        entity_id=result.id,
+        field_name="status",
+        old_value=old_status,
+        new_value=new_status,
+        user_id=current_user.id,
+    )
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="result.status_change",
+        resource_type="screening_result",
+        resource_id=result.id,
+        details={"old_status": old_status, "new_status": new_status},
+    )
     db.commit()
 
     # Fire-and-forget auto-trigger evaluation using a fresh DB session.
@@ -3319,7 +3340,7 @@ def update_status(
 def rescore_endpoint(
     result_id: int,
     body: RescoreRequest,
-    current_user: User = Depends(require_active_subscription),
+    current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
     """Re-score an existing analysis with overridden skill classification.
@@ -3599,7 +3620,11 @@ def rescore_endpoint(
         skill_analysis["proficiency_analysis"] = proficiency_analysis
 
     # Top-level fields
-    refresh_interview_questions_in_analysis(analysis, parsed_data=parsed_data)
+    refresh_interview_questions_in_analysis(
+        analysis,
+        parsed_data=parsed_data,
+        kit_status=getattr(result, "interview_kit_status", None),
+    )
 
     analysis.update({
         "skill_analysis":        skill_analysis,

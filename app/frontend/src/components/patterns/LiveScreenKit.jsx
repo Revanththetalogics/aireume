@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   ChevronLeft, ChevronRight, ClipboardList, User, Eye,
-  MessageCircle, Loader2, MessageSquare, CheckCircle, Star, List, Mic2,
+  MessageCircle, Loader2, MessageSquare, CheckCircle, Star, List, Mic2, Pencil, Smartphone, Copy, Mail,
 } from 'lucide-react'
 import { getEvaluations, saveEvaluation, saveOverallAssessment, generateDebrief, getScorecard } from '../../lib/api'
+import { showSuccess, showError } from '../../lib/toast'
 import { Button, Badge, Card, SegmentedControl } from '../ui'
 import { LIVE_SCREEN, INTERVIEW } from '../../lib/uxLabels'
 import {
@@ -15,7 +16,9 @@ import {
   getCategoriesFromKit,
   CATEGORY_META,
   sanitizeBriefingForDisplay,
-  spokenQuestionText,
+  applyVoiceTone,
+  buildGlanceBullets,
+  formatHmDebriefText,
 } from '../../lib/liveScreenKitUtils'
 
 function CopyButton({ text }) {
@@ -86,19 +89,27 @@ export default function LiveScreenKit({
   interviewKitStatus,
   resultId,
   analysisData = {},
+  candidateName = '',
+  roleTitle = '',
+  fitScore = null,
   onDebriefGenerated,
 }) {
   const [phase, setPhase] = useState('call')
   const [viewMode, setViewMode] = useState('teleprompter')
+  const [voiceTone, setVoiceTone] = useState('conversational')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [askedKeys, setAskedKeys] = useState({})
+  const [questionEdits, setQuestionEdits] = useState({})
+  const [editingKey, setEditingKey] = useState(null)
   const [evaluations, setEvaluations] = useState({})
   const [savingEval, setSavingEval] = useState({})
+  const [evalErrors, setEvalErrors] = useState({})
   const [evalLoaded, setEvalLoaded] = useState(false)
   const [conversationSummary, setConversationSummary] = useState('')
   const [summaryError, setSummaryError] = useState('')
   const [submittingSummary, setSubmittingSummary] = useState(false)
   const [debriefGenerated, setDebriefGenerated] = useState(false)
+  const [lastDebrief, setLastDebrief] = useState(null)
   const [recommendation, setRecommendation] = useState('')
 
   const missingSkills = analysisData.missing_skills || []
@@ -111,6 +122,20 @@ export default function LiveScreenKit({
     () => sanitizeBriefingForDisplay(kit?.candidate_briefing),
     [kit],
   )
+  const glanceBullets = useMemo(
+    () => buildGlanceBullets(briefing, flatQuestions),
+    [briefing, flatQuestions],
+  )
+  const ratedCount = useMemo(
+    () => Object.values(evaluations).filter((e) => e?.stars > 0).length,
+    [evaluations],
+  )
+
+  const getQuestionText = (item) => {
+    if (!item) return ''
+    const key = `${item.category}_${item.index}`
+    return questionEdits[key] || item.question.text
+  }
 
   useEffect(() => {
     if (!resultId || evalLoaded) return
@@ -143,6 +168,7 @@ export default function LiveScreenKit({
     const rating = starsToRating(stars)
     setEvaluations((prev) => ({ ...prev, [key]: { rating, stars } }))
     setSavingEval((prev) => ({ ...prev, [key]: true }))
+    setEvalErrors((prev) => ({ ...prev, [key]: null }))
     try {
       await saveEvaluation(resultId, {
         question_category: category,
@@ -150,8 +176,55 @@ export default function LiveScreenKit({
         rating,
         notes: null,
       })
-    } catch { /* silent */ }
+    } catch {
+      setEvalErrors((prev) => ({ ...prev, [key]: 'Failed to save rating' }))
+      showError('Could not save answer rating. Check your connection and try again.')
+    }
     setSavingEval((prev) => ({ ...prev, [key]: false }))
+  }
+
+  const saveQuestionEdit = (key, text) => {
+    const trimmed = (text || '').trim()
+    if (!trimmed) return
+    setQuestionEdits((prev) => ({ ...prev, [key]: trimmed }))
+    setEditingKey(null)
+  }
+
+  const handleEndCall = () => {
+    if (ratedCount === 0) {
+      const proceed = window.confirm(
+        'No questions rated yet. End call anyway? Ratings help build the scorecard.',
+      )
+      if (!proceed) return
+    }
+    setPhase('debrief')
+  }
+
+  const copyHmSummary = (debriefData) => {
+    const text = formatHmDebriefText({
+      candidateName,
+      roleTitle,
+      fitScore,
+      recommendation,
+      summary: conversationSummary,
+      debrief: debriefData?.debrief || lastDebrief?.debrief,
+    })
+    navigator.clipboard.writeText(text).then(() => {
+      showSuccess('HM summary copied — paste into your ATS or email')
+    }).catch(() => showError('Could not copy to clipboard'))
+  }
+
+  const emailHmSummary = (debriefData) => {
+    const body = formatHmDebriefText({
+      candidateName,
+      roleTitle,
+      fitScore,
+      recommendation,
+      summary: conversationSummary,
+      debrief: debriefData?.debrief || lastDebrief?.debrief,
+    })
+    const subject = encodeURIComponent(`Screen summary: ${candidateName} — ${roleTitle || 'Role'}`)
+    window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`
   }
 
   const toggleAsked = (key) => {
@@ -172,8 +245,10 @@ export default function LiveScreenKit({
     try {
       await saveOverallAssessment(resultId, { overall_assessment: conversationSummary })
       const debrief = await generateDebrief(resultId, conversationSummary, recommendation)
+      setLastDebrief(debrief)
       setDebriefGenerated(true)
       onDebriefGenerated?.(debrief)
+      showSuccess('Debrief saved to scorecard')
     } catch {
       setSummaryError('Failed to generate debrief. Please try again.')
     }
@@ -242,9 +317,19 @@ export default function LiveScreenKit({
 
           {summaryError && <p className="text-xs text-red-600">{summaryError}</p>}
           {debriefGenerated && (
-            <Card className="p-3 flex items-center gap-2 bg-emerald-50 ring-emerald-200">
-              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="text-sm text-emerald-800">Debrief saved to the scorecard.</span>
+            <Card className="p-3 flex flex-col gap-3 bg-emerald-50 ring-emerald-200">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="text-sm text-emerald-800">Debrief saved to the scorecard.</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => copyHmSummary(lastDebrief)}>
+                  <Copy className="w-3.5 h-3.5" /> Copy for ATS
+                </Button>
+                <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => emailHmSummary(lastDebrief)}>
+                  <Mail className="w-3.5 h-3.5" /> Email HM
+                </Button>
+              </div>
             </Card>
           )}
         </div>
@@ -279,10 +364,22 @@ export default function LiveScreenKit({
           <SegmentedControl
             options={[
               { label: LIVE_SCREEN.teleprompter, value: 'teleprompter' },
+              { label: 'Glance', value: 'glance' },
               { label: LIVE_SCREEN.checklist, value: 'list' },
             ]}
             value={viewMode}
             onChange={setViewMode}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500 font-medium">Voice:</span>
+          <SegmentedControl
+            options={[
+              { label: 'Conversational', value: 'conversational' },
+              { label: 'Formal', value: 'formal' },
+            ]}
+            value={voiceTone}
+            onChange={setVoiceTone}
           />
         </div>
 
@@ -317,6 +414,21 @@ export default function LiveScreenKit({
 
       {/* Call body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {viewMode === 'glance' && (
+          <div className="p-5 max-w-lg mx-auto space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+              <Smartphone className="w-3.5 h-3.5" /> Glance mode — 5 bullets before you dial
+            </div>
+            <ol className="space-y-2">
+              {glanceBullets.map((bullet, i) => (
+                <li key={i} className="text-sm text-slate-700 p-3 rounded-xl bg-brand-50/60 ring-1 ring-brand-100">
+                  {applyVoiceTone(bullet, voiceTone)}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         {viewMode === 'teleprompter' && current && (
           <div className="p-5 flex flex-col gap-4 max-w-2xl mx-auto">
             <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
@@ -326,10 +438,35 @@ export default function LiveScreenKit({
 
             <Card className="p-6 ring-brand-100 shadow-brand-sm">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-lg sm:text-xl font-semibold text-brand-900 leading-snug">
-                  {spokenQuestionText(current.question.text)}
-                </p>
-                <CopyButton text={current.question.text} />
+                {editingKey === currentKey ? (
+                  <textarea
+                    className="flex-1 text-base font-semibold text-brand-900 leading-snug w-full min-h-[80px] p-2 rounded-lg ring-1 ring-brand-200"
+                    defaultValue={getQuestionText(current)}
+                    onBlur={(e) => saveQuestionEdit(currentKey, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        saveQuestionEdit(currentKey, e.target.value)
+                      }
+                    }}
+                    autoFocus
+                  />
+                ) : (
+                  <p className="text-lg sm:text-xl font-semibold text-brand-900 leading-snug">
+                    {applyVoiceTone(getQuestionText(current), voiceTone)}
+                  </p>
+                )}
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditingKey(currentKey)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50"
+                    title="Edit question"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <CopyButton text={getQuestionText(current)} />
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2 mt-3">
@@ -382,6 +519,9 @@ export default function LiveScreenKit({
                   onChange={(stars) => handleStarRating(current.category, current.index, stars)}
                   saving={savingEval[currentKey]}
                 />
+                {evalErrors[currentKey] && (
+                  <p className="text-xs text-red-600 mt-1">{evalErrors[currentKey]}</p>
+                )}
               </div>
             </Card>
 
@@ -435,7 +575,9 @@ export default function LiveScreenKit({
                               askedKeys[key] ? 'ring-emerald-200 bg-emerald-50/50' : 'ring-brand-100 hover:bg-brand-50/50'
                             }`}
                           >
-                            <p className="text-sm text-slate-700">{q.text}</p>
+                            <p className="text-sm text-slate-700">
+                              {questionEdits[key] || applyVoiceTone(q.text, voiceTone)}
+                            </p>
                           </button>
                         </li>
                       )
@@ -452,8 +594,9 @@ export default function LiveScreenKit({
       <div className="shrink-0 p-4 border-t border-brand-100 bg-white flex items-center justify-between gap-3">
         <span className="text-xs text-slate-400">
           {Object.keys(askedKeys).filter((k) => askedKeys[k]).length}/{totalQ} marked asked
+          {ratedCount > 0 ? ` · ${ratedCount} rated` : ''}
         </span>
-        <Button onClick={() => setPhase('debrief')} className="gap-2">
+        <Button onClick={handleEndCall} className="gap-2">
           <List className="w-4 h-4" />
           {LIVE_SCREEN.endCall}
         </Button>

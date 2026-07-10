@@ -1,9 +1,20 @@
 import NavBar from './NavBar'
 import ToastProvider from './ToastProvider'
 import { LiveScreenModeProvider, useLiveScreenMode } from '../contexts/LiveScreenModeContext'
+import { useEffect } from 'react'
+import { showError } from '../lib/toast'
+import { VIEWER_READ_ONLY_MESSAGE } from '../lib/rbac'
 
 function AppShellInner({ children }) {
   const { active: liveScreenActive } = useLiveScreenMode()
+
+  useEffect(() => {
+    const onForbidden = (e) => {
+      showError(e.detail?.message || VIEWER_READ_ONLY_MESSAGE)
+    }
+    window.addEventListener('rbac:forbidden', onForbidden)
+    return () => window.removeEventListener('rbac:forbidden', onForbidden)
+  }, [])
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface">

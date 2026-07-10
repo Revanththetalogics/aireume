@@ -13,7 +13,9 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.rbac import require_recruiter_or_admin, require_role_template_manager, can_manage_role_template
+from app.backend.services.audit_service import log_tenant_event
 from app.backend.models.db_models import RoleTemplate, SkillClassificationTemplate, User
 from app.backend.models.schemas import TemplateCreate, TemplateOut, TemplateUpdate
 from app.backend.services.weight_mapper import validate_and_normalize_weights
@@ -97,7 +99,7 @@ def list_templates(
 @router.post("", response_model=TemplateOut)
 def create_template(
     body: TemplateCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db)
 ):
     # Check if identical JD already exists for this tenant
@@ -143,8 +145,10 @@ def create_template(
         tags=auto_tags,
         required_skills_override=body.required_skills_override,
         nice_to_have_skills_override=body.nice_to_have_skills_override,
+        created_by=current_user.id,
     )
     db.add(template)
+    log_tenant_event(db, actor=current_user, action="template.create", resource_type="role_template", resource_id=None, details={"name": template.name})
     db.commit()
     db.refresh(template)
     return template
@@ -158,7 +162,7 @@ async def create_template_from_file(
     scoring_weights: str | None = Form(None),
     required_skills_override: str | None = Form(None),
     nice_to_have_skills_override: str | None = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db)
 ):
     """Create a template by uploading a JD file (PDF/DOCX/TXT)."""
@@ -221,6 +225,7 @@ async def create_template_from_file(
         tags=auto_tags,
         required_skills_override=required_skills_override,
         nice_to_have_skills_override=nice_to_have_skills_override,
+        created_by=current_user.id,
     )
     db.add(template)
     db.commit()
@@ -232,7 +237,7 @@ async def create_template_from_file(
 def update_template(
     template_id: int,
     body: TemplateUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db)
 ):
     template = db.query(RoleTemplate).filter(
@@ -241,6 +246,7 @@ def update_template(
     ).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    require_role_template_manager(current_user, template)
 
     if body.name is not None:
         template.name = body.name
@@ -256,13 +262,15 @@ def update_template(
         template.nice_to_have_skills_override = body.nice_to_have_skills_override
     db.commit()
     db.refresh(template)
+    log_tenant_event(db, actor=current_user, action="template.update", resource_type="role_template", resource_id=template.id)
+    db.commit()
     return template
 
 
 @router.delete("/{template_id}")
 def delete_template(
     template_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
     template = db.query(RoleTemplate).filter(
@@ -272,6 +280,8 @@ def delete_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     db.delete(template)
+    db.commit()
+    log_tenant_event(db, actor=current_user, action="template.delete", resource_type="role_template", resource_id=template_id)
     db.commit()
     return {"deleted": template_id}
 
@@ -315,7 +325,7 @@ def _serialize_skill_template(t):
 @router.post("/skill-classifications")
 def create_skill_classification(
     data: SkillClassificationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     template = SkillClassificationTemplate(
@@ -369,7 +379,7 @@ def get_skill_classification(
 def update_skill_classification(
     template_id: int,
     data: SkillClassificationUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     template = (
@@ -396,7 +406,7 @@ def update_skill_classification(
 @router.delete("/skill-classifications/{template_id}")
 def delete_skill_classification(
     template_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     template = (

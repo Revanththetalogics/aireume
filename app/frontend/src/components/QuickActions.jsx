@@ -25,6 +25,7 @@ export default function QuickActions({
   currentStatus,
   onStatusChange,
   compact = false,
+  readOnly = false,
   className = '',
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -80,10 +81,13 @@ export default function QuickActions({
   ]
 
   const handleAction = (status) => {
+    if (readOnly) return
     if (onStatusChange) {
       onStatusChange(candidateId, status)
     }
   }
+
+  if (readOnly) return null
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>

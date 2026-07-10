@@ -4,6 +4,8 @@ import { Columns, User, Briefcase, ChevronDown, ChevronRight, Inbox } from 'luci
 import EmptyState from '../components/EmptyState'
 import { getCandidatePipeline, updateResultStatus } from '../lib/api'
 import { getScoreColor, PIPELINE_STAGES } from '../lib/constants'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 
 /** Coerce any value to a render-safe string. */
 function safeStr(v) {
@@ -129,6 +131,7 @@ function ConfirmDialog({ candidateName, targetLabel, onConfirm, onCancel }) {
 
 export default function KanbanBoard() {
   const navigate = useNavigate()
+  const { canWrite } = usePermissions()
   const [columns, setColumns] = useState({})
   const [counts, setCounts] = useState({})
   const [loading, setLoading] = useState(true)
@@ -197,6 +200,7 @@ export default function KanbanBoard() {
   }
 
   const executeDrop = async (payload, targetStatus) => {
+    if (!canWrite) return
     const { id, latest_result_id, sourceStatus } = payload
     if (!id || !latest_result_id || sourceStatus === targetStatus) return
 
@@ -272,13 +276,16 @@ export default function KanbanBoard() {
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
       <main className="flex-1 overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
+        <ViewerReadOnlyBanner />
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 rounded-xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center">
             <Columns className="w-5 h-5 text-brand-600" />
           </div>
           <div>
             <h2 className="text-2xl font-extrabold text-brand-900 tracking-tight">Pipeline</h2>
-            <p className="text-slate-500 text-sm font-medium">Drag and drop candidates between columns</p>
+            <p className="text-slate-500 text-sm font-medium">
+              {canWrite ? 'Drag and drop candidates between columns' : 'Read-only pipeline view'}
+            </p>
           </div>
         </div>
 
@@ -338,7 +345,7 @@ export default function KanbanBoard() {
                       items.map(candidate => (
                         <div
                           key={candidate.id}
-                          draggable
+                          draggable={canWrite}
                           onDragStart={(e) => handleDragStart(e, candidate, status)}
                           onDragEnd={handleDragEnd}
                           onClick={() => navigate(`/candidates/${candidate.id}`)}

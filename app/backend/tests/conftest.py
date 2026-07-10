@@ -307,6 +307,48 @@ def auth_client(client):
 
 
 @pytest.fixture(scope="function")
+def viewer_client(client, db):
+    """Authenticated client with tenant role=viewer (read-only)."""
+    from app.backend.models.db_models import User
+    from app.backend.routes.auth import _hash_password
+
+    register_payload = {
+        "company_name": "ViewerCorp",
+        "email": "admin@viewercorp.com",
+        "password": "TestPass123!",
+        "full_name": "Viewer Corp Admin",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+    _verify_user_via_api("admin@viewercorp.com")
+
+    admin_user = db.query(User).filter(User.email == "admin@viewercorp.com").first()
+    assert admin_user is not None
+
+    viewer = User(
+        tenant_id=admin_user.tenant_id,
+        email="viewer@viewercorp.com",
+        hashed_password=_hash_password("ViewerPass123!"),
+        role="viewer",
+        is_active=True,
+        email_verified=True,
+    )
+    db.add(viewer)
+    db.commit()
+
+    _verify_user_via_api("viewer@viewercorp.com")
+
+    login_resp = client.post("/api/auth/login", json={
+        "email": "viewer@viewercorp.com",
+        "password": "ViewerPass123!",
+    })
+    assert login_resp.status_code == 200, f"Viewer login failed: {login_resp.text}"
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture(scope="function")
 def auth_client_with_token(client):
     """
     Like auth_client but also returns the raw token for cases where tests need it.

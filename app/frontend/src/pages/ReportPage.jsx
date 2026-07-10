@@ -10,7 +10,7 @@ import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult, getInterviewSessions, getInterviewScorecard, downloadAdverseAction } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult, getInterviewSessions, getInterviewScorecard, downloadAdverseAction, submitScoreFeedback } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
@@ -20,7 +20,10 @@ import { EnrichmentBanner, ReportActionBar, AnalysisStageTracker, RescoreSheet, 
 import { useLiveScreenMode } from '../contexts/LiveScreenModeContext'
 import { useEnrichmentPolling } from '../hooks/useEnrichmentPolling'
 import { useNotification } from '../contexts/NotificationContext'
-import { showSuccess } from '../lib/toast'
+import { useOnboarding } from '../contexts/OnboardingContext'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
+import { showSuccess, showError } from '../lib/toast'
 import { getFitTierLabel, getScoreHexColor } from '../lib/constants'
 import { getKitReadiness, resolveInterviewKit } from '../lib/liveScreenKitUtils'
 import { hasNarrativeContent, needsEnrichmentRefetch, isReportCacheable } from '../lib/enrichmentUtils'
@@ -414,11 +417,15 @@ function RecruiterScorecardSection({ candidateId, sessions, scorecard, loading }
 export default function ReportPage() {
   const location = useLocation()
   const navigate  = useNavigate()
+  const { completeChecklistItem } = useOnboarding()
+  const { canWrite } = usePermissions()
   const [copied, setCopied]           = useState(false)
   const [result, setResult]           = useState(location.state?.result || null)
   const [labelStatus, setLabelStatus]   = useState(null)
   const [labelLoading, setLabelLoading] = useState(false)
-  const [labelDone, setLabelDone]       = useState(false)
+  const [labelDone, setLabelDone] = useState(false)
+  const [scoreFeedback, setScoreFeedback] = useState(null)
+  const [scoreFeedbackLoading, setScoreFeedbackLoading] = useState(false)
   const [narrativePolling, setNarrativePolling] = useState(false)
   const [jdContext, setJdContext] = useState(null)
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
@@ -728,9 +735,14 @@ export default function ReportPage() {
   }), [result])
 
   const roleForKit = useMemo(() => {
-    const r = result?.job_role
+    const r = result?.jd_name || result?.job_role
     return (r && r !== 'Not specified') ? safeStr(r) : ''
-  }, [result?.job_role])
+  }, [result?.jd_name, result?.job_role])
+
+  const roleDomain = useMemo(() => {
+    const d = result?.analysis_result?.jd_analysis?.domain || result?.jd_analysis?.domain
+    return d && d !== 'other' && d !== 'general' ? safeStr(d) : ''
+  }, [result])
 
   const kitReadiness = useMemo(
     () => getKitReadiness(
@@ -788,7 +800,7 @@ export default function ReportPage() {
   const isNarrativeReady = result.narrative_status === 'ready'
   const isReportComplete = isNarrativeReady || result.narrative_status === 'fallback' || result.narrative_status === 'failed' || !result.narrative_status
 
-  const role      = (result.job_role && result.job_role !== 'Not specified') ? result.job_role : ''
+  const role      = roleForKit
   const timestamp = result.analyzed_at
     ? new Date(result.analyzed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -915,6 +927,7 @@ export default function ReportPage() {
       <LiveScreenCallShell
         candidateName={candidateName}
         roleTitle={role ? safeStr(role) : ''}
+        roleSubtitle={roleDomain}
         fitScore={fitScore}
         result={result}
         kit={activeKit.kit}
@@ -928,7 +941,7 @@ export default function ReportPage() {
           setScreenMode(false)
           setForceFallbackKit(false)
         }}
-        onDebriefGenerated={async () => {
+        onDebriefGenerated={async (debrief) => {
           setScorecardKey((prev) => prev + 1)
           const rid = result?.result_id
           if (!rid) return
@@ -936,6 +949,7 @@ export default function ReportPage() {
             const data = await getScreeningResult(rid)
             setResult((prev) => ({ ...prev, ...data }))
           } catch { /* outcome refresh optional */ }
+          completeChecklistItem('sharedWithHM')
         }}
       />
     )
@@ -1055,6 +1069,11 @@ export default function ReportPage() {
         {hasDeterministicData && (
           <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex flex-col items-center">
             <ScoreGauge score={result.fit_score} />
+            {role && (
+              <p className="mt-2 text-xs font-semibold text-brand-800 text-center truncate w-full" title={role}>
+                {role}{roleDomain ? ` · ${roleDomain}` : ''}
+              </p>
+            )}
             {result.final_recommendation && (
               <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold">
                 <CheckCircle className="w-3.5 h-3.5" />
@@ -1064,8 +1083,50 @@ export default function ReportPage() {
           </div>
         )}
 
+        {/* Score accuracy feedback */}
+        {result.result_id && canWrite && (
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4">
+            <p className="text-xs font-bold text-brand-900 mb-0.5">Fit score accuracy</p>
+            <p className="text-xs text-slate-400 mb-3">Help calibrate scoring for this role.</p>
+            {(scoreFeedback || result?.analysis_result?.score_feedback?.sentiment) ? (
+              <p className="text-xs font-semibold text-emerald-700 text-center py-2">
+                Thanks — score marked as{' '}
+                {(scoreFeedback || result.analysis_result.score_feedback.sentiment).replace('_', ' ')}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {[
+                  { id: 'right', label: 'Feels right' },
+                  { id: 'high', label: 'Too high' },
+                  { id: 'low', label: 'Too low' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={scoreFeedbackLoading}
+                    onClick={async () => {
+                      setScoreFeedbackLoading(true)
+                      try {
+                        await submitScoreFeedback(result.result_id, opt.id)
+                        setScoreFeedback(opt.id)
+                        showSuccess('Score feedback saved')
+                      } catch {
+                        showError('Could not save feedback')
+                      }
+                      setScoreFeedbackLoading(false)
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold ring-1 ring-brand-200 text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Training label */}
-        {result.result_id && (
+        {result.result_id && canWrite && (
           <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4">
             <p className="text-xs font-bold text-brand-900 mb-0.5">Help ARIA Learn</p>
             <p className="text-xs text-slate-400 mb-3">Label this outcome to improve accuracy.</p>
@@ -1106,7 +1167,7 @@ export default function ReportPage() {
         )}
 
         {/* Analyze Another Resume */}
-        {jdContext && (
+        {jdContext && canWrite && (
           <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4">
             <p className="text-xs font-bold text-brand-900 mb-0.5">Same Job, New Candidate?</p>
             <p className="text-xs text-slate-400 mb-3">
@@ -1123,7 +1184,7 @@ export default function ReportPage() {
                     ...jdContext,
                     skillOverrides: jdContext?.skillOverrides || saved.skillOverrides,
                     jdParseResult: jdContext?.jdParseResult || saved.jdParseResult,
-                    skillsConfirmed: jdContext?.skillsConfirmed ?? true
+                    skillsConfirmed: jdContext?.skillsConfirmed ?? false
                   }
                 })
               }}
@@ -1143,8 +1204,8 @@ export default function ReportPage() {
         <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden px-6 py-3">
           <ReportActionBar
             result={result}
-            onAiScreenCall={result?.candidate_id ? () => setInterviewModalOpen(true) : undefined}
-            onLiveScreenKit={hasDeterministicData ? handleStartLiveScreen : undefined}
+            onAiScreenCall={canWrite && result?.candidate_id ? () => setInterviewModalOpen(true) : undefined}
+            onLiveScreenKit={canWrite && hasDeterministicData ? handleStartLiveScreen : undefined}
             onViewResume={result?.candidate_id ? async () => {
               setResumeActionLoading(true)
               try { await viewCandidateResume(result.candidate_id) } catch { alert('Resume not available') }
@@ -1163,7 +1224,7 @@ export default function ReportPage() {
             onDownloadPdf={handleDownload}
             onDownloadAdverseAction={handleAdverseAction}
             onShare={handleShare}
-            onRescore={() => setRescoreOpen(true)}
+            onRescore={canWrite ? () => setRescoreOpen(true) : undefined}
             isDownloading={isDownloading}
             resumeLoading={resumeActionLoading}
             copied={copied}

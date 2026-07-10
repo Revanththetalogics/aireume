@@ -10,6 +10,8 @@ import {
   updateProjectCandidateStatus,
 } from '../lib/api'
 import { PIPELINE_STAGES } from '../lib/constants'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 
 const COLUMN_STYLES = {
   pending: { header: 'bg-amber-50 text-amber-800 border-amber-200', badge: 'bg-amber-100 text-amber-700' },
@@ -19,7 +21,7 @@ const COLUMN_STYLES = {
   hired: { header: 'bg-indigo-50 text-indigo-800 border-indigo-200', badge: 'bg-indigo-100 text-indigo-700' },
 }
 
-function CandidateCard({ item, onStatusChange }) {
+function CandidateCard({ item, onStatusChange, readOnly }) {
   const navigate = useNavigate()
   return (
     <div className="bg-white rounded-xl ring-1 ring-brand-100 p-3 shadow-sm hover:shadow-md transition-shadow">
@@ -42,7 +44,8 @@ function CandidateCard({ item, onStatusChange }) {
         <select
           value={item.status}
           onChange={(e) => onStatusChange(item.candidate_id, e.target.value)}
-          className="text-xs rounded-lg border border-brand-200 px-2 py-1 ml-auto"
+          disabled={readOnly}
+          className="text-xs rounded-lg border border-brand-200 px-2 py-1 ml-auto disabled:opacity-60 disabled:cursor-not-allowed"
           onClick={(e) => e.stopPropagation()}
         >
           {PIPELINE_STAGES.map((s) => (
@@ -57,6 +60,7 @@ function CandidateCard({ item, onStatusChange }) {
 export default function ProjectDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { canWrite } = usePermissions()
   const [project, setProject] = useState(null)
   const [pipeline, setPipeline] = useState({})
   const [loading, setLoading] = useState(true)
@@ -82,6 +86,7 @@ export default function ProjectDetailPage() {
   }, [load])
 
   const handleStatusChange = async (candidateId, status) => {
+    if (!canWrite) return
     try {
       await updateProjectCandidateStatus(id, candidateId, status)
       await load()
@@ -91,6 +96,7 @@ export default function ProjectDetailPage() {
   }
 
   const handleProjectStatus = async (status) => {
+    if (!canWrite) return
     try {
       await updateProject(id, { status })
       await load()
@@ -120,6 +126,7 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {!canWrite && <ViewerReadOnlyBanner />}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -144,20 +151,23 @@ export default function ProjectDetailPage() {
           <select
             value={project.status}
             onChange={(e) => handleProjectStatus(e.target.value)}
-            className="text-sm rounded-xl border border-brand-200 px-3 py-2"
+            disabled={!canWrite}
+            className="text-sm rounded-xl border border-brand-200 px-3 py-2 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <option value="active">Active</option>
             <option value="paused">Paused</option>
             <option value="closed">Closed</option>
             <option value="draft">Draft</option>
           </select>
-          <Link
-            to="/analyze"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700"
-          >
-            <Settings2 className="w-4 h-4" />
-            Analyze resumes
-          </Link>
+          {canWrite && (
+            <Link
+              to="/analyze"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700"
+            >
+              <Settings2 className="w-4 h-4" />
+              Analyze resumes
+            </Link>
+          )}
         </div>
       </div>
 
@@ -189,6 +199,7 @@ export default function ProjectDetailPage() {
                       key={item.id}
                       item={item}
                       onStatusChange={handleStatusChange}
+                      readOnly={!canWrite}
                     />
                   ))
                 )}

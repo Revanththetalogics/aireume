@@ -81,3 +81,31 @@ def log_field_change(
         change_reason=reason,
     )
     db.add(entry)
+
+
+# ─── Tenant-Scoped Audit (no auto-commit) ─────────────────────────────────────
+
+
+def log_tenant_event(
+    db: Session,
+    *,
+    actor: User,
+    action: str,
+    resource_type: str,
+    resource_id: int = None,
+    details: dict = None,
+    ip_address: str = None,
+):
+    """Record a tenant-scoped audit event. Caller commits the transaction."""
+    entry = AuditLog(
+        actor_user_id=actor.id,
+        actor_email=actor.email,
+        tenant_id=actor.tenant_id,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        details=json.dumps(details or {}),
+        ip_address=ip_address,
+    )
+    db.add(entry)
+    return entry

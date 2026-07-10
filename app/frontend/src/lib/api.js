@@ -119,6 +119,17 @@ api.interceptors.response.use(
         isRefreshing = false  // ALWAYS reset, even on success or failure
       }
     }
+    if (error.response?.status === 403) {
+      const detail = error.response?.data?.detail
+      const errorCode = typeof detail === 'object' ? detail?.error_code : null
+      if (errorCode === 'ROLE_FORBIDDEN') {
+        window.dispatchEvent(new CustomEvent('rbac:forbidden', {
+          detail: {
+            message: typeof detail === 'object' ? detail.message : detail,
+          },
+        }))
+      }
+    }
     return Promise.reject(error)
   }
 )
@@ -1505,6 +1516,11 @@ export async function generateDebrief(resultId, conversationSummary, recommendat
   return resp.data
 }
 
+export async function submitScoreFeedback(resultId, sentiment) {
+  const resp = await api.post(`/results/${resultId}/score-feedback`, { sentiment })
+  return resp.data
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function seedSampleData() {
@@ -1591,6 +1607,21 @@ export async function getScreeningAnalytics(period = 'last_30_days') {
 
 export async function getHandoffPackage(jdId) {
   const response = await api.get(`/jd/${jdId}/handoff-package`)
+  return response.data
+}
+
+export async function createHandoffShareLink(jdId, options = {}) {
+  const response = await api.post(`/jd/${jdId}/share-links`, options)
+  return response.data
+}
+
+export async function getPublicHandoff(token) {
+  const response = await api.get(`/public/handoff/${token}`)
+  return response.data
+}
+
+export async function getTenantAuditLogs(params = {}) {
+  const response = await api.get('/audit-logs', { params })
   return response.data
 }
 

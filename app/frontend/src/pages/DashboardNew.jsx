@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, Link, Navigate } from 'react-router-dom'
+import { useNavigate, Link, Navigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Clock, FileText, ArrowRight, RefreshCw,
@@ -9,6 +9,8 @@ import {
   Mic, Calendar, TrendingUp, Star
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 
 import { getDashboardSummary, getDashboardActivity, getInterviewAnalytics } from '../lib/api'
 import { safeStr } from '../lib/utils'
@@ -182,7 +184,9 @@ function groupActivitiesByTime(activities) {
 
 function DashboardContent() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
+  const { canWrite } = usePermissions()
 
   const [summary, setSummary] = useState(null)
   const [activity, setActivity] = useState(null)
@@ -296,13 +300,15 @@ function DashboardContent() {
         <GettingStarted />
       </div>
 
+      {(location.state?.viewerBlocked || !canWrite) && <ViewerReadOnlyBanner />}
+
       {/* ── Improvement #4 & #6: Compact Header + Quick Actions ──────────── */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-brand-900 whitespace-nowrap">
           Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          {/* Primary CTA - filled */}
+          {canWrite && (
           <button
             onClick={() => navigate('/analyze')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors shadow-sm font-medium text-sm"
@@ -310,8 +316,9 @@ function DashboardContent() {
             <Sparkles className="w-4 h-4" />
             Screen Resumes
           </button>
+          )}
 
-          {/* Secondary actions - outlined */}
+          {canWrite && (
           <button
             onClick={() => navigate('/jd-library')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
@@ -319,6 +326,7 @@ function DashboardContent() {
             <Plus className="w-4 h-4" />
             Create New JD
           </button>
+          )}
 
           <button
             onClick={() => navigate('/compare')}

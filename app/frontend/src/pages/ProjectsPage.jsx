@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { FolderKanban, Plus, Loader2, Users, ChevronRight } from 'lucide-react'
 import { listProjects, createProject, getTemplates } from '../lib/api'
 import { Button } from '../components/ui'
+import usePermissions from '../hooks/usePermissions'
+import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 
 const STATUS_STYLES = {
   draft: 'bg-slate-100 text-slate-700 ring-slate-200',
@@ -13,6 +15,7 @@ const STATUS_STYLES = {
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
+  const { canWrite } = usePermissions()
   const [projects, setProjects] = useState([])
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +67,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {!canWrite && <ViewerReadOnlyBanner />}
       <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center">
@@ -74,10 +78,12 @@ export default function ProjectsPage() {
             <p className="text-slate-500 text-sm font-medium">Organize hiring pushes with project-scoped pipelines</p>
           </div>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" />
-          New Project
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" />
+            New Project
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-2 mb-6 flex-wrap">
@@ -95,7 +101,7 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {showCreate && (
+      {canWrite && showCreate && (
         <form onSubmit={handleCreate} className="mb-8 bg-white/90 rounded-2xl ring-1 ring-brand-100 p-6 space-y-4">
           <h2 className="font-bold text-brand-900">Create screening project</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -161,6 +161,8 @@ from app.backend.routes import recruiter
 from app.backend.routes import interviews
 from app.backend.routes import projects
 from app.backend.routes import ats
+from app.backend.routes import tenant_audit
+from app.backend.routes import share_links
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -555,6 +557,9 @@ app.include_router(recruiter.router)
 app.include_router(interviews.router)
 app.include_router(projects.router)
 app.include_router(ats.router)
+app.include_router(tenant_audit.router)
+app.include_router(share_links.router)
+app.include_router(share_links.public_router)
 
 
 # ─── Request Size Limits ───────────────────────────────────────────────────────

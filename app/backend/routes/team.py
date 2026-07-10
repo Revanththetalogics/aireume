@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin, require_active_subscription
+from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import Comment, JdCache, RoleTemplate, ScreeningResult, TeamMember, TeamSkillProfile, Tenant, User
 from app.backend.models.schemas import CommentCreate, CommentOut, InviteRequest
 from app.backend.routes.auth import _hash_password
 from app.backend.services.hybrid_pipeline import parse_jd_rules
 from app.backend.services.skill_matcher import JD_CACHE_VERSION
+from app.backend.services.audit_service import log_tenant_event
 from app.backend.services.team_service import (
     compute_team_gaps,
     create_team_profile,
@@ -86,6 +88,16 @@ def invite_member(
     db.commit()
     db.refresh(new_user)
 
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="team.invite",
+        resource_type="user",
+        resource_id=new_user.id,
+        details={"email": new_user.email, "role": new_user.role},
+    )
+    db.commit()
+
     logger.info("Team member invited: %s (role=%s). Temporary password generated (not logged for security).",
                 new_user.email, new_user.role)
 
@@ -111,6 +123,14 @@ def remove_member(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.is_active = False
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="team.remove",
+        resource_type="user",
+        resource_id=user.id,
+        details={"email": user.email},
+    )
     db.commit()
     return {"removed": user_id}
 
@@ -144,7 +164,7 @@ def get_comments(
 def add_comment(
     result_id: int,
     body: CommentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db)
 ):
     result = db.query(ScreeningResult).filter(
@@ -193,7 +213,7 @@ def _get_or_cache_jd(db: Session, jd_text: str) -> dict:
 @router.post("/team/profiles")
 def create_profile(
     body: TeamProfileCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Create a new team skill profile."""
@@ -223,7 +243,7 @@ def list_profiles(
 def update_profile(
     profile_id: int,
     body: TeamProfileUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
     """Update an existing team skill profile."""
@@ -244,7 +264,7 @@ def update_profile(
 @router.delete("/team/profiles/{profile_id}")
 def delete_profile(
     profile_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Delete a team skill profile."""

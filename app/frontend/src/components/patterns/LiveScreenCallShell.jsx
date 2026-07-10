@@ -12,6 +12,7 @@ import { viewCandidateResume } from '../../lib/api'
 export default function LiveScreenCallShell({
   candidateName,
   roleTitle,
+  roleSubtitle = '',
   fitScore,
   fitTierClass,
   fitTierLabel,
@@ -43,7 +44,9 @@ export default function LiveScreenCallShell({
           <PhoneCall className="w-4 h-4 text-brand-600 shrink-0" />
           <span className="font-bold text-brand-900 text-sm truncate">{candidateName || 'Candidate'}</span>
           {roleTitle && (
-            <span className="text-xs text-slate-400 truncate hidden md:block">{roleTitle}</span>
+            <span className="text-xs text-slate-500 truncate hidden md:block">
+              {roleTitle}{roleSubtitle ? ` · ${roleSubtitle}` : ''}
+            </span>
           )}
           {fitScore != null && (
             <Badge color="slate" className="hidden sm:inline-flex shrink-0" title={LIVE_SCREEN.prescreenNote}>
@@ -126,6 +129,9 @@ export default function LiveScreenCallShell({
             interviewKitStatus={result?.interview_kit_status}
             resultId={result?.result_id}
             analysisData={analysisData}
+            candidateName={candidateName}
+            roleTitle={roleTitle}
+            fitScore={fitScore}
             onDebriefGenerated={onDebriefGenerated}
           />
         </main>

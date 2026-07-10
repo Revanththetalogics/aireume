@@ -6,7 +6,7 @@ import json
 import math
 import os
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ from app.backend.models.db_models import (
     PlatformConfig, PlatformSetting, TenantEmailConfig,
     SecurityEvent, ImpersonationSession, ErasureLog,
     PlanFeature, RateLimitConfig, DunningRecord,
-    SSOConfig, RevokedToken, AdminNotification,
+    SSOConfig, SSOGroupRoleMapping, RevokedToken, AdminNotification,
 )
 from app.backend.services.audit_service import log_audit
 from app.backend.services.weight_mapper import validate_and_normalize_weights
@@ -83,6 +83,11 @@ class AddUserToTenantRequest(BaseModel):
     platform_role: Optional[str] = None
 
 
+class SSOGroupMappingItem(BaseModel):
+    idp_group: str
+    role: str
+
+
 class SSOConfigRequest(BaseModel):
     idp_entity_id: str
     idp_sso_url: str
@@ -91,6 +96,8 @@ class SSOConfigRequest(BaseModel):
     enforce_sso: bool = False
     auto_provision: bool = True
     default_role: str = "viewer"
+    groups_attribute: Optional[str] = "groups"
+    group_mappings: Optional[List[SSOGroupMappingItem]] = None
     is_active: bool = True
 
 
@@ -810,6 +817,11 @@ def get_tenant_sso(
         "enforce_sso": sso_config.enforce_sso,
         "auto_provision": sso_config.auto_provision,
         "default_role": sso_config.default_role,
+        "groups_attribute": getattr(sso_config, "groups_attribute", None) or "groups",
+        "group_mappings": [
+            {"idp_group": m.idp_group, "role": m.role}
+            for m in db.query(SSOGroupRoleMapping).filter(SSOGroupRoleMapping.tenant_id == tenant_id).all()
+        ],
         "is_active": sso_config.is_active,
         "created_at": _dt_to_iso(sso_config.created_at),
         "updated_at": _dt_to_iso(sso_config.updated_at),
@@ -852,6 +864,7 @@ def update_tenant_sso(
         sso_config.enforce_sso = body.enforce_sso
         sso_config.auto_provision = body.auto_provision
         sso_config.default_role = body.default_role
+        sso_config.groups_attribute = body.groups_attribute or "groups"
         sso_config.is_active = body.is_active
         action = "tenant.sso_update"
     else:
@@ -867,10 +880,22 @@ def update_tenant_sso(
             enforce_sso=body.enforce_sso,
             auto_provision=body.auto_provision,
             default_role=body.default_role,
+            groups_attribute=body.groups_attribute or "groups",
             is_active=body.is_active,
         )
         db.add(sso_config)
         action = "tenant.sso_create"
+
+    if body.group_mappings is not None:
+        db.query(SSOGroupRoleMapping).filter(SSOGroupRoleMapping.tenant_id == tenant_id).delete()
+        for item in body.group_mappings:
+            if item.role not in ALLOWED_SSO_ROLES:
+                raise HTTPException(status_code=400, detail=f"Invalid mapped role: {item.role}")
+            db.add(SSOGroupRoleMapping(
+                tenant_id=tenant_id,
+                idp_group=item.idp_group.strip(),
+                role=item.role,
+            ))
 
     db.commit()
     db.refresh(sso_config)
