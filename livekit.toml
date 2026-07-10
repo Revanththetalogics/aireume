@@ -1,0 +1,10 @@
+[project]
+subdomain = "aria-tiq3bh9q"
+
+[agent]
+id = "CA_uTaqKWRBijM2"
+name = "ARIA"
+entrypoint = "app/voice_agent/cloud_agent.py"
+
+[build]
+dockerfile = "Dockerfile"

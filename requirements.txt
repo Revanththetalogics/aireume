@@ -1,0 +1,9 @@
+# Root marker for LiveKit CLI Python detection (monorepo).
+# Full agent deps: app/voice_agent/requirements-cloud.txt
+livekit-agents>=1.2.0
+livekit-api>=0.8.0
+livekit-protocol>=0.8.0
+livekit>=0.21.0
+livekit-plugins-noise-cancellation>=0.2.0
+httpx==0.28.1
+python-dotenv==1.0.1

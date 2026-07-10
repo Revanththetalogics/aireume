@@ -1,0 +1,22 @@
+# LiveKit Cloud agent image — build context is repo root.
+# Deploy: lk agent deploy (from repo root)
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY app/voice_agent/requirements-cloud.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/voice_agent/ ./app/voice_agent/
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV LIVEKIT_AGENT_NAME=ARIA
+
+CMD ["python", "app/voice_agent/cloud_agent.py", "start"]

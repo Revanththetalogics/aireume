@@ -140,9 +140,14 @@ def execute_scheduled_call(session_id: int):
     Execute a scheduled voice screening call.
 
     Called by APScheduler at the scheduled time.
-    Dispatches the call via the voice-agent's HTTP /dispatch endpoint,
-    which creates a LiveKit room and initiates a SIP outbound call.
+    Dispatches via LiveKit Cloud when LIVEKIT_CLOUD_VOICE=1, otherwise
+    the self-hosted voice-agent HTTP /dispatch endpoint.
     """
+    from app.backend.services.livekit_cloud_dispatch import (
+        dispatch_screening_call,
+        is_cloud_voice_enabled,
+    )
+
     db = SessionLocal()
     try:
         session = db.execute(
@@ -217,7 +222,6 @@ def execute_scheduled_call(session_id: int):
         except Exception as kit_err:
             logger.warning("Failed to load interview kit for session %d: %s", session_id, kit_err)
 
-        # Dispatch via voice-agent HTTP API
         dispatch_payload = {
             "session_id": session.id,
             "phone_number": session.phone_number,
@@ -232,13 +236,16 @@ def execute_scheduled_call(session_id: int):
             "screening_result_id": interview_kit_payload.get("screening_result_id"),
         }
 
-        resp = httpx.post(
-            f"{VOICE_AGENT_URL}/dispatch",
-            json=dispatch_payload,
-            timeout=60.0,
-        )
-        resp.raise_for_status()
-        result = resp.json()
+        if is_cloud_voice_enabled():
+            result = dispatch_screening_call(dispatch_payload)
+        else:
+            resp = httpx.post(
+                f"{VOICE_AGENT_URL}/dispatch",
+                json=dispatch_payload,
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            result = resp.json()
 
         if result.get("success"):
             session.status = "in_progress"
@@ -254,6 +261,15 @@ def execute_scheduled_call(session_id: int):
         db.commit()
 
     except httpx.ConnectError as e:
+        if is_cloud_voice_enabled():
+            logger.error("LiveKit Cloud dispatch failed for session %d: %s", session_id, e)
+            try:
+                session.status = "failed"
+                session.error_log = f"LiveKit Cloud dispatch failed: {e}"
+                db.commit()
+            except Exception:
+                pass
+            return
         logger.warning(
             "Voice agent unreachable at %s — session %d set to pending for retry: %s",
             VOICE_AGENT_URL, session_id, e,
@@ -629,10 +645,18 @@ def start_voice_scheduler():
         misfire_grace_time=300,
     )
 
+    from app.backend.services.livekit_cloud_dispatch import is_cloud_voice_enabled
+
+    dispatch_target = (
+        "livekit-cloud"
+        if is_cloud_voice_enabled()
+        else VOICE_AGENT_URL
+    )
     voice_scheduler.start()
     logger.info(
-        "Voice call scheduler started (tz=%s, retry check: every 15 min, voice-agent: %s)",
-        voice_scheduler.timezone, VOICE_AGENT_URL,
+        "Voice call scheduler started (tz=%s, retry check: every 15 min, dispatch: %s)",
+        voice_scheduler.timezone,
+        dispatch_target,
     )
 
     # Recover any pending calls lost due to container restart

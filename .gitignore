@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!.env.staging.main.example
+livekit-agent.env
 .venv/
 venv/
 __pycache__/
