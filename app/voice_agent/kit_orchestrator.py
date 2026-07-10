@@ -273,6 +273,17 @@ class KitDrivenOrchestrator:
         self.ctx.current_stage = InterviewStage.ENDED
         return None
 
+    def force_closing_message(self) -> Optional[str]:
+        """Speak a farewell when the call ends abruptly (e.g. time budget)."""
+        if self.ctx.current_stage == InterviewStage.ENDED:
+            return None
+        if self.ctx.current_stage == InterviewStage.CLOSING:
+            self.ctx.current_stage = InterviewStage.ENDED
+            return None
+        msg = self._start_closing()
+        self.ctx.current_stage = InterviewStage.ENDED
+        return msg
+
     def is_complete(self) -> bool:
         return self.ctx.current_stage == InterviewStage.ENDED
 

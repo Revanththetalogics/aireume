@@ -466,6 +466,32 @@ class InterviewOrchestrator:
         })
         return farewell
 
+    def force_closing_message(self) -> Optional[str]:
+        """Speak a farewell when the call ends abruptly (e.g. time budget)."""
+        if self.ctx.current_stage == InterviewStage.ENDED:
+            return None
+        if self.ctx.current_stage == InterviewStage.CLOSING:
+            self.ctx.current_stage = InterviewStage.ENDED
+            return None
+
+        name = self.ctx.candidate_name.split()[0] if self.ctx.candidate_name else ""
+        name_clause = f", {name}" if name else ""
+        farewell = (
+            f"Thank you for your time today{name_clause}. "
+            f"We'll be in touch with next steps within a few days. "
+            f"Have a great day!"
+        )
+        self.ctx.transcript.append(
+            {
+                "speaker": "bot",
+                "text": farewell,
+                "timestamp": self.ctx.elapsed,
+                "stage": "closing",
+            }
+        )
+        self.ctx.current_stage = InterviewStage.ENDED
+        return farewell
+
     def is_complete(self) -> bool:
         """Check if the interview is complete."""
         return self.ctx.current_stage == InterviewStage.ENDED

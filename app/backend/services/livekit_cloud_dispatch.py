@@ -8,11 +8,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
 
 from app.voice_agent.livekit_dispatch import dispatch_cloud_screening_call
+from app.voice_agent.voice_flow_log import log_step
 
 logger = logging.getLogger(__name__)
 
@@ -27,39 +29,111 @@ def is_cloud_voice_enabled() -> bool:
     return os.getenv("LIVEKIT_CLOUD_VOICE", "").strip().lower() in ("1", "true", "yes")
 
 
-async def _fetch_tenant_config(tenant_id: int) -> dict:
+async def _fetch_tenant_config(tenant_id: int, *, session_id: int | str | None = None) -> dict:
+    url = f"{BACKEND_INTERNAL_URL}/api/voice/internal/config/{tenant_id}"
+    started = time.perf_counter()
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{BACKEND_INTERNAL_URL}/api/voice/internal/config/{tenant_id}",
-            headers=INTERNAL_HEADERS,
-        )
+        resp = await client.get(url, headers=INTERNAL_HEADERS)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            log_step(
+                logger,
+                session_id,
+                "internal_config_ok",
+                tenant_id=tenant_id,
+                status=resp.status_code,
+                elapsed_ms=elapsed_ms,
+                company_name=data.get("company_name"),
+            )
+            return data
+        log_step(
+            logger,
+            session_id,
+            "internal_config_failed",
+            level=logging.WARNING,
+            tenant_id=tenant_id,
+            status=resp.status_code,
+            elapsed_ms=elapsed_ms,
+            url=url,
+        )
     return {}
 
 
-async def _fetch_candidate_context(tenant_id: int, candidate_id: int) -> dict:
+async def _fetch_candidate_context(
+    tenant_id: int,
+    candidate_id: int,
+    *,
+    session_id: int | str | None = None,
+) -> dict:
+    url = f"{BACKEND_INTERNAL_URL}/api/voice/internal/candidate/{tenant_id}/{candidate_id}"
+    started = time.perf_counter()
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{BACKEND_INTERNAL_URL}/api/voice/internal/candidate/{tenant_id}/{candidate_id}",
-            headers=INTERNAL_HEADERS,
-        )
+        resp = await client.get(url, headers=INTERNAL_HEADERS)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            log_step(
+                logger,
+                session_id,
+                "internal_candidate_ok",
+                tenant_id=tenant_id,
+                candidate_id=candidate_id,
+                status=resp.status_code,
+                elapsed_ms=elapsed_ms,
+                candidate_name=data.get("name"),
+            )
+            return data
+        log_step(
+            logger,
+            session_id,
+            "internal_candidate_failed",
+            level=logging.WARNING,
+            tenant_id=tenant_id,
+            candidate_id=candidate_id,
+            status=resp.status_code,
+            elapsed_ms=elapsed_ms,
+            url=url,
+        )
     return {}
 
 
 async def dispatch_screening_call_async(payload: dict[str, Any]) -> dict[str, Any]:
     """Enrich payload with tenant/candidate context and dispatch to LiveKit Cloud."""
+    session_id = payload.get("session_id")
+    log_step(
+        logger,
+        session_id,
+        "backend_dispatch_start",
+        phone=payload.get("phone_number"),
+        tenant_id=payload.get("tenant_id"),
+        candidate_id=payload.get("candidate_id"),
+        backend_internal_url=BACKEND_INTERNAL_URL,
+    )
     tenant_id = payload.get("tenant_id")
     candidate_id = payload.get("candidate_id")
     if tenant_id is not None:
-        payload["tenant_config"] = await _fetch_tenant_config(int(tenant_id))
+        payload["tenant_config"] = await _fetch_tenant_config(
+            int(tenant_id),
+            session_id=session_id,
+        )
     if tenant_id is not None and candidate_id is not None:
         payload["candidate_context"] = await _fetch_candidate_context(
-            int(tenant_id), int(candidate_id)
+            int(tenant_id),
+            int(candidate_id),
+            session_id=session_id,
         )
-    return await dispatch_cloud_screening_call(payload)
+    result = await dispatch_cloud_screening_call(payload)
+    log_step(
+        logger,
+        session_id,
+        "backend_dispatch_result",
+        success=result.get("success"),
+        room=result.get("room_name"),
+        dispatch_id=result.get("dispatch_id"),
+        message=result.get("message"),
+    )
+    return result
 
 
 def dispatch_screening_call(payload: dict[str, Any]) -> dict[str, Any]:

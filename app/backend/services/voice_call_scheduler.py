@@ -250,8 +250,10 @@ def execute_scheduled_call(session_id: int):
         if result.get("success"):
             session.status = "in_progress"
             logger.info(
-                "Call dispatched: session=%d room=%s",
-                session_id, result.get("room_name"),
+                "Call dispatched: session=%d room=%s dispatch_id=%s",
+                session_id,
+                result.get("room_name"),
+                result.get("dispatch_id"),
             )
         else:
             session.status = "failed"

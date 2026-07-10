@@ -76,6 +76,7 @@ COPY --from=build --chown=appuser:appuser /app /app
 
 # Activate virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH=/app
 
 # Switch to the non-privileged user for all subsequent operations
 # This improves security by not running as root
@@ -83,4 +84,4 @@ USER appuser
 
 # Run the application
 # The "start" command tells the worker to connect to LiveKit and begin waiting for jobs.
-CMD ["python", "app/voice_agent/cloud_agent.py", "start"]
+CMD ["python", "-m", "app.voice_agent.cloud_agent", "start"]
