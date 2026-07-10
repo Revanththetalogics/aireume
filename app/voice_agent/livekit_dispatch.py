@@ -130,6 +130,26 @@ class LiveKitSIPDispatcher:
             logger.error("SIP outbound trunk creation failed: %s", e)
             return None
 
+    async def create_screening_room(self, session_id: int) -> dict[str, str]:
+        """Create a LiveKit room for a screening call (SIP dial is done by the cloud agent)."""
+        from livekit.api import LiveKitAPI
+        from livekit.protocol.room import CreateRoomRequest
+
+        room_name = f"voice-screen-{session_id}"
+        api = LiveKitAPI(self.lk_url, self.api_key, self.api_secret)
+        try:
+            await api.room.create_room(
+                CreateRoomRequest(
+                    name=room_name,
+                    empty_timeout=120,
+                    max_participants=3,
+                )
+            )
+            logger.info("Screening room created: %s", room_name)
+            return {"room_name": room_name, "lk_url": LIVEKIT_URL}
+        finally:
+            await api.aclose()
+
     async def create_room_and_dial(
         self,
         *,
@@ -176,6 +196,18 @@ class LiveKitSIPDispatcher:
             await api.aclose()
 
 
+async def resolve_sip_trunk_for_dispatch() -> str:
+    """Resolve outbound SIP trunk ID for cloud agent metadata."""
+    dispatcher = LiveKitSIPDispatcher()
+    from livekit.api import LiveKitAPI
+
+    api = LiveKitAPI(dispatcher.lk_url, dispatcher.api_key, dispatcher.api_secret)
+    try:
+        return await dispatcher.resolve_sip_trunk_id(api)
+    finally:
+        await api.aclose()
+
+
 async def dispatch_cloud_agent(
     *,
     room_name: str,
@@ -212,23 +244,27 @@ async def dispatch_cloud_agent(
 
 async def dispatch_cloud_screening_call(payload: dict[str, Any]) -> dict[str, Any]:
     """
-    Full cloud dispatch: create room + SIP dial + dispatch ARIA cloud agent.
+    Full cloud dispatch: create room, dispatch ARIA cloud agent, agent dials SIP.
+
+    The cloud agent starts its audio pipeline before placing the outbound call
+    (LiveKit telephony best practice) so the greeting is heard when the candidate
+    answers.
 
     ``payload`` mirrors the voice-agent /dispatch request body.
     """
     session_id = int(payload["session_id"])
     dispatcher = LiveKitSIPDispatcher()
-    room_info = await dispatcher.create_room_and_dial(
-        session_id=session_id,
-        phone_number=payload["phone_number"],
-        candidate_name=payload.get("candidate_name") or "Candidate",
-    )
+    room_info = await dispatcher.create_screening_room(session_id)
+    sip_trunk_id = await resolve_sip_trunk_for_dispatch()
+    participant_identity = f"candidate-{session_id}"
     metadata = {
         "session_id": session_id,
         "tenant_id": payload.get("tenant_id"),
         "candidate_id": payload.get("candidate_id"),
         "candidate_name": payload.get("candidate_name"),
         "phone_number": payload.get("phone_number"),
+        "participant_identity": participant_identity,
+        "sip_trunk_id": sip_trunk_id,
         "jd_title": payload.get("jd_title"),
         "jd_must_have_skills": payload.get("jd_must_have_skills") or [],
         "depth": payload.get("depth") or "quick",

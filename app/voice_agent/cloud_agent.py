@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Any, AsyncIterable, Optional
 
 from dotenv import load_dotenv
@@ -151,21 +152,10 @@ def _create_server():
             self.orchestrator = orchestrator
             self.orch_ctx = orch_ctx
             self.mode = mode
-            self._greeting_done = False
 
         async def on_enter(self) -> None:
-            greeting = await self.orchestrator.start()
-            self.orch_ctx.transcript.append(
-                {
-                    "speaker": "bot",
-                    "text": greeting,
-                    "timestamp": 0.0,
-                    "stage": "introduction",
-                }
-            )
-            await self.session.say(greeting, allow_interruptions=True)
-            self._greeting_done = True
-            logger.info("Greeting sent session=%s", self.orch_ctx.session_id)
+            # Greeting is sent after the SIP participant answers (see entrypoint).
+            return
 
         async def llm_node(self, chat_ctx, tools, model_settings) -> AsyncIterable[str]:
             user_text = _extract_last_user_message(chat_ctx)
@@ -184,11 +174,20 @@ def _create_server():
         raw = ctx.job.metadata or "{}"
         metadata = json.loads(raw) if isinstance(raw, str) else (raw or {})
         session_id = int(metadata.get("session_id") or 0)
-        logger.info("Cloud agent job started session=%s room=%s", session_id, ctx.room.name)
+        participant_identity = (
+            metadata.get("participant_identity") or f"candidate-{session_id}"
+        )
+        phone_number = metadata.get("phone_number") or ""
+        sip_trunk_id = metadata.get("sip_trunk_id") or os.getenv("SIP_TRUNK_ID", "")
+        logger.info(
+            "Cloud agent job started session=%s room=%s trunk=%s",
+            session_id,
+            ctx.room.name,
+            sip_trunk_id,
+        )
 
         orchestrator, orch_ctx, mode = _build_orchestrator(metadata)
         backend_url = metadata.get("aria_backend_url") or ARIA_BACKEND_URL
-        await _update_session(session_id, {"status": "in_progress"}, backend_url)
 
         tts_kwargs: dict[str, Any] = {}
         if TTS_VOICE:
@@ -219,7 +218,72 @@ def _create_server():
                 noise_cancellation=noise_cancellation.BVCTelephony(),
             )
 
-        await session.start(**start_kwargs)
+        # LiveKit outbound pattern: start agent audio pipeline BEFORE dialing so
+        # the greeting is heard as soon as the candidate answers.
+        session_started = asyncio.create_task(session.start(**start_kwargs))
+
+        try:
+            from livekit.api import CreateSIPParticipantRequest
+
+            sip_phone = re.sub(r"[^\d+]", "", phone_number)
+            if not sip_phone or not sip_trunk_id:
+                raise ValueError(
+                    f"Missing phone_number or sip_trunk_id for session {session_id}"
+                )
+
+            logger.info(
+                "Placing outbound SIP call session=%s phone=%s identity=%s",
+                session_id,
+                sip_phone,
+                participant_identity,
+            )
+            await ctx.api.sip.create_sip_participant(
+                CreateSIPParticipantRequest(
+                    sip_trunk_id=sip_trunk_id,
+                    sip_call_to=sip_phone,
+                    room_name=ctx.room.name,
+                    participant_identity=participant_identity,
+                    participant_name=metadata.get("candidate_name") or "Candidate",
+                    hide_phone_number=False,
+                    wait_until_answered=True,
+                )
+            )
+        except Exception as dial_err:
+            logger.error(
+                "SIP dial failed session=%s: %s",
+                session_id,
+                dial_err,
+                exc_info=True,
+            )
+            await _update_session(
+                session_id,
+                {"status": "failed", "error_log": f"SIP dial failed: {dial_err}"},
+                backend_url,
+            )
+            session_started.cancel()
+            return
+
+        await session_started
+        participant = await ctx.wait_for_participant(identity=participant_identity)
+        logger.info(
+            "SIP participant active session=%s identity=%s",
+            session_id,
+            participant.identity,
+        )
+        await _update_session(session_id, {"status": "in_progress"}, backend_url)
+
+        greeting = await orchestrator.start()
+        orch_ctx.transcript.append(
+            {
+                "speaker": "bot",
+                "text": greeting,
+                "timestamp": 0.0,
+                "stage": "introduction",
+            }
+        )
+        logger.info("Sending greeting session=%s", session_id)
+        await session.say(greeting, allow_interruptions=True)
+        logger.info("Greeting sent session=%s", session_id)
 
         try:
             while not orchestrator.is_complete():
