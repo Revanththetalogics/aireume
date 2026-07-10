@@ -254,6 +254,38 @@ def _populate_denormalized_columns(sr: ScreeningResult, result: dict) -> None:
         log.warning("Non-critical: Failed to populate denormalized columns: %s", e)
 
 
+def _should_preserve_analysis_scores(
+    existing: ScreeningResult | None,
+    resume_text: str,
+    jd_text: str,
+) -> bool:
+    """Same candidate + same JD + unchanged inputs → keep prior analysis scores."""
+    if existing is None:
+        return False
+    if existing.deterministic_score is None:
+        return False
+    return (
+        (existing.resume_text or "").strip() == (resume_text or "").strip()
+        and (existing.jd_text or "").strip() == (jd_text or "").strip()
+    )
+
+
+def _restore_preserved_scores(existing: ScreeningResult, pipeline_result: dict) -> dict:
+    """Restore fit scores from prior analysis when re-running against same JD."""
+    try:
+        prior = json.loads(existing.analysis_result or "{}")
+    except json.JSONDecodeError:
+        prior = {}
+    restored = dict(pipeline_result)
+    for key in ("fit_score", "deterministic_score", "final_recommendation", "overall_score"):
+        if prior.get(key) is not None:
+            restored[key] = prior[key]
+    if existing.deterministic_score is not None:
+        restored["deterministic_score"] = existing.deterministic_score
+        restored["fit_score"] = existing.deterministic_score
+    return restored
+
+
 def _upsert_screening_result(
     db: Session,
     tenant_id: int,
@@ -274,6 +306,7 @@ def _upsert_screening_result(
     ).first()
 
     if existing:
+        preserve_scores = _should_preserve_analysis_scores(existing, resume_text, jd_text)
         existing.resume_text = resume_text
         existing.jd_text = jd_text
         existing.parsed_data = parsed_data
@@ -284,6 +317,8 @@ def _upsert_screening_result(
         if narrative_status is not None:
             existing.narrative_status = narrative_status
         if pipeline_result is not None:
+            if preserve_scores:
+                pipeline_result = _restore_preserved_scores(existing, pipeline_result)
             _populate_denormalized_columns(existing, pipeline_result)
         db.commit()
         db.refresh(existing)
@@ -2232,6 +2267,8 @@ async def analyze_stream_endpoint(
             try:
                 sr = save_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
                 if sr:
+                    if _should_preserve_analysis_scores(sr, sr.resume_text, sr.jd_text):
+                        final_result = _restore_preserved_scores(sr, final_result)
                     sr.analysis_result = json.dumps(final_result, default=_json_default)
                     _populate_denormalized_columns(sr, final_result)
                     # Also update candidate profile
@@ -3601,6 +3638,15 @@ def rescore_endpoint(
 
 # ─── Narrative polling endpoint ───────────────────────────────────────────────
 
+
+from app.backend.services.screening_outcome import outcome_fields_from_result
+
+
+def _outcome_payload(result) -> dict:
+    return outcome_fields_from_result(result)
+
+
+
 @router.get("/analysis/{analysis_id}/narrative")
 def get_narrative(
     analysis_id: int,
@@ -3671,6 +3717,7 @@ def get_narrative(
                     "narrative": narrative,
                     "interview_kit_status": kit_status,
                     "voice_strategy_status": voice_strategy_status,
+                    **_outcome_payload(result),
                 }
             except json.JSONDecodeError:
                 return {"status": "pending"}
@@ -3678,7 +3725,7 @@ def get_narrative(
     # Still pending or processing
     kit_status = getattr(result, "interview_kit_status", None)
     voice_strategy_status = getattr(result, "voice_strategy_status", None)
-    payload = {"status": status or "pending"}
+    payload = {"status": status or "pending", **_outcome_payload(result)}
     if kit_status:
         payload["interview_kit_status"] = kit_status
     if voice_strategy_status:

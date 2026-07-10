@@ -13,7 +13,7 @@ import {
   getCandidateNotes, addCandidateNote, deleteCandidateNote,
   getInterviewSessions, gdprExportCandidate, gdprDeleteCandidate,
 } from '../lib/api'
-import { AnalyzeJdSheet, RescoreSheet } from '../components/patterns'
+import { AnalyzeJdSheet, RescoreSheet, ConsolidatedScoreHero } from '../components/patterns'
 import { SegmentedControl } from '../components/ui'
 
 const COMMAND_TABS = [
@@ -794,6 +794,13 @@ export default function CandidateProfilePage() {
 
                 {activeResult && (
                   <div className="p-5 space-y-5">
+                    <ConsolidatedScoreHero
+                      analysisScore={activeResult.deterministic_score ?? activeResult.fit_score}
+                      callScore={activeResult.call_fit_score}
+                      callSource={activeResult.call_source}
+                      consolidatedRecommendation={activeResult.consolidated_recommendation}
+                      consolidatedReasoning={activeResult.consolidated_reasoning}
+                    />
 
                     {/* Task 47B: JD Requirements Comparison Table */}
                     {activeHist && (() => {
@@ -849,6 +856,16 @@ export default function CandidateProfilePage() {
                           (activeResult.deterministic_score ?? 0) >= 45 ? 'from-amber-300 to-amber-500' : 'from-red-300 to-red-500'
                         }
                       />
+                      {activeResult.call_fit_score != null && (
+                        <ScoreBar
+                          label={activeResult.call_source === 'human' ? 'Live Screen Score' : 'AI Call Score'}
+                          score={activeResult.call_fit_score}
+                          colorClass={
+                            activeResult.call_fit_score >= 70 ? 'from-violet-400 to-violet-600' :
+                            activeResult.call_fit_score >= 45 ? 'from-amber-300 to-amber-500' : 'from-red-300 to-red-500'
+                          }
+                        />
+                      )}
                       <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-100">
                         <span className="text-xs font-semibold text-slate-500">Recommendation:</span>
                         <RecommendationBadge recommendation={activeResult.recommendation} />

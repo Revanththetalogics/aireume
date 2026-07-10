@@ -423,6 +423,21 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
         )
         db.add(overall)
 
+    from app.backend.services.consolidated_recommendation import (
+        compute_consolidated,
+        persist_outcome_to_screening_result,
+    )
+
+    analysis_score = analysis.get("fit_score") or result.deterministic_score
+    outcome = compute_consolidated(
+        analysis_score=analysis_score,
+        call_score=recruiter_score,
+        call_source="human",
+        call_recommendation=recommendation,
+        evidence=[debrief_content.get("recommendation_rationale", "")],
+    )
+    persist_outcome_to_screening_result(result, outcome, call_source="human")
+
     db.commit()
 
     return DebriefResponse(

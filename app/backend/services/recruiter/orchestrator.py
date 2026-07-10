@@ -21,7 +21,7 @@ from app.backend.models.db_models import (
     VoiceTranscriptEntry,
 )
 from app.backend.services.recruiter.context_engine import InterviewContextEngine
-from app.backend.services.recruiter.strategy_agent import InterviewStrategyAgent
+from app.backend.services.kit_strategy import load_kit_strategy_for_screening
 from app.backend.services.recruiter.evaluation_agents import (
     TechnicalEvaluator,
     BehavioralEvaluator,
@@ -41,7 +41,6 @@ class RecruiterOrchestrator:
     def __init__(self, db: Session):
         self.db = db
         self.context_engine = InterviewContextEngine()
-        self.strategy_agent = InterviewStrategyAgent()
 
     async def initiate_interview(
         self,
@@ -108,23 +107,28 @@ class RecruiterOrchestrator:
         strategy_config = {
             "duration_minutes": config.get("duration_minutes", 20),
             "question_count": config.get("question_count", 12),
+            "depth": config.get("depth", "standard"),
         }
 
-        from app.backend.services.background_enrichment import load_cached_voice_strategy
+        role_title = context.get("role", {}).get("title", "")
+        candidate_name = context.get("candidate", {}).get("name", "there")
 
-        strategy = load_cached_voice_strategy(
+        strategy = load_kit_strategy_for_screening(
             self.db,
-            screening_result_id,
-            tenant_id,
-            strategy_config,
+            tenant_id=tenant_id,
+            candidate_id=candidate_id,
+            jd_id=jd_id,
+            screening_result_id=screening_result_id,
+            config=strategy_config,
+            role_title=role_title,
+            candidate_name=candidate_name,
         )
-        if strategy is None:
-            strategy = await self.strategy_agent.generate_strategy(context, strategy_config)
-        else:
-            logger.info(
-                "Using pre-built voice strategy for screening_result_id=%s",
-                screening_result_id,
-            )
+        logger.info(
+            "Using interview-kit strategy for screening_result_id=%s depth=%s questions=%s",
+            screening_result_id,
+            strategy.get("depth"),
+            strategy.get("kit_question_count"),
+        )
 
         # Merge must-ask questions from project config and interview templates
         strategy = self._merge_must_ask_questions(strategy, config, jd_id)
@@ -145,9 +149,8 @@ class RecruiterOrchestrator:
         phone_number = config.get("phone_number") or candidate.phone
 
         # Map configured duration to the DB-supported depth labels (quick/deep).
-        # "deep" is used by existing code for both standard and deep interviews.
-        duration_minutes = strategy_config.get("duration_minutes") or 20
-        if duration_minutes <= 7:
+        depth_label = strategy_config.get("depth") or "standard"
+        if depth_label == "quick" or (strategy_config.get("duration_minutes") or 20) <= 7:
             voice_depth = "quick"
         else:
             voice_depth = "deep"
@@ -410,6 +413,39 @@ class RecruiterOrchestrator:
                 )
             except Exception:
                 pass
+
+        # Persist consolidated outcome on screening result
+        if interview_session.screening_result_id:
+            from app.backend.services.consolidated_recommendation import (
+                average_scores,
+                compute_consolidated,
+                persist_outcome_to_screening_result,
+            )
+
+            sr = self.db.get(ScreeningResult, interview_session.screening_result_id)
+            if sr:
+                analysis_score = (
+                    original_fitment.get("score")
+                    or screening.get("fit_score")
+                    or sr.deterministic_score
+                )
+                live_scores = [
+                    q.answer_score for q in stored_questions if q.answer_score is not None
+                ]
+                live_avg = average_scores(live_scores)
+                call_score = (
+                    live_avg
+                    or recommendation.get("overall_score")
+                    or adjusted_fitment.get("adjusted_score")
+                )
+                outcome = compute_consolidated(
+                    analysis_score=analysis_score,
+                    call_score=call_score,
+                    call_source="ai",
+                    call_recommendation=recommendation.get("recommendation"),
+                    evidence=[adjusted_fitment.get("reasoning", "")],
+                )
+                persist_outcome_to_screening_result(sr, outcome, call_source="ai")
 
         self.db.commit()
 

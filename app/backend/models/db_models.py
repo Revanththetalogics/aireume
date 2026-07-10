@@ -221,6 +221,13 @@ class ScreeningResult(Base):
     eligibility_reason  = Column(String(100), nullable=True)     # Rejection reason if ineligible
     status_updated_at   = Column(DateTime(timezone=True), nullable=True)  # When status was last changed
 
+    # ── Post-interview outcome (human or AI call) ────────────────────────────
+    call_fit_score              = Column(Integer, nullable=True)
+    call_source                 = Column(String(20), nullable=True)   # human | ai
+    consolidated_recommendation = Column(String(50), nullable=True)
+    consolidated_reasoning      = Column(Text, nullable=True)
+    call_completed_at           = Column(DateTime(timezone=True), nullable=True)
+
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
     role_template = relationship("RoleTemplate", back_populates="results")

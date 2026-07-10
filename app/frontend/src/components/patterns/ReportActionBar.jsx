@@ -1,13 +1,9 @@
 import {
   Mic, ClipboardList, Download, Share2, RefreshCw, FileWarning,
-  Eye, FileText, Check,
+  Eye, FileText, Check, AlertTriangle,
 } from 'lucide-react'
-import { Button, DropdownMenu } from '../ui'
+import { Button, DropdownMenu, Badge } from '../ui'
 import { INTERVIEW, REPORT } from '../../lib/uxLabels'
-import {
-  isVoiceStrategyPending,
-  isVoiceStrategyReady,
-} from '../../lib/enrichmentUtils'
 
 /**
  * Single action zone for screening reports — replaces duplicate sticky bars.
@@ -28,18 +24,24 @@ export default function ReportActionBar({
   actionsReady = true,
   liveScreenKitAvailable = true,
   showAiCall = true,
+  kitReadiness = null,
   className = '',
 }) {
-  const voicePending = isVoiceStrategyPending(result)
-  const voiceReady = isVoiceStrategyReady(result)
+  const kitState = kitReadiness?.state || 'ready'
+  const kitLoading = kitState === 'loading'
+  const kitBlocked = kitLoading || kitState === 'empty'
+  const kitFallback = kitState === 'fallback'
+
+  const aiDisabled = kitBlocked
+  const liveDisabled = kitBlocked
 
   let aiLabel = INTERVIEW.aiScreenCall
   let aiHint = INTERVIEW.aiScreenCallHint
-  if (voicePending) {
-    aiLabel = 'Preparing call plan…'
-    aiHint = 'AI interview plan is generating'
-  } else if (voiceReady) {
-    aiHint = 'Call plan ready — start instantly'
+  if (kitLoading) {
+    aiLabel = 'Preparing interview kit…'
+    aiHint = 'JD + resume-driven questions are generating'
+  } else if (kitFallback) {
+    aiHint = 'Using fallback kit — re-run analysis for best questions'
   }
 
   const exportItems = [
@@ -89,25 +91,43 @@ export default function ReportActionBar({
     <div
       className={`flex flex-col gap-2 p-3 rounded-2xl bg-white/90 backdrop-blur-md ring-1 ring-brand-100 shadow-brand-sm print:hidden ${className}`}
     >
+      {kitLoading && (
+        <div className="flex items-center gap-2 text-xs text-brand-700 bg-brand-50 rounded-xl px-3 py-2 ring-1 ring-brand-100">
+          <span className="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
+          Interview kit preparing — both call options unlock when ready
+        </div>
+      )}
+      {kitFallback && (
+        <div className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 ring-1 ring-amber-200">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          Fallback questions in use — full kit recommended before screening
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {showAiCall && onAiScreenCall && (
-          <div className="flex flex-col">
-            <Button
-              variant="brand"
-              size="sm"
-              onClick={onAiScreenCall}
-              disabled={voicePending}
-              loading={voicePending}
-              className="gap-2"
-            >
-              {!voicePending && <Mic className="w-4 h-4" />}
-              {aiLabel}
-            </Button>
-          </div>
+          <Button
+            variant="brand"
+            size="sm"
+            onClick={onAiScreenCall}
+            disabled={aiDisabled}
+            loading={kitLoading}
+            className="gap-2"
+          >
+            {!kitLoading && <Mic className="w-4 h-4" />}
+            {aiLabel}
+          </Button>
         )}
 
         {liveScreenKitAvailable && onLiveScreenKit && (
-          <Button variant="secondary" size="sm" onClick={onLiveScreenKit} className="gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onLiveScreenKit}
+            disabled={liveDisabled}
+            loading={kitLoading}
+            className="gap-2"
+          >
             <ClipboardList className="w-4 h-4" />
             {INTERVIEW.liveScreenKit}
           </Button>
@@ -122,6 +142,7 @@ export default function ReportActionBar({
           />
         )}
       </div>
+
       {aiHint && showAiCall && (
         <p className="text-[11px] text-slate-500 px-0.5">{aiHint}</p>
       )}

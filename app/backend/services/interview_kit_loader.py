@@ -38,6 +38,7 @@ def _normalize_question_item(item: Any) -> dict[str, Any] | None:
             return None
         return {
             "text": text,
+            "intent": text,
             "what_to_listen_for": list(item.get("what_to_listen_for") or []),
             "follow_ups": list(item.get("follow_ups") or []),
             "scoring_criteria": dict(item.get("scoring_criteria") or {}),
@@ -176,6 +177,86 @@ def _build_analysis_fallback_kit(
     )
 
 
+DEPTH_LIMITS = {
+    "quick": {"technical_questions": 2, "experience_deep_dive_questions": 1, "behavioral_questions": 1},
+    "standard": None,
+    "deep": None,
+}
+
+
+def _cap_category(items: list, limit: int | None) -> list:
+    if limit is None:
+        return list(items)
+    return list(items)[:limit]
+
+
+def slice_kit_for_depth(
+    interview_questions: dict[str, Any],
+    depth: str,
+    *,
+    analysis: dict[str, Any] | None = None,
+    parsed_data: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Return flattened kit questions sized for quick / standard / deep.
+
+    - quick: subset (~5–6 questions)
+    - standard: full kit
+    - deep: full kit + 2–4 extra technical probes
+    """
+    depth = (depth or "standard").lower()
+    iq = dict(interview_questions or {})
+
+    if depth == "quick":
+        limits = DEPTH_LIMITS["quick"]
+        sliced = {
+            "candidate_briefing": iq.get("candidate_briefing") or {},
+            "technical_questions": _cap_category(iq.get("technical_questions") or [], limits["technical_questions"]),
+            "behavioral_questions": _cap_category(iq.get("behavioral_questions") or [], limits["behavioral_questions"]),
+            "culture_fit_questions": [],
+            "experience_deep_dive_questions": _cap_category(
+                iq.get("experience_deep_dive_questions") or [],
+                limits["experience_deep_dive_questions"],
+            ),
+        }
+        return flatten_interview_kit(sliced)
+
+    base = flatten_interview_kit(iq)
+
+    if depth != "deep":
+        return base
+
+    from app.backend.services.interview_kit_generator import generate_deep_technical_extras
+
+    existing_texts = {q.get("text", "") for q in base}
+    skill_analysis = (analysis or {}).get("skill_analysis") or {
+        "matched_skills": (analysis or {}).get("matched_skills") or [],
+        "missing_skills": (analysis or {}).get("missing_skills") or [],
+    }
+    extras = generate_deep_technical_extras(
+        profile=(analysis or {}).get("candidate_profile") or {},
+        jd_analysis=(analysis or {}).get("jd_analysis") or {},
+        skill_analysis=skill_analysis,
+        parsed_data=parsed_data,
+        count=4,
+        existing_texts=existing_texts,
+    )
+    start_idx = len([q for q in base if q.get("category") == "technical"])
+    for i, extra in enumerate(extras):
+        base.append(
+            {
+                "id": f"technical-deep-{start_idx + i}",
+                "category": "technical",
+                "category_key": "technical_questions",
+                "index": start_idx + i,
+                **extra,
+                "intent": extra.get("text", ""),
+                "is_deep_extra": True,
+            }
+        )
+    return base
+
+
 def resolve_interview_kit_for_voice(
     db: Session,
     voice_session: VoiceScreeningSession,
@@ -228,7 +309,35 @@ def resolve_interview_kit_for_voice(
                 kit_source = "fallback"
                 kit_status = kit_status or "fallback"
 
-    questions = flatten_interview_kit(interview_questions)
+    depth_label = "standard"
+    if voice_session.interview_depth == "quick":
+        depth_label = "quick"
+    if recruiter and recruiter.interview_config_json:
+        try:
+            cfg = json.loads(recruiter.interview_config_json)
+            if cfg.get("depth"):
+                depth_label = str(cfg["depth"]).lower()
+        except json.JSONDecodeError:
+            pass
+
+    analysis_data: dict[str, Any] = {}
+    parsed_data: dict[str, Any] = {}
+    if result:
+        try:
+            analysis_data = json.loads(result.analysis_result or "{}")
+        except json.JSONDecodeError:
+            analysis_data = {}
+        try:
+            parsed_data = json.loads(result.parsed_data or "{}")
+        except json.JSONDecodeError:
+            parsed_data = {}
+
+    questions = slice_kit_for_depth(
+        interview_questions,
+        depth_label,
+        analysis=analysis_data,
+        parsed_data=parsed_data,
+    )
     return {
         "screening_result_id": result.id if result else screening_result_id,
         "interview_questions": interview_questions,
@@ -236,4 +345,5 @@ def resolve_interview_kit_for_voice(
         "kit_source": kit_source,
         "kit_status": kit_status,
         "role_title": role_title,
+        "depth": depth_label,
     }

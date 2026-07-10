@@ -43,6 +43,7 @@ class KitQuestion:
     id: str
     category: str
     text: str
+    intent: str = ""
     what_to_listen_for: list[str] = field(default_factory=list)
     follow_ups: list[str] = field(default_factory=list)
     scoring_criteria: dict[str, str] = field(default_factory=dict)
@@ -68,14 +69,41 @@ class KitDrivenOrchestrator:
 
     @staticmethod
     def _to_kit_question(raw: dict[str, Any]) -> KitQuestion:
+        text = str(raw.get("text", "")).strip()
         return KitQuestion(
             id=str(raw.get("id", "")),
             category=str(raw.get("category", "technical")),
-            text=str(raw.get("text", "")).strip(),
+            text=text,
+            intent=str(raw.get("intent") or text).strip(),
             what_to_listen_for=list(raw.get("what_to_listen_for") or []),
             follow_ups=[f for f in (raw.get("follow_ups") or []) if str(f).strip()],
             scoring_criteria=dict(raw.get("scoring_criteria") or {}),
         )
+
+    def _score_answer(self, question: KitQuestion, answer: str, *, is_thin: bool) -> dict[str, Any]:
+        """Score answer against kit rubric (strong / adequate / weak)."""
+        from app.backend.services.consolidated_recommendation import rubric_to_score
+
+        if is_thin:
+            return {"score": 25, "rubric_rating": "weak", "reasoning": "Answer too brief."}
+
+        word_count = len(answer.split())
+        lower = answer.lower()
+        example_markers = ["for example", "for instance", "in my project", "at my previous", "i built", "i led"]
+        has_example = any(m in lower for m in example_markers)
+
+        if word_count >= 60 and has_example:
+            rubric = "strong"
+        elif word_count >= 25 or has_example:
+            rubric = "adequate"
+        else:
+            rubric = "weak"
+
+        return {
+            "score": rubric_to_score(rubric),
+            "rubric_rating": rubric,
+            "reasoning": f"Rubric={rubric}, words={word_count}, examples={has_example}",
+        }
 
     def should_play_filler(self) -> bool:
         # Kit responses are deterministic — filler only adds dead air.
@@ -202,9 +230,22 @@ class KitDrivenOrchestrator:
         elif self._question_index > 0:
             prefix = random.choice(_TRANSITION_PHRASES)
 
-        response = prefix + question.text
+        response = prefix + self._spoken_question(question)
         self._record_bot(response, question.category)
         return response
+
+    def _spoken_question(self, question: KitQuestion) -> str:
+        """Natural phrasing — same intent as kit text, slight spoken variation."""
+        text = question.text
+        swaps = (
+            ("Walk me through", "Can you walk me through"),
+            ("You list", "I see you list"),
+            ("isn't on your resume", "doesn't appear on your resume"),
+        )
+        for src, dst in swaps:
+            if text.startswith(src):
+                return dst + text[len(src):]
+        return text
 
     async def _handle_kit_answer(self, text: str) -> Optional[str]:
         question = self._current_question
@@ -220,11 +261,17 @@ class KitDrivenOrchestrator:
             or (word_count <= 4 and "?" not in text)
         )
 
+        evaluation = self._score_answer(question, text, is_thin=is_thin)
+
         entry = {
             "stage": question.category,
             "question_id": question.id,
             "question": question.text,
+            "intent": question.intent,
             "answer": text,
+            "score": evaluation["score"],
+            "rubric_rating": evaluation["rubric_rating"],
+            "score_reasoning": evaluation["reasoning"],
             "what_to_listen_for": question.what_to_listen_for,
             "scoring_criteria": question.scoring_criteria,
             "is_follow_up": bool(self._awaiting_follow_up),
@@ -232,6 +279,8 @@ class KitDrivenOrchestrator:
             "timestamp": self.ctx.elapsed,
         }
         self.ctx.questions_responses.append(entry)
+        if hasattr(self.ctx, "answer_scores"):
+            self.ctx.answer_scores.append(evaluation["score"])
 
         if (
             not self._awaiting_follow_up

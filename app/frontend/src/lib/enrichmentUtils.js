@@ -141,6 +141,10 @@ export function mergeNarrativePollResult(prev, data) {
     voice_strategy_status: voice ?? prev?.voice_strategy_status,
     narrative_error: data.error ?? prev?.narrative_error,
     ai_enhanced: data.status === 'ready',
+    call_fit_score: data.call_fit_score ?? prev?.call_fit_score,
+    call_source: data.call_source ?? prev?.call_source,
+    consolidated_recommendation: data.consolidated_recommendation ?? prev?.consolidated_recommendation,
+    consolidated_reasoning: data.consolidated_reasoning ?? prev?.consolidated_reasoning,
   }
 }
 

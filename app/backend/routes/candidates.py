@@ -32,6 +32,7 @@ from app.backend.services.interview_kit_generator import refresh_interview_quest
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
 )
+from app.backend.services.screening_outcome import outcome_fields_from_result
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +475,7 @@ def get_screening_result(
         "narrative_error":      result.narrative_error,
         "interview_kit_status": getattr(result, "interview_kit_status", None) or "pending",
         "voice_strategy_status": getattr(result, "voice_strategy_status", None) or "pending",
+        **outcome_fields_from_result(result),
         "ai_enhanced":          result.narrative_status == "ready" and result.narrative_json is not None,
         "narrative_pending":    result.narrative_status in ("pending", "processing"),
     }
@@ -487,6 +489,7 @@ def get_screening_result(
     response_data["role_template_id"] = result.role_template_id
     response_data["interview_kit_status"] = getattr(result, "interview_kit_status", None) or "pending"
     response_data["voice_strategy_status"] = getattr(result, "voice_strategy_status", None) or "pending"
+    response_data.update(outcome_fields_from_result(result))
 
     return response_data
 
@@ -575,6 +578,7 @@ def get_candidate_pipeline(
         latest_result_id = None
         latest_matched_skills = []
         latest_jd_name = None
+        latest_outcome = outcome_fields_from_result(None)
         sort_key = datetime.min.replace(tzinfo=timezone.utc)
 
         if cand_results:
@@ -587,6 +591,7 @@ def get_candidate_pipeline(
             latest = sorted_results[0]
             latest_status = latest.status or "pending"
             latest_result_id = latest.id
+            latest_outcome = outcome_fields_from_result(latest)
             sort_key = latest.status_updated_at or latest.timestamp or datetime.min.replace(tzinfo=timezone.utc)
 
             try:
@@ -607,6 +612,7 @@ def get_candidate_pipeline(
             "latest_result_id": latest_result_id,
             "matched_skills": latest_matched_skills,
             "jd_name": latest_jd_name,
+            **latest_outcome,
         }
 
         cards_by_status[latest_status].append((sort_key, card))
@@ -1084,6 +1090,7 @@ def get_candidate(
         result_item["role_template_id"] = r.role_template_id
         result_item["interview_kit_status"] = getattr(r, "interview_kit_status", None) or "pending"
         result_item["voice_strategy_status"] = getattr(r, "voice_strategy_status", None) or "pending"
+        result_item.update(outcome_fields_from_result(r))
 
         history.append(result_item)
 
@@ -1167,6 +1174,11 @@ def get_candidate(
             "candidate_profile_summary": item.get("candidate_profile_summary"),
             "narrative":         item.get("fit_summary") or item.get("recommendation_rationale"),
             "created_at":        item.get("timestamp"),
+            "call_fit_score":    item.get("call_fit_score"),
+            "call_source":       item.get("call_source"),
+            "consolidated_recommendation": item.get("consolidated_recommendation"),
+            "consolidated_reasoning": item.get("consolidated_reasoning"),
+            "call_completed_at": item.get("call_completed_at"),
         })
 
     return {
@@ -1917,6 +1929,7 @@ def get_jd_candidates(
             "total_years_exp": cand.total_years_exp,
             "current_role":    cand.current_role,
             "analyzed_at":     sr.timestamp,
+            **outcome_fields_from_result(sr),
         })
 
     # ── Sort ────────────────────────────────────────────────────────────────

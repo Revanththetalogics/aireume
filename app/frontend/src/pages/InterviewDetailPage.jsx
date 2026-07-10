@@ -15,6 +15,8 @@ import {
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
 import VoiceScheduleModal from '../components/VoiceScheduleModal'
+import { ConsolidatedScoreHero } from '../components/patterns'
+import { formatDateTime } from '../lib/utils'
 
 const DEPTH_CONFIG = {
   quick:    { label: 'Quick Screen',     color: 'bg-blue-100 text-blue-700' },
@@ -250,6 +252,38 @@ export default function InterviewDetailPage() {
     if (id) load()
   }, [id])
 
+  // Poll scorecard until ready after completed recruiter sessions
+  useEffect(() => {
+    if (!id || source !== 'recruiter' || session?.status !== 'completed' || scorecard) return
+
+    let cancelled = false
+    let attempts = 0
+    let timer = null
+
+    const poll = async () => {
+      if (cancelled || attempts >= 24) return
+      attempts += 1
+      try {
+        const sc = await getRecruiterScorecard(id)
+        if (!cancelled && sc) {
+          setScorecard(sc)
+          return
+        }
+      } catch {
+        /* scorecard still generating */
+      }
+      if (!cancelled) {
+        timer = setTimeout(poll, 5000)
+      }
+    }
+
+    poll()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [id, source, session?.status, scorecard])
+
   async function loadTab(tab) {
     setActiveTab(tab)
     if (tab === 'transcript' && !transcript) {
@@ -363,6 +397,8 @@ export default function InterviewDetailPage() {
 
   // Candidate name
   const candidateName = session.candidate_name || session.candidate_email || `Candidate #${session.candidate_id}`
+  const strategyData = session.interview_strategy_json || session.strategy || null
+  const plannedQuestions = strategyData?.planned_questions || strategyData?.questions || []
 
   return (
     <div className="min-h-screen bg-surface">
@@ -411,10 +447,7 @@ export default function InterviewDetailPage() {
                   <div className="flex items-center gap-1.5 text-sm text-brand-600 mt-2">
                     <Calendar className="w-4 h-4" />
                     <span className="font-semibold">
-                      Scheduled: {new Date(session.scheduled_at).toLocaleString('en-US', {
-                        month: 'short', day: 'numeric', year: 'numeric',
-                        hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
-                      })}
+                      Scheduled: {formatDateTime(session.scheduled_at)}
                     </span>
                   </div>
                 )}
@@ -449,15 +482,23 @@ export default function InterviewDetailPage() {
           </div>
         </motion.div>
 
+        {scorecard && (
+          <ConsolidatedScoreHero
+            className="mb-6"
+            analysisScore={scorecard.original_fit_score}
+            callScore={scorecard.overall_score ?? scorecard.adjusted_fit_score}
+            callSource="ai"
+            consolidatedRecommendation={scorecard.recommendation}
+            consolidatedReasoning={scorecard.adjustment_reasoning || scorecard.recommendation_reasoning}
+          />
+        )}
+
         {/* Info grid */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           {session.scheduled_at && (
             <InfoField
               label="Scheduled At"
-              value={new Date(session.scheduled_at).toLocaleString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-                hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
-              })}
+              value={formatDateTime(session.scheduled_at)}
             />
           )}
           {session.phone_number && (
@@ -537,51 +578,54 @@ export default function InterviewDetailPage() {
         {/* Strategy Tab (recruiter sessions only) */}
         {!tabLoading && activeTab === 'strategy' && source === 'recruiter' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            {session.strategy ? (
+            {strategyData ? (
               <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
                 <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <ClipboardList className="w-4 h-4 text-brand-600" />
-                  Interview Strategy
+                  Interview Kit Plan
+                  {strategyData.source === 'interview_kit' && (
+                    <span className="text-xs font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">JD + Resume driven</span>
+                  )}
                 </h3>
-                <div className="prose prose-sm max-w-none">
-                  {typeof session.strategy === 'string' ? (
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{session.strategy}</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {session.strategy.objective && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Objective</h4>
-                          <p className="text-sm text-slate-700">{session.strategy.objective}</p>
-                        </div>
-                      )}
-                      {session.strategy.focus_areas && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Focus Areas</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {session.strategy.focus_areas.map((area, i) => (
-                              <span key={i} className="px-2.5 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-semibold">{area}</span>
-                            ))}
+                <div className="space-y-4">
+                  {strategyData.objective && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Objective</h4>
+                      <p className="text-sm text-slate-700">{strategyData.objective}</p>
+                    </div>
+                  )}
+                  {strategyData.candidate_briefing?.profile_snapshot && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Briefing</h4>
+                      <p className="text-sm text-slate-700">{strategyData.candidate_briefing.profile_snapshot}</p>
+                    </div>
+                  )}
+                  {strategyData.focus_areas?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Focus Areas</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {strategyData.focus_areas.map((area, i) => (
+                          <span key={i} className="px-2.5 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-semibold">{area}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {plannedQuestions.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Planned Questions ({plannedQuestions.length})</h4>
+                      <div className="space-y-2">
+                        {plannedQuestions.map((q, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl">
+                            <span className="text-xs font-bold text-brand-600 mt-0.5">{i + 1}</span>
+                            <div>
+                              <p className="text-sm text-slate-700">{q.question_text || q.question || q.text || q}</p>
+                              {(q.category || q.stage) && (
+                                <span className="text-xs text-slate-400 mt-1">{q.category || q.stage}</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                      {session.strategy.planned_questions && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Planned Questions</h4>
-                          <div className="space-y-2">
-                            {session.strategy.planned_questions.map((q, i) => (
-                              <div key={i} className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl">
-                                <span className="text-xs font-bold text-brand-600 mt-0.5">{i + 1}</span>
-                                <div>
-                                  <p className="text-sm text-slate-700">{q.question || q}</p>
-                                  {q.category && (
-                                    <span className="text-xs text-slate-400 mt-1">{q.category}</span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -591,8 +635,8 @@ export default function InterviewDetailPage() {
                 <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-40" />
                 <p className="text-sm">
                   {['pending_strategy', 'strategy_ready'].includes(session.status)
-                    ? 'Strategy is being generated...'
-                    : 'No strategy available'}
+                    ? 'Interview kit plan is being prepared...'
+                    : 'No interview kit plan available'}
                 </p>
               </div>
             )}

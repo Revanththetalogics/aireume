@@ -905,28 +905,46 @@ async def on_recruiter_interview_complete(
         for idx, qr in enumerate(questions_responses):
             if not isinstance(qr, dict):
                 continue
-            question_text = qr.get("question", "")
+
+            is_follow_up = bool(qr.get("is_follow_up", False))
+            candidate_response = qr.get("response") or qr.get("answer", "")
+            question_text = (
+                (qr.get("follow_up_text") or "").strip()
+                if is_follow_up
+                else (qr.get("question") or "").strip()
+            )
+            if not question_text:
+                continue
+
             existing = existing_questions.get(question_text)
 
             if existing:
-                # Update the strategy question with the actual response
-                existing.candidate_response = qr.get("response", "")
+                existing.candidate_response = candidate_response
                 existing.response_duration_seconds = qr.get("response_duration")
-                if qr.get("is_follow_up", False):
+                if is_follow_up:
                     existing.is_follow_up = True
             else:
-                # New record for follow-up / warmup questions not in strategy
-                db.add(RecruiterInterviewQuestion(
+                parent_question_id = None
+                if is_follow_up:
+                    parent_text = (qr.get("question") or "").strip()
+                    parent = existing_questions.get(parent_text)
+                    if parent:
+                        parent_question_id = parent.id
+
+                new_q = RecruiterInterviewQuestion(
                     id=str(uuid.uuid4()),
                     session_id=session.id,
                     sequence_number=idx + 1,
-                    category=qr.get("category", "technical"),
+                    category=qr.get("stage") or qr.get("category", "technical"),
                     question_text=question_text,
                     question_context=qr.get("context", ""),
-                    candidate_response=qr.get("response", ""),
+                    candidate_response=candidate_response,
                     response_duration_seconds=qr.get("response_duration"),
-                    is_follow_up=qr.get("is_follow_up", False),
-                ))
+                    is_follow_up=is_follow_up,
+                    parent_question_id=parent_question_id,
+                )
+                db.add(new_q)
+                existing_questions[question_text] = new_q
 
     # ── Store transcript as VoiceTranscriptEntry records ────────────────────
     # The orchestrator's CommunicationEvaluator reads from this table.

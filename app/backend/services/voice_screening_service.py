@@ -429,6 +429,43 @@ async def process_completed_call(db: Session, session_id: int):
             (entries[-1].timestamp - entries[0].timestamp).total_seconds()
         ) if len(entries) > 1 else 0
 
+    # Persist consolidated outcome when screening result is linked
+    try:
+        from sqlalchemy import select
+        from app.backend.models.db_models import ScreeningResult
+        from app.backend.services.consolidated_recommendation import (
+            compute_consolidated,
+            persist_outcome_to_screening_result,
+        )
+
+        sr = None
+        if voice_session.candidate_id and voice_session.jd_id:
+            sr = db.execute(
+                select(ScreeningResult)
+                .where(
+                    ScreeningResult.tenant_id == voice_session.tenant_id,
+                    ScreeningResult.candidate_id == voice_session.candidate_id,
+                    ScreeningResult.role_template_id == voice_session.jd_id,
+                    ScreeningResult.is_active == True,
+                )
+                .order_by(ScreeningResult.timestamp.desc())
+            ).scalar_one_or_none()
+        if sr:
+            try:
+                analysis = json.loads(sr.analysis_result or "{}")
+            except json.JSONDecodeError:
+                analysis = {}
+            outcome = compute_consolidated(
+                analysis_score=analysis.get("fit_score") or sr.deterministic_score,
+                call_score=assessment.get("overall_score"),
+                call_source="ai",
+                call_recommendation=assessment.get("overall_recommendation"),
+                evidence=[assessment.get("summary", "")],
+            )
+            persist_outcome_to_screening_result(sr, outcome, call_source="ai")
+    except Exception as e:
+        logger.warning("Consolidated outcome save failed for session %d: %s", session_id, e)
+
     db.commit()
     logger.info(
         "Post-call assessment complete for session %d: recommendation=%s score=%d",

@@ -68,12 +68,17 @@ export function formatSessionWhen(session) {
     ? session.scheduled_at
     : session.created_at
   if (!raw) return ''
-  return new Date(raw).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  try {
+    return new Date(raw).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    })
+  } catch {
+    return ''
+  }
 }
 
 export function recommendationLabel(rec) {

@@ -2,6 +2,7 @@ import { Check, AlertTriangle } from 'lucide-react'
 import ScoreBadge from './ScoreBadge'
 import RecommendationBadge from './RecommendationBadge'
 import QuickActions from './QuickActions'
+import InterviewOutcomeBadges from './patterns/InterviewOutcomeBadges'
 
 /**
  * Complete candidate card for list display — 30-second review design.
@@ -30,6 +31,9 @@ export default function CandidateCard({
     email,
     title,
     fit_score,
+    call_fit_score,
+    call_source,
+    consolidated_recommendation,
     status,
     skills = [],
     highlights = [],
@@ -79,6 +83,15 @@ export default function CandidateCard({
               </div>
               <RecommendationBadge score={fit_score} size="sm" />
             </div>
+            {(call_fit_score != null || consolidated_recommendation) && (
+              <InterviewOutcomeBadges
+                analysisScore={fit_score}
+                callScore={call_fit_score}
+                callSource={call_source}
+                consolidatedRecommendation={consolidated_recommendation}
+                className="mt-2"
+              />
+            )}
           </div>
         </div>
 

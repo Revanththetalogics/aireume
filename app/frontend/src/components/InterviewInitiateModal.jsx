@@ -2,18 +2,25 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Mic, Loader2, Phone, Brain, Target,
-  Clock, Zap, CheckCircle2, Globe, ChevronDown, ChevronUp,
-  Calendar, AlertTriangle, X,
+  Clock, Zap, CheckCircle2, ChevronDown, ChevronUp,
+  AlertTriangle, X,
 } from 'lucide-react'
 import {
   getCandidates, getTemplates, getNarrative, getScreeningResult,
   createInterviewSession, rescheduleVoiceCall, getNextAvailableSlot,
 } from '../lib/api'
 import { ModalOverlay } from './motion'
-import { Button, Badge, Card, SegmentedControl, SearchSelect, FloatingInput } from './ui'
+import { Button, Badge, Card, SegmentedControl, SearchSelect, FloatingInput, ScheduleDateTimePicker } from './ui'
 import { INTERVIEW } from '../lib/uxLabels'
 import { DEPTH_DEFAULT_MINUTES } from '../lib/interviewHubUtils'
-import { isVoiceStrategyPending, isVoiceStrategyReady } from '../lib/enrichmentUtils'
+import { isKitPending } from '../lib/enrichmentUtils'
+import {
+  localDatetimeToUtcIso,
+  utcIsoToLocalDatetime,
+  isLocalDatetimeInPast,
+  localDatetimeFromParts,
+  defaultScheduleParts,
+} from '../lib/datetimeUtils'
 
 const DEPTH_OPTIONS = [
   {
@@ -47,58 +54,6 @@ const DEPTH_OPTIONS = [
 
 const FOCUS_AREAS = ['Technical', 'Behavioral', 'Communication', 'Cultural', 'Motivation']
 
-const TIMEZONE_OPTIONS = [
-  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-  'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Dubai', 'Asia/Kolkata',
-  'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney',
-]
-
-function getDefaultTimezone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
-function toUtcIso(localValue, timezone) {
-  if (!localValue) return null
-  try {
-    const parts = localValue.split('T')
-    if (parts.length !== 2) return null
-    const [datePart, timePart] = parts
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hour, minute] = timePart.split(':').map(Number)
-    const tzDate = new Date(Date.UTC(year, month - 1, day, hour, minute))
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      timeZoneName: 'shortOffset',
-      year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric',
-    })
-    const tzParts = formatter.formatToParts(tzDate)
-    const tzName = tzParts.find((p) => p.type === 'timeZoneName')?.value || 'GMT+0'
-    const match = tzName.match(/GMT([+-]\d{1,2}):?(\d{2})?/)
-    let targetOffset = 0
-    if (match) {
-      const hours = parseInt(match[1], 10)
-      const minutes = parseInt(match[2] || '0', 10)
-      targetOffset = hours * 60 + (hours < 0 ? -minutes : minutes)
-    }
-    const diffMinutes = targetOffset - (-tzDate.getTimezoneOffset())
-    return new Date(tzDate.getTime() - diffMinutes * 60 * 1000).toISOString()
-  } catch {
-    return null
-  }
-}
-
-function localDatetimeFromIso(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const offset = d.getTimezoneOffset()
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 16)
-}
-
 function ModalShell({ onClose, title, subtitle, children, footer }) {
   return (
     <ModalOverlay isOpen onClose={onClose} ariaLabel={title}>
@@ -130,7 +85,7 @@ function ModalShell({ onClose, title, subtitle, children, footer }) {
 
 function ReschedulePanel({ editSession, onClose, onSuccess }) {
   const [phoneNumber, setPhoneNumber] = useState(editSession?.phone_number || '')
-  const [scheduledAt, setScheduledAt] = useState(localDatetimeFromIso(editSession?.scheduled_at))
+  const [scheduledAt, setScheduledAt] = useState(utcIsoToLocalDatetime(editSession?.scheduled_at))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
@@ -141,12 +96,16 @@ function ReschedulePanel({ editSession, onClose, onSuccess }) {
       setError('Enter a phone number for this call.')
       return
     }
+    if (scheduledAt && isLocalDatetimeInPast(scheduledAt)) {
+      setError('Choose a future date and time.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
       await rescheduleVoiceCall(editSession.id, {
         phone_number: phoneNumber.trim(),
-        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        scheduled_at: scheduledAt ? localDatetimeToUtcIso(scheduledAt) : null,
       })
       setSuccess(true)
       setTimeout(() => onSuccess?.(), 1200)
@@ -194,19 +153,12 @@ function ReschedulePanel({ editSession, onClose, onSuccess }) {
           onChange={setPhoneNumber}
           placeholder="+14155551234"
         />
-        <div>
-          <label className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-1.5">
-            <Calendar className="w-3.5 h-3.5 inline mr-1" />
-            Schedule time
-          </label>
-          <input
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl ring-1 ring-slate-200 dark:ring-white/10 bg-white dark:bg-dark-card text-sm outline-none focus:ring-2 focus:ring-brand-500"
-          />
-          <p className="text-xs text-slate-400 mt-1">Leave empty to call as soon as possible.</p>
-        </div>
+        <ScheduleDateTimePicker
+          value={scheduledAt}
+          onChange={setScheduledAt}
+          allowClear
+        />
+        <p className="text-xs text-slate-400">Clear the schedule to call as soon as possible.</p>
       </form>
     </ModalShell>
   )
@@ -267,8 +219,7 @@ function CreateWizard({
   const [selectedFocusAreas, setSelectedFocusAreas] = useState(['Technical', 'Communication'])
   const [scheduleType, setScheduleType] = useState('now')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [timezone, setTimezone] = useState(getDefaultTimezone)
-  const [voiceStrategyStatus, setVoiceStrategyStatus] = useState(null)
+  const [interviewKitStatus, setInterviewKitStatus] = useState(null)
 
   const selectedCandidate = candidates.find((c) => String(c.id) === String(candidateId))
   const selectedJd = templates.find((t) => String(t.id) === String(jdId))
@@ -302,8 +253,8 @@ function CreateWizard({
       try {
         const data = await getNarrative(screeningResultId)
         if (cancelled) return
-        const vs = data.voice_strategy_status || null
-        setVoiceStrategyStatus(vs)
+        const vs = data.interview_kit_status || null
+        setInterviewKitStatus(vs)
         if (vs === 'ready' || vs === 'fallback' || vs === 'skipped' || vs === 'failed') return
         delayMs = 10000
       } catch (err) {
@@ -352,9 +303,15 @@ function CreateWizard({
     if (scheduleType !== 'later' || scheduledAt) return
     getNextAvailableSlot()
       .then((data) => {
-        if (data?.suggested_at) setScheduledAt(localDatetimeFromIso(data.suggested_at))
+        if (data?.suggested_at) {
+          setScheduledAt(utcIsoToLocalDatetime(data.suggested_at))
+        } else {
+          setScheduledAt(localDatetimeFromParts(defaultScheduleParts()))
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        setScheduledAt(localDatetimeFromParts(defaultScheduleParts()))
+      })
   }, [scheduleType, scheduledAt])
 
   function toggleFocusArea(area) {
@@ -363,24 +320,31 @@ function CreateWizard({
     )
   }
 
-  const voiceBlocked = screeningResultId && isVoiceStrategyPending({ voice_strategy_status: voiceStrategyStatus })
+  const kitBlocked = screeningResultId && isKitPending({ interview_kit_status: interviewKitStatus })
 
   const step1Valid = candidateId && jdId
-  const step2Valid = scheduleType === 'now' || (scheduleType === 'later' && scheduledAt)
+  const step2Valid = scheduleType === 'now' || (
+    scheduleType === 'later' && scheduledAt && !isLocalDatetimeInPast(scheduledAt)
+  )
   const phoneValid = phoneNumber.trim() || selectedCandidate?.phone
 
   async function handleSubmit() {
     if (!step1Valid || !step2Valid || !phoneValid) return
+    if (scheduleType === 'later' && isLocalDatetimeInPast(scheduledAt)) {
+      setError('Choose a future date and time.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     const scheduledAtUtc = scheduleType === 'later' && scheduledAt
-      ? toUtcIso(scheduledAt, timezone)
+      ? localDatetimeToUtcIso(scheduledAt)
       : null
     try {
       await createInterviewSession({
         candidate_id: parseInt(candidateId, 10),
         jd_id: parseInt(jdId, 10),
         depth,
+        screening_result_id: screeningResultId || undefined,
         phone_number: phoneNumber.trim() || selectedCandidate?.phone || '',
         scheduled_at: scheduledAtUtc,
         focus_areas: depth === 'quick' ? undefined : selectedFocusAreas,
@@ -405,7 +369,7 @@ function CreateWizard({
       <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
       <Button
         loading={submitting}
-        disabled={submitting || !step2Valid || !phoneValid || voiceBlocked}
+        disabled={submitting || !step2Valid || !phoneValid || kitBlocked}
         onClick={handleSubmit}
       >
         {scheduleType === 'later' ? 'Schedule call' : 'Start call'}
@@ -427,19 +391,21 @@ function CreateWizard({
           <Badge color={step === 2 ? 'brand' : 'slate'}>2. Call</Badge>
         </div>
 
-        {screeningResultId && voiceStrategyStatus && (
+        {screeningResultId && interviewKitStatus && (
           <Card className={`p-3 text-xs font-semibold ${
-            isVoiceStrategyReady({ voice_strategy_status: voiceStrategyStatus })
+            interviewKitStatus === 'ready'
               ? 'bg-emerald-50 ring-emerald-200 text-emerald-800'
-              : voiceBlocked
+              : kitBlocked
                 ? 'bg-brand-50 ring-brand-200 text-brand-800'
                 : 'bg-slate-50 ring-slate-200 text-slate-600'
           }`}>
-            {isVoiceStrategyReady({ voice_strategy_status: voiceStrategyStatus })
-              ? 'Interview plan ready — you can dispatch now'
-              : voiceBlocked
-                ? 'Preparing interview plan…'
-                : `Plan status: ${voiceStrategyStatus}`}
+            {interviewKitStatus === 'ready'
+              ? 'Interview kit ready — same questions as Live Screen'
+              : kitBlocked
+                ? 'Preparing interview kit…'
+                : interviewKitStatus === 'fallback'
+                  ? 'Fallback kit — call allowed with caution'
+                  : `Kit status: ${interviewKitStatus}`}
           </Card>
         )}
 
@@ -574,26 +540,12 @@ function CreateWizard({
                 className="w-full flex"
               />
               {scheduleType === 'later' && (
-                <div className="mt-3 space-y-2">
-                  <input
-                    type="datetime-local"
+                <div className="mt-3">
+                  <ScheduleDateTimePicker
                     value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
+                    onChange={setScheduledAt}
                     required
-                    className="w-full px-4 py-3 rounded-xl ring-1 ring-slate-200 dark:ring-white/10 bg-white dark:bg-dark-card text-sm outline-none focus:ring-2 focus:ring-brand-500"
                   />
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-slate-400 shrink-0" />
-                    <select
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                      className="flex-1 px-3 py-2 rounded-xl ring-1 ring-slate-200 dark:ring-white/10 bg-white dark:bg-dark-card text-sm outline-none"
-                    >
-                      {TIMEZONE_OPTIONS.map((tz) => (
-                        <option key={tz} value={tz}>{tz}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
               )}
             </div>

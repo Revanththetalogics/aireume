@@ -9,6 +9,7 @@ import { getJDCandidates, bulkUpdateStatus, updateResultStatus, getCandidatePipe
 import { STATUS_OPTIONS, STATUS_CONFIG, getScoreColor, PIPELINE_STAGES } from '../lib/constants'
 import Skeleton from '../components/Skeleton'
 import CandidateCard from '../components/CandidateCard'
+import InterviewOutcomeBadges from '../components/patterns/InterviewOutcomeBadges'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useOptimisticUpdate } from '../hooks/useOptimisticUpdate'
 
@@ -706,6 +707,9 @@ export default function JDCandidatesPage() {
                             email: c.email,
                             title: c.title || c.current_role,
                             fit_score: c.fit_score ?? c.score,
+                            call_fit_score: c.call_fit_score,
+                            call_source: c.call_source,
+                            consolidated_recommendation: c.consolidated_recommendation,
                             status: c.status || 'pending',
                             skills: (c.matched_skills || c.skills_matched || c.skills || []).map(s =>
                               typeof s === 'string' ? { name: s, score: 80 } : s
@@ -828,6 +832,16 @@ export default function JDCandidatesPage() {
                                     </span>
                                   ))}
                                 </div>
+                              )}
+
+                              {(candidate.call_fit_score != null || candidate.consolidated_recommendation) && (
+                                <InterviewOutcomeBadges
+                                  analysisScore={candidate.best_score}
+                                  callScore={candidate.call_fit_score}
+                                  callSource={candidate.call_source}
+                                  consolidatedRecommendation={candidate.consolidated_recommendation}
+                                  className="mb-2"
+                                />
                               )}
 
                               {candidate.jd_name && (

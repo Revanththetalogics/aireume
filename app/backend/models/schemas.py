@@ -762,6 +762,7 @@ class InterviewCreateRequest(BaseModel):
     candidate_id: int
     jd_id: int
     depth: str = "quick"
+    screening_result_id: Optional[int] = None
     phone_number: Optional[str] = None
     scheduled_at: Optional[str] = None
     focus_areas: Optional[List[str]] = None

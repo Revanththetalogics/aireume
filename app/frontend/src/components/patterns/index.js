@@ -11,6 +11,8 @@ export { default as ReportActionBar } from './ReportActionBar'
 export { default as LiveScreenKit } from './LiveScreenKit'
 export { default as LiveScreenCallShell } from './LiveScreenCallShell'
 export { default as LiveScreenKitReadinessGate } from './LiveScreenKitReadinessGate'
+export { default as ConsolidatedScoreHero } from './ConsolidatedScoreHero'
+export { default as InterviewOutcomeBadges } from './InterviewOutcomeBadges'
 export {
   InterviewSessionRow,
   InterviewSessionSection,

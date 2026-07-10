@@ -16,7 +16,7 @@ import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
 import EvaluationChecklist from '../components/EvaluationChecklist'
 import InterviewInitiateModal from '../components/InterviewInitiateModal'
-import { EnrichmentBanner, ReportActionBar, AnalysisStageTracker, RescoreSheet, LiveScreenCallShell, LiveScreenKitReadinessGate } from '../components/patterns'
+import { EnrichmentBanner, ReportActionBar, AnalysisStageTracker, RescoreSheet, LiveScreenCallShell, LiveScreenKitReadinessGate, ConsolidatedScoreHero } from '../components/patterns'
 import { useLiveScreenMode } from '../contexts/LiveScreenModeContext'
 import { useEnrichmentPolling } from '../hooks/useEnrichmentPolling'
 import { useNotification } from '../contexts/NotificationContext'
@@ -928,7 +928,15 @@ export default function ReportPage() {
           setScreenMode(false)
           setForceFallbackKit(false)
         }}
-        onDebriefGenerated={() => setScorecardKey((prev) => prev + 1)}
+        onDebriefGenerated={async () => {
+          setScorecardKey((prev) => prev + 1)
+          const rid = result?.result_id
+          if (!rid) return
+          try {
+            const data = await getScreeningResult(rid)
+            setResult((prev) => ({ ...prev, ...data }))
+          } catch { /* outcome refresh optional */ }
+        }}
       />
     )
   }
@@ -1160,7 +1168,8 @@ export default function ReportPage() {
             resumeLoading={resumeActionLoading}
             copied={copied}
             actionsReady={isReportComplete}
-            liveScreenKitAvailable={hasDeterministicData && kitReadiness.state !== 'loading'}
+            liveScreenKitAvailable={hasDeterministicData}
+            kitReadiness={kitReadiness}
           />
         </div>
 
@@ -1168,6 +1177,16 @@ export default function ReportPage() {
         <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
           {!bannerDismissed && (
             <EnrichmentBanner result={result} onDismiss={() => setBannerDismissed(true)} />
+          )}
+
+          {hasDeterministicData && (
+            <ConsolidatedScoreHero
+              analysisScore={result?.deterministic_score ?? result?.fit_score}
+              callScore={result?.call_fit_score}
+              callSource={result?.call_source}
+              consolidatedRecommendation={result?.consolidated_recommendation}
+              consolidatedReasoning={result?.consolidated_reasoning}
+            />
           )}
 
           {/* Score Summary — visible in both screen and PDF */}

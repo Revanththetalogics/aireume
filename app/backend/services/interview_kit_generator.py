@@ -290,6 +290,74 @@ def generate_targeted_interview_kit(
     }
 
 
+def generate_deep_technical_extras(
+    *,
+    profile: Optional[Dict[str, Any]] = None,
+    jd_analysis: Optional[Dict[str, Any]] = None,
+    skill_analysis: Optional[Dict[str, Any]] = None,
+    parsed_data: Optional[Dict[str, Any]] = None,
+    count: int = 3,
+    existing_texts: Optional[set[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Generate 2–4 additional technical probes for deep interviews."""
+    profile = sanitize_candidate_profile(profile or {})
+    skill_analysis = skill_analysis or {}
+    existing = existing_texts or set()
+
+    matched = _normalize_skill_list(
+        skill_analysis.get("matched_required")
+        or skill_analysis.get("matched_skills")
+        or []
+    )
+    missing = _normalize_skill_list(
+        skill_analysis.get("missing_required")
+        or skill_analysis.get("missing_skills")
+        or []
+    )
+    work_entries = _work_entries(profile, parsed_data)
+    domain_hint = _domain_hint(jd_analysis or {})
+
+    extras: List[Dict[str, Any]] = []
+    seen = set(existing)
+
+    def _add(item: Dict[str, Any]) -> None:
+        key = re.sub(r"\W+", "", item["text"].lower())[:80]
+        if key in seen or len(extras) >= count:
+            return
+        seen.add(key)
+        extras.append(item)
+
+    # Deeper probes on missing skills beyond the standard kit
+    for skill in missing[3:6]:
+        _add(_question_item(
+            f"Walk me through a hands-on scenario where you applied {skill} under pressure.",
+            listen=[f"Real {skill} usage", "Problem-solving steps", "Measurable outcome"],
+            follow_ups=[f"What would you do differently next time with {skill}?"],
+            strong=f"Detailed scenario with trade-offs and outcome",
+            weak="Cannot describe practical {skill} usage",
+        ))
+
+    # Architecture / depth on matched skills
+    for skill in matched[3:6]:
+        company = _company_for_skill(skill, work_entries, profile)
+        if company:
+            text = f"At {company}, how did you design or scale the {skill} solution?"
+        else:
+            text = f"How would you architect a production system using {skill} for {domain_hint}?"
+        _add(_question_item(
+            text,
+            listen=["Design decisions", "Trade-offs", "Scale or reliability"],
+            follow_ups=[f"What failure modes did you plan for with {skill}?"],
+            strong="Clear architecture with constraints and outcomes",
+            weak="Only surface-level or theoretical answer",
+        ))
+
+    if len(extras) < 2 and matched:
+        _add(_production_issue_question(matched[0]))
+
+    return extras[:count]
+
+
 def refresh_interview_questions_in_analysis(
     analysis: Dict[str, Any],
     parsed_data: Optional[Dict[str, Any]] = None,

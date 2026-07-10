@@ -220,8 +220,8 @@ async def _create_recruiter_session(
 ):
     """Create a standard/deep recruiter interview session."""
     # Find latest active screening result for (candidate, jd) to seed context
-    screening_result_id = None
-    if body.jd_id:
+    screening_result_id = body.screening_result_id
+    if not screening_result_id and body.jd_id:
         sr = db.execute(
             select(ScreeningResult)
             .where(
@@ -244,8 +244,16 @@ async def _create_recruiter_session(
         "phone_number": body.phone_number,
         "focus_areas": body.focus_areas or [],
         "interview_depth": depth,
+        "depth": depth,
         "duration_minutes": duration_minutes,
     }
+
+    logger.info(
+        "Creating recruiter session: depth=%s screening_result_id=%s tenant=%s",
+        depth,
+        screening_result_id,
+        current_user.tenant_id,
+    )
 
     orchestrator = RecruiterOrchestrator(db)
     try:
@@ -1226,6 +1234,19 @@ def _handle_quick_screen_escalation(session: VoiceScreeningSession, db: Session)
         or assessment.get('score')
         or assessment.get('match_score')
     )
+    if score is None and session.candidate_id and session.jd_id:
+        sr = db.execute(
+            select(ScreeningResult)
+            .where(
+                ScreeningResult.tenant_id == session.tenant_id,
+                ScreeningResult.candidate_id == session.candidate_id,
+                ScreeningResult.role_template_id == session.jd_id,
+                ScreeningResult.is_active == True,
+            )
+            .order_by(ScreeningResult.timestamp.desc())
+        ).scalar_one_or_none()
+        if sr and sr.call_fit_score is not None:
+            score = sr.call_fit_score
     if score is None or score < config.auto_escalation_threshold:
         return
 
@@ -1450,6 +1471,16 @@ async def on_interview_complete(
             detail="Recruiter session not found for this voice session",
         )
 
+    # Idempotency: skip duplicate processing if already completed with scorecard
+    if recruiter_session.status == "completed":
+        existing_scorecard = db.execute(
+            select(RecruiterScorecard).where(
+                RecruiterScorecard.session_id == recruiter_session.id
+            )
+        ).scalar_one_or_none()
+        if existing_scorecard:
+            return {"status": "ok", "session_id": recruiter_session.id, "depth": "deep", "duplicate": True}
+
     # Update recruiter session with call data
     recruiter_session.status = "completed"
     recruiter_session.ended_at = datetime.now(timezone.utc)
@@ -1462,46 +1493,63 @@ async def on_interview_complete(
     questions_responses = result.get("questions_responses", [])
     if questions_responses:
         from app.backend.models.db_models import RecruiterInterviewQuestion
-        existing_by_id = {}
-        existing_by_text = {}
+
+        existing_by_text: dict[str, RecruiterInterviewQuestion] = {}
         for q in db.execute(
             select(RecruiterInterviewQuestion).where(
                 RecruiterInterviewQuestion.session_id == recruiter_session.id
             )
         ).scalars().all():
-            existing_by_id[q.id] = q
             existing_by_text[q.question_text] = q
 
         for idx, qr in enumerate(questions_responses):
             if not isinstance(qr, dict):
                 continue
-            question_text = qr.get("question", "")
-            question_id = qr.get("question_id")
 
-            existing = None
-            if question_id:
-                existing = existing_by_id.get(question_id)
-            if not existing:
-                existing = existing_by_text.get(question_text)
+            is_follow_up = bool(qr.get("is_follow_up", False))
+            # Kit orchestrator uses "answer"; legacy dynamic flow uses "response".
+            candidate_response = qr.get("response") or qr.get("answer", "")
+            question_text = (
+                (qr.get("follow_up_text") or "").strip()
+                if is_follow_up
+                else (qr.get("question") or "").strip()
+            )
+            if not question_text:
+                continue
 
+            existing = existing_by_text.get(question_text)
+            answer_score = qr.get("score")
             if existing:
-                existing.candidate_response = qr.get("response", "")
+                existing.candidate_response = candidate_response
                 existing.response_duration_seconds = qr.get("response_duration")
-                if qr.get("is_follow_up", False):
+                if is_follow_up:
                     existing.is_follow_up = True
-            else:
-                new_q_id = question_id or str(uuid.uuid4())
-                db.add(RecruiterInterviewQuestion(
-                    id=new_q_id,
-                    session_id=recruiter_session.id,
-                    sequence_number=idx + 1,
-                    category=qr.get("category", "technical"),
-                    question_text=question_text,
-                    question_context=qr.get("context", ""),
-                    candidate_response=qr.get("response", ""),
-                    response_duration_seconds=qr.get("response_duration"),
-                    is_follow_up=qr.get("is_follow_up", False),
-                ))
+                if answer_score is not None:
+                    existing.answer_score = int(answer_score)
+                continue
+
+            parent_question_id = None
+            if is_follow_up:
+                parent_text = (qr.get("question") or "").strip()
+                parent = existing_by_text.get(parent_text)
+                if parent:
+                    parent_question_id = parent.id
+
+            new_q = RecruiterInterviewQuestion(
+                id=str(uuid.uuid4()),
+                session_id=recruiter_session.id,
+                sequence_number=idx + 1,
+                category=qr.get("stage") or qr.get("category", "technical"),
+                question_text=question_text,
+                question_context=qr.get("context", ""),
+                candidate_response=candidate_response,
+                response_duration_seconds=qr.get("response_duration"),
+                is_follow_up=is_follow_up,
+                parent_question_id=parent_question_id,
+                answer_score=int(answer_score) if answer_score is not None else None,
+            )
+            db.add(new_q)
+            existing_by_text[question_text] = new_q
 
     db.commit()
 
