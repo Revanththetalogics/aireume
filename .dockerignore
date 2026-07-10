@@ -1,19 +1,33 @@
+# VCS / CI
 .git
 .github
 .qoder
+
+# Node (frontend image uses context ./app/frontend)
 node_modules
 app/frontend/node_modules
+app/frontend/dist
+
+# Python cache
 **/__pycache__
 **/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+
+# Secrets / local data
 .env
 .env.*
 *.db
+
+# Dev-only content
 tests/
 e2e/
 docs/
-alembic/
-app/backend/
-app/frontend/
-app/speech_service/
-app/nginx/
 *.md
+playwright-report/
+package.json.bak
+certbot/
+
+# Built or deployed via separate Docker contexts
+app/frontend/
+app/nginx/
