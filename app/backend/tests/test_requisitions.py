@@ -359,13 +359,29 @@ class TestRequisitionApi:
         from app.backend.tests.test_workflows_e2e import _JD, _PIPELINE_RESULT, _RESUME
 
         user = _admin_user(db)
+        hm = User(
+            tenant_id=user.tenant_id,
+            email="hm-analyze-link@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
         req = create_requisition(
             db,
             tenant_id=user.tenant_id,
             created_by=user.id,
             title="Analyze Link Test",
             jd_text=_JD,
+            primary_hiring_manager_id=hm.id,
         )
+        req.intake_json = json.dumps({
+            "screen_focus_topics": ["Backend API ownership"],
+            "must_haves": ["python", "fastapi"],
+        })
+        sync_working_criteria_v0(db, req)
         db.commit()
 
         with patch("app.backend.routes.analyze.parse_resume", return_value={

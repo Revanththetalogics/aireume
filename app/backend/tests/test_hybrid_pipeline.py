@@ -559,10 +559,17 @@ class TestBuildFallbackNarrative:
         assert any("kubernetes" in w.lower() or "terraform" in w.lower() for w in result["weaknesses"])
 
     def test_interview_questions_generated(self):
-        python_result = {"fit_score": 60, "score_breakdown": {}, "_required_years": 3}
-        skill_analysis = {"matched_skills": ["python"], "missing_skills": ["java", "spring"], "required_count": 3}
-        result = _build_fallback_narrative(python_result, skill_analysis)
-        iq = result["interview_questions"]
+        from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
+
+        python_result = {
+            "fit_score": 60,
+            "score_breakdown": {},
+            "_required_years": 3,
+            "candidate_profile": {"name": "Alex"},
+            "jd_analysis": {"role_title": "Engineer", "required_skills": ["python", "java", "spring"]},
+            "skill_analysis": {"matched_required": ["python"], "missing_required": ["java", "spring"]},
+        }
+        iq = _placeholder_interview_kit(python_result)
         assert len(iq["technical_questions"]) >= 1
         assert len(iq["experience_deep_dive_questions"]) >= 0
         assert iq["culture_fit_questions"] == []
@@ -574,6 +581,12 @@ class TestBuildFallbackNarrative:
         assert 3 <= total <= 10
         texts = [q["text"] for q in iq["technical_questions"] + iq["experience_deep_dive_questions"]]
         assert all(len(t) <= 140 for t in texts)
+
+    def test_fallback_narrative_has_no_interview_kit(self):
+        python_result = {"fit_score": 60, "score_breakdown": {}, "_required_years": 3}
+        skill_analysis = {"matched_skills": ["python"], "missing_skills": ["java", "spring"], "required_count": 3}
+        result = _build_fallback_narrative(python_result, skill_analysis)
+        assert "interview_questions" not in result
 
     def test_rationale_mentions_score(self):
         python_result = {"fit_score": 72, "score_breakdown": {}, "_required_years": 5}
@@ -596,7 +609,9 @@ class TestBuildFallbackNarrative:
         assert result.get("narrative_fallback") is True
 
     def test_fallback_briefing_avoids_jd_wall_of_text(self):
-        """Fallback briefing must not paste full JD paragraphs into probes or questions."""
+        """Placeholder kit briefing must not paste full JD paragraphs into probes or questions."""
+        from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
+
         long_jd = (
             "You are a detail-oriented finance professional who thrives in a dynamic environment. "
             "With a strong foundation in financial planning and analysis, you possess curiosity "
@@ -610,18 +625,18 @@ class TestBuildFallbackNarrative:
             "jd_analysis": {
                 "key_responsibilities": [long_jd],
                 "required_skills": ["excel"],
+                "role_title": "FP&A Analyst",
+            },
+            "skill_analysis": {
+                "matched_required": ["excel"],
+                "missing_required": ["financial planning", "forecasting"],
             },
         }
-        skill_analysis = {
-            "matched_skills": ["excel"],
-            "missing_skills": ["financial planning", "forecasting"],
-            "required_count": 3,
-        }
-        result = _build_fallback_narrative(python_result, skill_analysis)
-        briefing = result["interview_questions"]["candidate_briefing"]
+        iq = _placeholder_interview_kit(python_result)
+        briefing = iq["candidate_briefing"]
         assert "Fallback analysis" not in briefing["profile_snapshot"]
         assert all(len(p) < 80 for p in briefing["areas_to_probe"])
-        for q in result["interview_questions"]["technical_questions"]:
+        for q in iq["technical_questions"]:
             assert long_jd not in q["text"]
             assert len(q["text"]) < 200
 
@@ -794,12 +809,23 @@ class TestExplainWithLlm:
         assert "interview_questions" not in result
 
     @pytest.mark.asyncio
-    async def test_llm_unavailable_raises(self):
+    async def test_llm_unavailable_returns_synthesized_narrative(self):
         from app.backend.services.hybrid_pipeline import explain_with_llm
 
-        with patch("app.backend.services.hybrid_pipeline._get_llm", return_value=None):
-            with pytest.raises(RuntimeError, match="LLM not available"):
-                await explain_with_llm({})
+        with patch(
+            "app.backend.services.llm_json_service.invoke_llm_json_resilient",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await explain_with_llm({
+                "jd_analysis": {"role_title": "Engineer"},
+                "candidate_profile": {"name": "Alex"},
+                "skill_analysis": {"matched_required": [], "missing_required": []},
+                "scores": {"fit_score": 55, "final_recommendation": "Consider"},
+            })
+
+        assert result.get("fit_summary")
+        assert result.get("ai_enhanced") is False
 
 
 import json

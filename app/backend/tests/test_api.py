@@ -537,9 +537,9 @@ class TestBackgroundNarrativeTask:
         # Query fresh from DB to check the narrative was written
         result = db.query(ScreeningResult).filter(ScreeningResult.id == result_id).first()
         assert result.narrative_json is not None
-        assert result.narrative_status == "fallback"
+        assert result.narrative_status == "ready"
         narrative = json.loads(result.narrative_json)
-        # Fallback narrative should have deterministic content
+        # Synthesized narrative should have deterministic content (no user-visible failure)
         assert "fit_summary" in narrative
         assert "strengths" in narrative
-        assert narrative.get("narrative_fallback") is True
+        assert narrative.get("ai_enhanced") is False
