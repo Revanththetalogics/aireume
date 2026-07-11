@@ -29,6 +29,16 @@ export const REQUISITIONS = {
   hmPageTitle: 'My Openings',
   hmPageSubtitle: 'Approve intake, review submissions, and track pipeline for your roles',
   intakeTab: 'Intake',
+  intakeSaved: 'Intake saved',
+  intakeSaveHint: 'Add screen-focus topics or must-haves. Screen after save; HM approval locks criteria v1.',
+  intakeSuggestCta: 'Suggest from job description',
+  intakeSuggestDone: 'Fields filled from JD — review and save',
+  intakeStepIntake: '1. HM intake',
+  intakeStepScreen: '2. Screen',
+  intakeStepRefine: '3. Refine bar',
+  intakeUnsaved: 'Unsaved changes',
+  hmReviewPackCta: 'HM review pack',
+  hmReviewPackHint: 'Share shortlisted candidates with HM (after screening)',
   criteriaTab: 'Criteria',
   pipelineTab: 'Pipeline',
   overviewTab: 'Overview',
@@ -37,7 +47,7 @@ export const REQUISITIONS = {
   requestChangesCta: 'Request changes',
   submitToHmCta: 'Submit to HM',
   statusDraft: 'Draft',
-  notCalibratedWarning: 'Complete HM intake and calibration before screening candidates.',
+  notCalibratedWarning: 'Save intake and assign a hiring manager before screening. Calibrate when HM feedback changes the bar.',
 }
 
 export const ROLES = {

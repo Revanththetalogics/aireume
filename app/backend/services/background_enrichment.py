@@ -360,43 +360,21 @@ def _normalize_interview_kit(data: dict) -> dict:
 
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Generate interview kit JSON only (separate from narrative). Retries on transient failures."""
-    from app.backend.services.hybrid_pipeline import _parse_llm_json_response, _is_ollama_cloud
-    from app.backend.services.llm_service import use_gemini_for_analysis
+    from app.backend.services.llm_json_service import invoke_llm_json_resilient
 
     ctx = build_llm_prompt_context(context)
     prompt = _build_interview_kit_prompt(ctx)
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    if use_gemini_for_analysis():
-        num_predict = 2500
-    else:
-        num_predict = 2500 if not _is_ollama_cloud(base_url) else 4000
+    compact_prompt = prompt + "\n\nCRITICAL: Return ONLY valid JSON. Max 3 threads, 2 steps each. Keep spoken lines under 120 chars."
 
-    last_err: Optional[Exception] = None
-    for attempt in range(KIT_LLM_MAX_ATTEMPTS):
-        try:
-            raw = await _invoke_llm_prompt(prompt, num_predict=num_predict)
-            if not raw or len(raw) < 20:
-                raise ValueError("Interview kit LLM returned empty response")
+    parsed = await invoke_llm_json_resilient(
+        [prompt, compact_prompt],
+        max_output_tokens=2500,
+        log_label="interview_kit",
+    )
+    if parsed is not None:
+        return _normalize_interview_kit(parsed)
 
-            parsed = _parse_llm_json_response(raw)
-            if parsed is None:
-                raise ValueError("Interview kit LLM returned non-JSON response")
-
-            return _normalize_interview_kit(parsed)
-        except Exception as err:
-            last_err = err
-            if attempt < KIT_LLM_MAX_ATTEMPTS - 1:
-                log.warning(
-                    "Interview kit LLM attempt %s/%s failed: %s: %s — retrying",
-                    attempt + 1,
-                    KIT_LLM_MAX_ATTEMPTS,
-                    type(err).__name__,
-                    str(err)[:160],
-                )
-                await asyncio.sleep(2 * (attempt + 1))
-            else:
-                raise last_err from err
-    raise RuntimeError("Interview kit LLM failed after retries")
+    raise RuntimeError("Interview kit LLM returned no parseable JSON after retries")
 
 
 def _update_screening_fields(
@@ -501,7 +479,7 @@ async def background_interview_kit(
 ) -> None:
     """Background task: generate interview kit and merge into stored report."""
     from app.backend.db.database import SessionLocal
-    from app.backend.services.hybrid_pipeline import _build_fallback_narrative
+    from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
     from app.backend.services.interview_kit_generator import count_kit_questions
     from app.backend.services.interview_kit_context import load_kit_inputs_for_screening
 
@@ -523,7 +501,7 @@ async def background_interview_kit(
         llm_context = {**llm_context, **kit_inputs}
         python_result = {**python_result, "kit_inputs": kit_inputs}
 
-    kit_status = "fallback"
+    kit_status = "ready"
     kit_error: Optional[str] = None
     interview_questions = None
 
@@ -535,38 +513,29 @@ async def background_interview_kit(
                 timeout=INTERVIEW_KIT_TIMEOUT,
             )
         interview_questions = kit
-        if count_kit_questions(kit) > 0:
-            kit_status = "ready"
-            log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
-        else:
-            kit_error = "empty_kit: LLM returned zero questions"
+        if count_kit_questions(kit) <= 0:
             log.warning(
-                "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic fallback",
+                "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic kit",
                 screening_result_id,
             )
-            fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
-            interview_questions = fallback.get("interview_questions", {})
-            kit_status = "fallback"
+            interview_questions = _placeholder_interview_kit(python_result)
+        else:
+            log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
     except asyncio.TimeoutError:
-        kit_error = f"timeout: exceeded {INTERVIEW_KIT_TIMEOUT:.0f}s"
         log.warning(
-            "Interview kit LLM timed out for screening_result_id=%s after %.0fs",
+            "Interview kit LLM timed out for screening_result_id=%s after %.0fs — using deterministic kit",
             screening_result_id,
             INTERVIEW_KIT_TIMEOUT,
         )
-        fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
-        interview_questions = fallback.get("interview_questions", {})
-        kit_status = "fallback"
+        interview_questions = _placeholder_interview_kit(python_result)
     except Exception as err:
-        kit_error = f"{type(err).__name__}: {str(err)[:200]}"
         log.warning(
-            "Interview kit LLM failed for screening_result_id=%s: %s",
+            "Interview kit LLM failed for screening_result_id=%s: %s: %s — using deterministic kit",
             screening_result_id,
-            kit_error,
+            type(err).__name__,
+            str(err)[:200],
         )
-        fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
-        interview_questions = fallback.get("interview_questions", {})
-        kit_status = "fallback"
+        interview_questions = _placeholder_interview_kit(python_result)
 
     if interview_questions:
         _merge_interview_kit(
@@ -657,28 +626,25 @@ def schedule_post_narrative_enrichment(
     narrative_status: str,
     narrative_payload: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Chain background interview kit + voice strategy after narrative is persisted."""
-    from app.backend.services.interview_kit_generator import count_kit_questions
+    """Chain background interview kit + voice strategy after narrative is persisted.
 
+    Interview kit always runs as a separate LLM task — never copied from narrative fallback.
+    """
     recommendation = (
         python_result.get("final_recommendation")
         or llm_context.get("scores", {}).get("final_recommendation")
         or ""
     )
 
-    if narrative_status == "fallback" and narrative_payload:
-        kit = narrative_payload.get("interview_questions")
-        if kit and count_kit_questions(kit) > 0:
-            _merge_interview_kit(screening_result_id, tenant_id, kit, "fallback")
-        else:
-            asyncio.create_task(
-                background_interview_kit(screening_result_id, tenant_id, llm_context, python_result)
-            )
-    else:
-        _update_screening_fields(screening_result_id, tenant_id, interview_kit_status="pending")
-        asyncio.create_task(
-            background_interview_kit(screening_result_id, tenant_id, llm_context, python_result)
-        )
+    _update_screening_fields(screening_result_id, tenant_id, interview_kit_status="pending")
+    asyncio.create_task(
+        background_interview_kit(screening_result_id, tenant_id, llm_context, python_result)
+    )
+    log.info(
+        "Scheduled independent interview kit LLM for screening_result_id=%s (narrative_status=%s)",
+        screening_result_id,
+        narrative_status,
+    )
 
     if recommendation in ("Shortlist", "Consider") and _prebuild_voice_strategy_enabled():
         _update_screening_fields(screening_result_id, tenant_id, voice_strategy_status="pending")

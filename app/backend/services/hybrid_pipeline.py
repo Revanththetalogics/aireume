@@ -1287,12 +1287,62 @@ def _fix_unescaped_control_chars(text: str) -> str:
     return ''.join(result)
 
 
+def _narrative_from_llm_context(context: Dict[str, Any], *, ai_enhanced: bool = False) -> Dict[str, Any]:
+    """Deterministic narrative from scoring context — always succeeds."""
+    scores = context.get("scores", {})
+    python_result = {
+        "fit_score": scores.get("fit_score", 0),
+        "final_recommendation": scores.get("final_recommendation", "Pending"),
+        "candidate_profile": context.get("candidate_profile", {}),
+        "jd_analysis": context.get("jd_analysis", {}),
+        "skill_analysis": context.get("skill_analysis", {}),
+        "score_breakdown": {
+            "experience_match": scores.get("exp_score", 0),
+            "domain_fit": scores.get("domain_score", 0),
+            "education": scores.get("edu_score", 0),
+        },
+        "score_rationales": context.get("score_rationales", {}),
+        "risk_signals": context.get("risk_summary", {}).get("risk_flags", []),
+        "_required_years": 0,
+    }
+    result = _build_fallback_narrative(python_result, context.get("skill_analysis", {}))
+    result["ai_enhanced"] = ai_enhanced
+    return result
+
+
+def _llm_dict_to_narrative_result(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Map parsed LLM JSON to narrative result dict."""
+    concerns = _ensure_str_list(data.get("concernes", data.get("concerns", data.get("weaknesses", []))))
+    weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
+    hiring_decision = data.get("hiring_decision", {})
+    if not isinstance(hiring_decision, dict):
+        hiring_decision = {}
+
+    return {
+        "ai_enhanced": True,
+        "candidate_profile_summary": data.get("candidate_profile_summary") or None,
+        "fit_summary": str(data.get("fit_summary", "")),
+        "strengths": _ensure_str_list(data.get("strengths", [])),
+        "concerns": concerns,
+        "weaknesses": weaknesses,
+        "dealbreakers": _ensure_str_list(data.get("dealbreakers", [])),
+        "differentiators": _ensure_str_list(data.get("differentiators", [])),
+        "recommendation_rationale": str(data.get("recommendation_rationale", "")),
+        "hiring_decision": {
+            "verdict": hiring_decision.get("verdict", ""),
+            "confidence": hiring_decision.get("confidence", 0.0),
+            "key_factors": _ensure_str_list(hiring_decision.get("key_factors", [])),
+            "action_items": _ensure_str_list(hiring_decision.get("action_items", [])),
+        },
+        "explainability": data.get("explainability", {}),
+    }
+
+
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
-    """Single LLM call to generate narrative (no interview kit). Raises on failure."""
+    """Generate narrative via multi-tier LLM retries; always returns a complete narrative."""
+    from app.backend.services.llm_json_service import invoke_llm_json_resilient
+
     _narrative_predict = _narrative_output_token_limit()
-    llm = _create_narrative_llm(max_output_tokens=_narrative_predict)
-    if llm is None:
-        raise RuntimeError("LLM not available")
 
     jd       = context.get("jd_analysis", {})
     profile  = context.get("candidate_profile", {})
@@ -1384,211 +1434,27 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     prompt = _build_narrative_prompt(**_prompt_kwargs, ultra_compact=False)
     compact_prompt = _build_narrative_prompt(**_prompt_kwargs, ultra_compact=True)
 
-    import httpx  # For specific error handling
-    
-    from app.backend.services.llm_service import use_gemini_for_analysis
-    from langchain_core.messages import HumanMessage
-    messages = [HumanMessage(content=prompt)]
-    
-    # Retry configuration for 429 rate limit errors
-    max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))
-    base_delay = 2.0
-    
-    # Wrap primary LLM call with httpx error handling and 429 retry logic
-    raw = ""
-    for attempt in range(max_retries + 1):
-        try:
-            response = await llm.ainvoke(messages)
-            raw = response.content if hasattr(response, "content") else str(response)
-            raw = raw.strip() if raw else ""
-            break  # Success, exit retry loop
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code if e.response else 0
-            if status_code == 429 and attempt < max_retries:
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
-                log.warning(f"LLM rate limited (429), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
-                await asyncio.sleep(delay)
-                continue
-            # Non-retryable errors or retries exhausted
-            if status_code == 401:
-                raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
-            elif status_code == 429:
-                raise RuntimeError("Ollama Cloud rate limited — too many requests (retries exhausted)")
-            elif status_code >= 500:
-                raise RuntimeError(f"Ollama Cloud server error ({status_code})")
-            else:
-                raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
-        except httpx.ConnectError:
-            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
-        except httpx.TimeoutException:
-            raise RuntimeError("Ollama request timed out")
-        except Exception as e:
-            # Catch langchain ResponseError wrapping 429
-            err_msg = str(e).lower()
-            if ("429" in err_msg or "too many" in err_msg) and attempt < max_retries:
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
-                log.warning(f"LLM rate limited (ResponseError), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
-                await asyncio.sleep(delay)
-                continue
-            raise  # Re-raise non-429 exceptions
+    minimal_prompt = compact_prompt + (
+        "\n\nCRITICAL: Return ONLY the JSON object. No prose. fit_summary max 180 chars. Max 2 items per array."
+    )
 
-    log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
-    log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
+    data = await invoke_llm_json_resilient(
+        [prompt, compact_prompt, minimal_prompt],
+        max_output_tokens=_narrative_predict,
+        log_label="narrative",
+    )
+    if data is not None:
+        return _llm_dict_to_narrative_result(data)
 
-    # Retry with compact prompt only when response is empty or genuinely incomplete.
-    # Markdown-wrapped JSON (```json ... ```) is accepted — not treated as truncated.
-    _raw_stripped = str(raw).strip() if raw else ""
-    if _llm_response_needs_compact_retry(raw):
-        if not raw:
-            log.warning("LLM returned empty response, retrying with compact prompt...")
-        elif len(_raw_stripped) < 20:
-            log.warning(
-                "LLM response too short (%d chars), retrying with compact prompt...",
-                len(_raw_stripped),
-            )
-        else:
-            log.warning(
-                "LLM response appears incomplete (%d chars), retrying with compact prompt...",
-                len(_raw_stripped),
-            )
-
-        if use_gemini_for_analysis():
-            _num_predict_retry = _narrative_predict
-        else:
-            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            _is_cloud_retry = _is_ollama_cloud(_base_url)
-            _num_predict_retry = min(_narrative_predict, 1400) if _is_cloud_retry else min(_narrative_predict, 1000)
-
-        retry_llm = _build_compact_retry_llm(num_predict=_num_predict_retry)
-        if use_gemini_for_analysis():
-            log.info("Compact narrative retry using Google Gemini (model=%s)", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
-        compact_messages = [HumanMessage(content=compact_prompt)]
-        
-        # Wrap retry LLM call with httpx error handling and 429 retry logic
-        raw = ""
-        for attempt in range(max_retries + 1):
-            try:
-                retry_resp = await retry_llm.ainvoke(compact_messages)
-                raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
-                break  # Success, exit retry loop
-            except httpx.HTTPStatusError as e:
-                status_code = e.response.status_code if e.response else 0
-                if status_code == 429 and attempt < max_retries:
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
-                    log.warning(f"LLM rate limited (429), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
-                    await asyncio.sleep(delay)
-                    continue
-                # Non-retryable errors or retries exhausted
-                if status_code == 401:
-                    raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
-                elif status_code == 429:
-                    raise RuntimeError("Ollama Cloud rate limited — too many requests (retries exhausted)")
-                elif status_code >= 500:
-                    raise RuntimeError(f"Ollama Cloud server error ({status_code})")
-                else:
-                    raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
-            except httpx.ConnectError:
-                _retry_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-                raise RuntimeError(f"Cannot connect to Ollama at {_retry_base}")
-            except httpx.TimeoutException:
-                raise RuntimeError("Ollama request timed out")
-            except Exception as e:
-                # Catch langchain ResponseError wrapping 429
-                err_msg = str(e).lower()
-                if ("429" in err_msg or "too many" in err_msg) and attempt < max_retries:
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
-                    log.warning(f"LLM rate limited (ResponseError), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
-                    await asyncio.sleep(delay)
-                    continue
-                raise  # Re-raise non-429 exceptions
-        log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
-
-    if _llm_response_needs_compact_retry(raw):
-        log.warning("LLM returned empty or incomplete response after compact prompt retry")
-        raise ValueError("LLM returned empty response")
-
-    data = _parse_llm_json_response(raw)
-    if data is None:
-        # Provide detailed diagnostics for debugging extraction failures
-        log.warning("LLM JSON extraction failed. Response length: %d chars.", len(raw) if raw else 0)
-        log.warning("  First 200 chars: %s", raw[:200] if raw else "<empty>")
-        log.warning("  Last 200 chars: %s", raw[-200:] if raw and len(raw) > 200 else raw)
-        # Try to identify the exact parse failure point on the cleaned response
-        try:
-            _clean = raw.strip()
-            # Strip Unicode BOM
-            if _clean and _clean[0] == '\ufeff':
-                _clean = _clean[1:].strip()
-            _clean = re.sub(r"<LM_THINK_START>.*?<LM_THINK_END>", "", _clean, flags=re.DOTALL)
-            _clean = re.sub(r"<redacted_thinking>.*?</redacted_thinking>", "", _clean, flags=re.DOTALL)
-            _clean = re.sub(r"^```(?:json)?\s*", "", _clean, flags=re.IGNORECASE)
-            _clean = re.sub(r"\s*```$", "", _clean)
-            _clean = _clean.strip()
-            # First/last brace extraction
-            _fb = _clean.find("{")
-            _lb = _clean.rfind("}")
-            if _fb != -1 and _lb > _fb:
-                _sliced = _clean[_fb:_lb + 1]
-            else:
-                _sliced = _clean
-            json.loads(_sliced)
-        except json.JSONDecodeError as diag:
-            log.warning("  Diagnostic: json.loads fails at position %d (char=%r, line=%d, col=%d): %s",
-                        diag.pos, _sliced[diag.pos] if diag.pos < len(_sliced) else '?',
-                        diag.lineno, diag.colno, str(diag)[:150])
-            # Show context around the failure position
-            ctx_start = max(0, diag.pos - 80)
-            ctx_end = min(len(_sliced), diag.pos + 80)
-            log.warning("  Context around failure: ...%r...", _sliced[ctx_start:ctx_end])
-            # Try the combined fix to see if that resolves it
-            try:
-                _fixed = _fix_unescaped_control_chars(_sliced)
-                _fixed = re.sub(r",\s*}", "}", _fixed)
-                _fixed = re.sub(r",\s*]", "]", _fixed)
-                json.loads(_fixed)
-                log.warning("  Diagnostic: Combined fix (control chars + trailing commas) WOULD resolve the issue — "
-                            "this indicates the response has both problems but they were applied separately in earlier strategies.")
-            except json.JSONDecodeError as diag2:
-                log.warning("  Diagnostic: Combined fix also fails at position %d: %s", diag2.pos, str(diag2)[:150])
-                ctx2_start = max(0, diag2.pos - 80)
-                ctx2_end = min(len(_fixed), diag2.pos + 80)
-                log.warning("  Context around combined-fix failure: ...%r...", _fixed[ctx2_start:ctx2_end])
-        raise ValueError("LLM returned non-JSON response")
-
-    # Handle both 'concerns' (new format) and 'weaknesses' (legacy format)
-    concerns = _ensure_str_list(data.get("concernes", data.get("concerns", data.get("weaknesses", []))))
-    weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
-
-    # Parse new narrative quality fields with safe defaults
-    hiring_decision = data.get("hiring_decision", {})
-    if not isinstance(hiring_decision, dict):
-        hiring_decision = {}
-
-    return {
-        "ai_enhanced": True,  # Marks this as a real LLM-generated narrative
-        "candidate_profile_summary": data.get("candidate_profile_summary") or None,
-        "fit_summary":            str(data.get("fit_summary", "")),
-        "strengths":              _ensure_str_list(data.get("strengths", [])),
-        "concerns":               concerns,
-        "weaknesses":             weaknesses,
-        "dealbreakers":           _ensure_str_list(data.get("dealbreakers", [])),
-        "differentiators":        _ensure_str_list(data.get("differentiators", [])),
-        "recommendation_rationale": str(data.get("recommendation_rationale", "")),
-        "hiring_decision": {
-            "verdict": hiring_decision.get("verdict", ""),
-            "confidence": hiring_decision.get("confidence", 0.0),
-            "key_factors": _ensure_str_list(hiring_decision.get("key_factors", [])),
-            "action_items": _ensure_str_list(hiring_decision.get("action_items", [])),
-        },
-        "explainability":         data.get("explainability", {}),
-    }
+    log.warning("Narrative LLM exhausted all tiers — using synthesized narrative from scores")
+    return _narrative_from_llm_context(context, ai_enhanced=False)
 
 
 def _ensure_str_list(v) -> List[str]:
     if not isinstance(v, list):
         return []
     return [item if isinstance(item, str) else str(item) for item in v]
+
 
 
 def _build_executive_summary(score, recommendation, matched_skills, required_skills,
@@ -1760,16 +1626,8 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "overall_rationale":    f"Overall fit score: {score}/100.",
         }
 
-    # Targeted interview kit — short, skill-specific, resume-grounded
-    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
-
-    interview_questions = generate_targeted_interview_kit(
-        profile=profile,
-        jd_analysis=jd_a,
-        skill_analysis=skill_analysis,
-        parsed_data=python_result.get("parsed_data"),
-        kit_inputs=python_result.get("kit_inputs"),
-    )
+    # Targeted interview kit is generated independently in background_interview_kit.
+    # Narrative fallback must not embed kit — keeps narrative and kit LLM paths separate.
 
     # Build fallback candidate_profile_summary from deterministic data
     cp = python_result.get("candidate_profile", {})
@@ -1817,8 +1675,27 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "action_items": ["Review full resume manually", "Verify missing skills in interview"],
         },
         "explainability": explainability,
-        "interview_questions": interview_questions,
     }
+
+
+def _placeholder_interview_kit(python_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic kit placeholder for sync response while background kit LLM runs."""
+    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
+
+    return generate_targeted_interview_kit(
+        profile=python_result.get("candidate_profile", {}),
+        jd_analysis=python_result.get("jd_analysis", {}),
+        skill_analysis=python_result.get("skill_analysis", {}),
+        parsed_data=python_result.get("parsed_data"),
+        kit_inputs=python_result.get("kit_inputs"),
+    )
+
+
+def _merge_immediate_pipeline_result(python_result: Dict[str, Any], narrative: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge narrative into python scoring; attach placeholder kit until background kit LLM completes."""
+    merged = _merge_llm_into_result(python_result, narrative)
+    merged["interview_questions"] = _placeholder_interview_kit(python_result)
+    return merged
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2771,25 +2648,23 @@ async def _background_llm_narrative(
     except asyncio.TimeoutError:
         elapsed = (time.monotonic() - _start_time) if _start_time is not None else _bg_timeout
         log.warning(
-            "Background LLM narrative timed out for screening_result_id=%s after %.0fs",
+            "Background LLM narrative timed out for screening_result_id=%s after %.0fs — synthesizing from scores",
             screening_result_id,
             elapsed,
         )
-        LLM_FALLBACK_TOTAL.inc()
-        narrative_status = "fallback"
-        narrative_error = "AI analysis timed out. Showing standard analysis."
-        llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+        llm_result = _narrative_from_llm_context(llm_context, ai_enhanced=False)
+        narrative_status = "ready"
+        narrative_error = None
     except Exception as e:
         log.warning(
-            "Background LLM narrative failed for screening_result_id=%s: %s: %s",
+            "Background LLM narrative error for screening_result_id=%s: %s: %s — synthesizing from scores",
             screening_result_id,
             type(e).__name__,
             str(e)[:200],
         )
-        LLM_FALLBACK_TOTAL.inc()
-        narrative_status = "fallback"
-        narrative_error = str(e)[:200]
-        llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+        llm_result = _narrative_from_llm_context(llm_context, ai_enhanced=False)
+        narrative_status = "ready"
+        narrative_error = None
 
     # Write final result to DB with retry
     if llm_result:
@@ -3000,7 +2875,7 @@ async def run_hybrid_pipeline(
         )
         register_background_task(task)
         
-        return _merge_llm_into_result(python_result, fallback)
+        return _merge_immediate_pipeline_result(python_result, fallback)
 
     # Legacy synchronous mode (for batch processing and tests without DB persistence)
     _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
@@ -3035,7 +2910,7 @@ async def run_hybrid_pipeline(
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
 
-    final_result = _merge_llm_into_result(python_result, llm_result)
+    final_result = _merge_immediate_pipeline_result(python_result, llm_result)
 
     # ── Cache the result for batch consistency ───────────────────────────────
     try:
@@ -3157,7 +3032,7 @@ async def astream_hybrid_pipeline(
     if screening_result_id is not None and tenant_id is not None:
         fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
-        final = _merge_llm_into_result(python_result, fallback)
+        final = _merge_immediate_pipeline_result(python_result, fallback)
         
         # Strip internal keys for the SSE payload
         parsing_payload = {k: v for k, v in python_result.items()
@@ -3245,7 +3120,8 @@ async def astream_hybrid_pipeline(
 
     yield {"stage": "scoring", "result": llm_result or {}}
 
-    final = _merge_llm_into_result(python_result, llm_result or {})
+    narrative_payload = llm_result or _build_fallback_narrative(python_result, python_result["skill_analysis"])
+    final = _merge_immediate_pipeline_result(python_result, narrative_payload)
 
     # ── Cache the result for batch consistency ───────────────────────────────
     try:

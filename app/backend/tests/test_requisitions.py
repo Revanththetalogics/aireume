@@ -15,9 +15,14 @@ from app.backend.services.requisition_service import (
     create_requisition,
     ensure_legacy_role_template,
     intake_gate_blocks,
+    intake_has_minimum_content,
+    intake_screening_ready,
     migrate_legacy_data,
     get_or_create_tenant_settings,
     resolve_role_picker_id,
+    requisition_has_hiring_manager,
+    suggest_intake_from_jd,
+    sync_working_criteria_v0,
 )
 
 
@@ -74,7 +79,142 @@ class TestRequisitionService:
             jd_text="Some JD text here for testing purposes only.",
         )
         db.commit()
-        assert intake_gate_blocks(settings, req) is True
+        assert intake_gate_blocks(settings, req, db) is True
+        assert intake_has_minimum_content(req) is False
+
+    def test_intake_gate_ready_after_intake_and_hm(self, db, auth_client):
+        user = _admin_user(db)
+        hm = User(
+            email="hm-gate@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        settings = get_or_create_tenant_settings(db, user.tenant_id)
+        settings.intake_gate_mode = "warn"
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Ready Req",
+            jd_text="Kubernetes and Go required for platform engineering.",
+            primary_hiring_manager_id=hm.id,
+        )
+        req.intake_json = json.dumps({
+            "screen_focus_topics": ["Ownership of on-call rotation"],
+        })
+        sync_working_criteria_v0(db, req)
+        db.commit()
+        assert intake_has_minimum_content(req) is True
+        assert requisition_has_hiring_manager(req, db) is True
+        assert intake_screening_ready(req, db) is True
+        assert intake_gate_blocks(settings, req, db) is False
+
+    def test_intake_gate_warn_blocks_without_intake(self, db, auth_client):
+        user = _admin_user(db)
+        hm = User(
+            email="hm-no-intake@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        settings = get_or_create_tenant_settings(db, user.tenant_id)
+        settings.intake_gate_mode = "warn"
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="No Intake",
+            jd_text="Python and SQL required for analytics engineering role.",
+            primary_hiring_manager_id=hm.id,
+        )
+        db.commit()
+        assert intake_screening_ready(req, db) is False
+        assert intake_gate_blocks(settings, req, db) is True
+
+    def test_intake_gate_block_requires_hm_approval(self, db, auth_client):
+        user = _admin_user(db)
+        hm = User(
+            email="hm-block@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        settings = get_or_create_tenant_settings(db, user.tenant_id)
+        settings.intake_gate_mode = "block"
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Block Until Approve",
+            jd_text="Java and Spring required for backend engineering.",
+            primary_hiring_manager_id=hm.id,
+        )
+        req.intake_json = json.dumps({"must_haves": ["Java"]})
+        req.intake_status = "pending_hm"
+        db.commit()
+        assert intake_screening_ready(req, db) is True
+        assert intake_gate_blocks(settings, req, db) is True
+
+    def test_hm_approval_always_locks_criteria(self, db, auth_client):
+        user = _admin_user(db)
+        hm = User(
+            email="hm-approve@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Approve Locks V1",
+            jd_text="Python required for data engineering.",
+            primary_hiring_manager_id=hm.id,
+        )
+        req.intake_json = json.dumps({"must_haves": ["Python"], "screen_focus_topics": ["ETL ownership"]})
+        sync_working_criteria_v0(db, req)
+        db.commit()
+        assert (req.current_criteria_version or 0) == 0
+        calibrate_requisition(db, req, user_id=hm.id)
+        db.commit()
+        assert req.intake_status != "approved"
+        assert req.current_criteria_version == 1
+
+        req.intake_status = "approved"
+        calibrate_requisition(db, req, user_id=hm.id)
+        db.commit()
+        assert req.current_criteria_version == 2
+
+    def test_suggest_intake_from_jd(self, db, auth_client):
+        user = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Data Engineer",
+            jd_text="Required: Python, SQL, Spark. Nice: Airflow. Build ETL pipelines.",
+        )
+        db.commit()
+        suggested = suggest_intake_from_jd(req)
+        assert suggested.get("must_haves")
+        assert suggested.get("screen_focus_topics")
 
     def test_migrate_role_templates(self, db, auth_client):
         user = _admin_user(db)

@@ -63,6 +63,64 @@ def is_requisition_calibrated(req: Requisition) -> bool:
     )
 
 
+def intake_has_minimum_content(req: Requisition) -> bool:
+    """True when HM/recruiter saved at least one intake topic or must-have."""
+    if not req.intake_json:
+        return False
+    try:
+        intake = json.loads(req.intake_json)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(intake, dict):
+        return False
+    for key in ("screen_focus_topics", "must_haves", "deal_breakers"):
+        val = intake.get(key)
+        if isinstance(val, list) and any(str(x).strip() for x in val):
+            return True
+        if isinstance(val, str) and val.strip():
+            return True
+    must_ask = req.must_ask_questions_json
+    if must_ask:
+        try:
+            items = json.loads(must_ask) if isinstance(must_ask, str) else must_ask
+            if isinstance(items, list) and len(items) > 0:
+                return True
+        except json.JSONDecodeError:
+            pass
+    return False
+
+
+def requisition_has_hiring_manager(req: Requisition, db: Session | None = None) -> bool:
+    """True when a primary or additional hiring manager is assigned."""
+    if req.primary_hiring_manager_id:
+        return True
+    if db is None:
+        return False
+    return (
+        db.query(RequisitionHiringManager)
+        .filter(RequisitionHiringManager.requisition_id == req.id)
+        .first()
+        is not None
+    )
+
+
+def intake_screening_ready(req: Requisition, db: Session | None = None) -> bool:
+    """Screening allowed when intake is saved and an HM is assigned (calibration not required)."""
+    return intake_has_minimum_content(req) and requisition_has_hiring_manager(req, db)
+
+
+def sync_working_criteria_v0(db: Session, req: Requisition) -> None:
+    """Draft scoring bar from JD + intake — updates in place until HM locks v1+ on approval."""
+    if req.intake_status == "approved" and (req.current_criteria_version or 0) >= 1:
+        return
+    if not intake_has_minimum_content(req):
+        return
+    intake = _json_loads(req.intake_json, {})
+    criteria = merge_calibration_from_jd_and_intake(req.jd_text, intake)
+    req.calibrated_criteria_json = _json_dumps(criteria)
+    db.flush()
+
+
 def hm_assigned_to_requisition(db: Session, user_id: int, requisition_id: int) -> bool:
     req = db.get(Requisition, requisition_id)
     if not req:
@@ -227,20 +285,85 @@ def merge_calibration_from_jd_and_intake(
     return criteria
 
 
-def intake_gate_message(settings: TenantRequisitionSettings, req: Requisition) -> str | None:
-    if is_requisition_calibrated(req):
-        return None
+def suggest_intake_from_jd(req: Requisition) -> dict[str, Any]:
+    """Pre-fill intake fields from JD rules parse (no LLM)."""
+    from app.backend.services.hybrid_pipeline import parse_jd_rules
+
+    intake = _json_loads(req.intake_json, build_default_intake(req.title, req.jd_text))
+    parsed = parse_jd_rules(req.jd_text or "")
+
+    required = []
+    for skill in parsed.get("required_skills") or []:
+        name = skill if isinstance(skill, str) else skill.get("skill") or skill.get("name")
+        if name and name not in required:
+            required.append(str(name))
+
+    nice = []
+    for skill in parsed.get("nice_to_have_skills") or []:
+        name = skill if isinstance(skill, str) else skill.get("skill") or skill.get("name")
+        if name and name not in nice:
+            nice.append(str(name))
+
+    if not intake.get("must_haves"):
+        intake["must_haves"] = required[:12]
+    if not intake.get("good_to_haves"):
+        intake["good_to_haves"] = nice[:8]
+    if not intake.get("screen_focus_topics"):
+        topics = []
+        for resp in (parsed.get("key_responsibilities") or [])[:5]:
+            text = str(resp).strip()
+            if text:
+                topics.append(text[:160])
+        intake["screen_focus_topics"] = topics
+    if not intake.get("seniority_bar") and parsed.get("seniority"):
+        intake["seniority_bar"] = str(parsed.get("seniority"))
+    if not intake.get("environment") and parsed.get("domain"):
+        intake["environment"] = f"{parsed.get('domain')} role"
+
+    intake["role_title"] = intake.get("role_title") or req.title
+    return intake
+
+
+def intake_gate_message(
+    settings: TenantRequisitionSettings,
+    req: Requisition,
+    db: Session | None = None,
+) -> str | None:
     mode = settings.intake_gate_mode or "warn"
     if mode == "optional":
         return None
-    msg = "This requisition is not calibrated. Complete HM intake and calibration before screening."
-    return msg if mode == "warn" else msg
+    if intake_screening_ready(req, db):
+        if mode == "block" and req.intake_status != "approved":
+            return (
+                "HM must approve intake before screening (tenant policy). "
+                "Save intake and request HM approval."
+            )
+        return None
+    if not requisition_has_hiring_manager(req, db):
+        return "Assign a hiring manager on this requisition before screening candidates."
+    if not intake_has_minimum_content(req):
+        return (
+            "Save HM intake first — add screen-focus topics or must-haves, then screen candidates. "
+            "Calibrate later when HM feedback changes the bar."
+        )
+    return None
 
 
-def intake_gate_blocks(settings: TenantRequisitionSettings, req: Requisition) -> bool:
-    if is_requisition_calibrated(req):
+def intake_gate_blocks(
+    settings: TenantRequisitionSettings,
+    req: Requisition,
+    db: Session | None = None,
+) -> bool:
+    mode = settings.intake_gate_mode or "warn"
+    if mode == "optional":
         return False
-    return (settings.intake_gate_mode or "warn") == "block"
+    if not intake_has_minimum_content(req):
+        return True
+    if not requisition_has_hiring_manager(req, db):
+        return True
+    if mode == "block" and req.intake_status != "approved":
+        return True
+    return False
 
 
 def assign_hiring_managers(

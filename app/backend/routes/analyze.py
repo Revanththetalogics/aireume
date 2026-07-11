@@ -597,11 +597,11 @@ def _resolve_requisition(
         raise HTTPException(status_code=404, detail="Requisition not found")
     ensure_legacy_role_template(db, req)
     settings = get_or_create_tenant_settings(db, tenant_id)
-    if intake_gate_blocks(settings, req):
+    if intake_gate_blocks(settings, req, db):
         raise HTTPException(
             status_code=400,
             detail={
-                "message": intake_gate_message(settings, req),
+                "message": intake_gate_message(settings, req, db),
                 "error_code": "INTAKE_GATE_BLOCKED",
                 "requisition_id": requisition_id,
             },

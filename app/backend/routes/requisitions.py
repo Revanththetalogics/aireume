@@ -57,9 +57,15 @@ from app.backend.services.requisition_service import (
     hm_assigned_to_requisition,
     intake_gate_blocks,
     intake_gate_message,
+    intake_has_minimum_content,
+    intake_screening_ready,
+    is_requisition_calibrated,
     migrate_legacy_data,
+    requisition_has_hiring_manager,
     requisition_to_dict,
     req_candidate_to_dict,
+    suggest_intake_from_jd,
+    sync_working_criteria_v0,
     update_criteria_manual,
 )
 
@@ -97,7 +103,7 @@ def _to_out(db: Session, req: Requisition, tenant_id: int) -> RequisitionOut:
         db,
         req,
         candidate_count=_count_candidates(db, req.id),
-        gate_warning=intake_gate_message(settings, req),
+        gate_warning=intake_gate_message(settings, req, db),
     )
     return RequisitionOut(**data)
 
@@ -336,9 +342,23 @@ def update_intake(
         req.intake_status = body.intake_status
     if req.status == "draft":
         req.status = "intake_in_progress"
+    from app.backend.services.requisition_service import sync_working_criteria_v0
+    sync_working_criteria_v0(db, req)
     db.commit()
     db.refresh(req)
     return _to_out(db, req, current_user.tenant_id)
+
+
+@router.post("/{req_id}/intake/suggest")
+def suggest_intake(
+    req_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pre-fill intake from JD parse — helps recruiters start intake faster."""
+    req = _load_req(db, req_id, current_user.tenant_id)
+    require_requisition_write(current_user, req, db)
+    return {"intake_json": suggest_intake_from_jd(req)}
 
 
 @router.post("/{req_id}/calibrate", response_model=RequisitionOut)
@@ -418,8 +438,8 @@ def hm_approval(
         req.intake_status = "approved"
         req.hm_approved_at = datetime.now(timezone.utc)
         req.hm_approved_by = current_user.id
-        if not req.calibrated_criteria_json:
-            calibrate_requisition(db, req, user_id=current_user.id)
+        # B: HM approval always locks criteria v1+ from latest intake + JD
+        calibrate_requisition(db, req, user_id=current_user.id)
     else:
         req.intake_status = "changes_requested"
     db.commit()
@@ -675,9 +695,14 @@ def check_intake_gate(
     req = _load_req(db, req_id, current_user.tenant_id)
     settings = get_or_create_tenant_settings(db, current_user.tenant_id)
     return {
-        "blocks": intake_gate_blocks(settings, req),
-        "warning": intake_gate_message(settings, req),
-        "is_calibrated": bool(req.calibrated_criteria_json),
+        "blocks": intake_gate_blocks(settings, req, db),
+        "warning": intake_gate_message(settings, req, db),
+        "is_calibrated": is_requisition_calibrated(req),
+        "intake_has_minimum_content": intake_has_minimum_content(req),
+        "hm_assigned": requisition_has_hiring_manager(req, db),
+        "intake_approved": req.intake_status == "approved",
+        "intake_screening_ready": intake_screening_ready(req, db),
+        "requires_hm_approval": (settings.intake_gate_mode or "warn") == "block",
         "intake_gate_mode": settings.intake_gate_mode,
     }
 

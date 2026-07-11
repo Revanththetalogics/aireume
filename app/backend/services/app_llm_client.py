@@ -133,7 +133,20 @@ async def generate_app_json(
     timeout: float = 120.0,
     log_label: str = "app",
 ) -> dict[str, Any] | None:
-    """Generate and parse a JSON object from the application LLM."""
+    """Generate and parse a JSON object from the application LLM with retries."""
+    from app.backend.services.hybrid_pipeline import _parse_llm_json_response
+    from app.backend.services.llm_json_service import invoke_llm_json_resilient
+
+    compact = prompt + "\n\nReturn ONLY valid JSON. No markdown."
+    parsed = await invoke_llm_json_resilient(
+        [prompt, compact],
+        max_output_tokens=max_output_tokens,
+        log_label=log_label,
+        temperature=temperature,
+    )
+    if parsed is not None:
+        return parsed
+
     text = await generate_app_llm(
         prompt,
         system=system,
@@ -145,4 +158,4 @@ async def generate_app_json(
     )
     if not text:
         return None
-    return parse_json_from_llm(text)
+    return parse_json_from_llm(text) or _parse_llm_json_response(text)

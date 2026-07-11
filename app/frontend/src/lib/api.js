@@ -1151,6 +1151,11 @@ export async function deleteRequisition(reqId) {
   await api.delete(`/requisitions/${reqId}`)
 }
 
+export async function suggestRequisitionIntake(reqId) {
+  const response = await api.post(`/requisitions/${reqId}/intake/suggest`)
+  return response.data
+}
+
 export async function updateRequisitionIntake(reqId, intakeJson, intakeStatus = null) {
   const response = await api.put(`/requisitions/${reqId}/intake`, {
     intake_json: intakeJson,

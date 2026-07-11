@@ -8,9 +8,10 @@ export default function EnrichmentBanner({ result, onDismiss }) {
   const kitPending = isKitPending(result)
   const voicePending = isVoiceStrategyPending(result)
   const narrativeFallback = result.narrative_status === 'fallback' || result.narrative_status === 'failed'
+  const hasInsights = Boolean(result.fit_summary || (result.strengths && result.strengths.length))
   const allDone = !narrativePending && !kitPending && !voicePending
 
-  if (allDone && !narrativeFallback) return null
+  if (allDone && (!narrativeFallback || hasInsights)) return null
 
   let icon = Sparkles
   let tone = 'brand'

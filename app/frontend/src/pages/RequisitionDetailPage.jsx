@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Briefcase, Loader2, Users, CheckCircle2, Sparkles,
-  ListChecks, Columns3,
+  ListChecks, Columns3, Wand2,
 } from 'lucide-react'
 import {
   getRequisition,
   getRequisitionPipeline,
   updateRequisitionIntake,
+  suggestRequisitionIntake,
   calibrateRequisition,
   hmApproveRequisition,
   updateRequisitionCandidateStatus,
@@ -19,6 +20,7 @@ import {
   getRequisitionCriteriaVersions,
   updateRequisitionCriteria,
   updateRequisition,
+  checkRequisitionIntakeGate,
 } from '../lib/api'
 import { PIPELINE_STAGES } from '../lib/constants'
 import { Button, Card } from '../components/ui'
@@ -26,6 +28,7 @@ import { ScoreProgression } from '../components/patterns/InterviewOutcomeBadges'
 import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { REQUISITIONS } from '../lib/uxLabels'
+import { showSuccess, showError } from '../lib/toast'
 
 const TABS = [
   { id: 'overview', label: REQUISITIONS.overviewTab, icon: Briefcase },
@@ -136,11 +139,59 @@ function CriteriaEditForm({ criteria, onChange, readOnly }) {
   )
 }
 
-function IntakeForm({ intake, onChange, readOnly }) {
+function IntakeWorkflowBar({ intakeGate, req }) {
+  const intakeDone = intakeGate?.intake_has_minimum_content && intakeGate?.hm_assigned
+  const canScreen = intakeGate?.intake_screening_ready && !intakeGate?.blocks
+  const refined = (req?.current_criteria_version || 0) > 1
+  const steps = [
+    {
+      key: 'intake',
+      label: REQUISITIONS.intakeStepIntake,
+      done: intakeDone,
+      active: !intakeDone,
+    },
+    {
+      key: 'screen',
+      label: REQUISITIONS.intakeStepScreen,
+      done: canScreen,
+      active: intakeDone && !canScreen,
+    },
+    {
+      key: 'refine',
+      label: REQUISITIONS.intakeStepRefine,
+      done: refined,
+      active: canScreen && !refined,
+    },
+  ]
+  return (
+    <div className="flex flex-wrap gap-2 mb-4">
+      {steps.map((step) => (
+        <span
+          key={step.key}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ring-1 ${
+            step.done
+              ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+              : step.active
+                ? 'bg-brand-50 text-brand-800 ring-brand-200'
+                : 'bg-slate-50 text-slate-500 ring-slate-200'
+          }`}
+        >
+          {step.done ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
+          {step.label}
+          {step.key === 'screen' && canScreen && !intakeGate?.intake_approved && intakeGate?.requires_hm_approval === false && (
+            <span className="text-[10px] font-normal opacity-70">(approval optional)</span>
+          )}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function IntakeForm({ intake, onChange, readOnly, onSuggest, suggesting }) {
   const fields = [
-    { key: 'screen_focus_topics', label: 'HM screen-focus topics (one per line — primary kit input)', rows: 4, list: true },
-    { key: 'must_haves', label: 'Must-haves (one per line)', rows: 4 },
-    { key: 'good_to_haves', label: 'Good-to-haves (one per line)', rows: 3 },
+    { key: 'screen_focus_topics', label: 'What should the screen focus on? (one topic per line)', rows: 4, list: true },
+    { key: 'must_haves', label: 'Must-have skills (one per line)', rows: 4 },
+    { key: 'good_to_haves', label: 'Nice-to-have skills (one per line)', rows: 3 },
     { key: 'deal_breakers', label: 'Deal-breakers (one per line)', rows: 2 },
     { key: 'environment', label: 'Work environment', rows: 2 },
     { key: 'seniority_bar', label: 'Seniority bar', rows: 1 },
@@ -169,6 +220,18 @@ function IntakeForm({ intake, onChange, readOnly }) {
 
   return (
     <div className="space-y-4">
+      {!readOnly && onSuggest && (
+        <div className="rounded-xl bg-brand-50/80 ring-1 ring-brand-100 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-brand-900">Start from the job description</p>
+            <p className="text-xs text-slate-600 mt-0.5">{REQUISITIONS.intakeSaveHint}</p>
+          </div>
+          <Button type="button" variant="secondary" onClick={onSuggest} disabled={suggesting}>
+            {suggesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {REQUISITIONS.intakeSuggestCta}
+          </Button>
+        </div>
+      )}
       {fields.map(({ key, label, rows }) => (
         <label key={key} className="block text-sm">
           <span className="font-semibold text-slate-700">{label}</span>
@@ -275,18 +338,28 @@ export default function RequisitionDetailPage() {
   const [resumeWeight, setResumeWeight] = useState(40)
   const [interviewWeight, setInterviewWeight] = useState(60)
   const [savingWeights, setSavingWeights] = useState(false)
+  const [intakeGate, setIntakeGate] = useState(null)
+  const [savedIntakeSnapshot, setSavedIntakeSnapshot] = useState('')
+  const [intakeSavedAt, setIntakeSavedAt] = useState(null)
+  const [suggestingIntake, setSuggestingIntake] = useState(false)
+
+  const intakeDirty = savedIntakeSnapshot !== JSON.stringify(intake || {})
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [r, pipe, stats, versions] = await Promise.all([
+      const [r, pipe, stats, versions, gate] = await Promise.all([
         getRequisition(id),
         getRequisitionPipeline(id),
         getRequisitionAnalytics(id).catch(() => null),
         getRequisitionCriteriaVersions(id).catch(() => []),
+        checkRequisitionIntakeGate(id).catch(() => null),
       ])
       setReq(r)
-      setIntake(r.intake_json || {})
+      setIntakeGate(gate)
+      const loadedIntake = r.intake_json || {}
+      setIntake(loadedIntake)
+      setSavedIntakeSnapshot(JSON.stringify(loadedIntake))
       const weights = parseScoringWeights(r.scoring_weights)
       setResumeWeight(weights.resume)
       setInterviewWeight(weights.interview)
@@ -330,11 +403,36 @@ export default function RequisitionDetailPage() {
     try {
       const updated = await updateRequisitionIntake(id, intake, 'pending_hm')
       setReq(updated)
-      setIntake(updated.intake_json || {})
+      const saved = updated.intake_json || {}
+      setIntake(saved)
+      setSavedIntakeSnapshot(JSON.stringify(saved))
+      setIntakeSavedAt(Date.now())
+      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+      setIntakeGate(gate)
+      showSuccess(
+        gate?.intake_has_minimum_content
+          ? (gate?.blocks && gate?.requires_hm_approval
+            ? `${REQUISITIONS.intakeSaved} — HM approval required before screening (tenant policy).`
+            : `${REQUISITIONS.intakeSaved} — you can screen candidates. HM approval locks criteria v1.`)
+          : `${REQUISITIONS.intakeSaved} — add screen-focus topics or must-haves to unlock screening.`,
+      )
     } catch {
-      window.alert('Failed to save intake')
+      showError('Failed to save intake')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const suggestIntake = async () => {
+    setSuggestingIntake(true)
+    try {
+      const { intake_json: suggested } = await suggestRequisitionIntake(id)
+      setIntake(suggested || {})
+      showSuccess(REQUISITIONS.intakeSuggestDone)
+    } catch {
+      showError('Could not suggest intake from job description')
+    } finally {
+      setSuggestingIntake(false)
     }
   }
 
@@ -344,9 +442,10 @@ export default function RequisitionDetailPage() {
       const updated = await calibrateRequisition(id)
       setReq(updated)
       setTab('criteria')
+      showSuccess('Criteria calibrated — you can screen candidates')
       await load()
     } catch {
-      window.alert('Calibration failed')
+      showError('Calibration failed')
     } finally {
       setSaving(false)
     }
@@ -485,7 +584,24 @@ export default function RequisitionDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {canWrite && tab === 'intake' && (
-            <Button onClick={saveIntake} disabled={saving}>Save intake</Button>
+            <Button onClick={saveIntake} disabled={saving || !intakeDirty}>
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
+                </>
+              ) : intakeSavedAt && !intakeDirty ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Saved
+                </>
+              ) : (
+                'Save intake'
+              )}
+            </Button>
+          )}
+          {canWrite && tab === 'intake' && intakeDirty && (
+            <span className="text-xs font-semibold text-amber-700 self-center">{REQUISITIONS.intakeUnsaved}</span>
           )}
           {canWrite && (
             <Button variant="secondary" onClick={handleCalibrate} disabled={saving}>
@@ -505,8 +621,12 @@ export default function RequisitionDetailPage() {
             </>
           )}
           {canWrite && (
-            <Button variant="ghost" onClick={() => navigate(`/requisitions/${id}/handoff`)}>
-              HM handoff
+            <Button
+              variant="ghost"
+              onClick={() => navigate(`/requisitions/${id}/handoff`)}
+              title={REQUISITIONS.hmReviewPackHint}
+            >
+              {REQUISITIONS.hmReviewPackCta}
             </Button>
           )}
           {canWrite && (
@@ -515,7 +635,18 @@ export default function RequisitionDetailPage() {
             </Button>
           )}
           {canWrite && (
-            <Button variant="ghost" onClick={() => navigate(`/analyze?requisition_id=${id}`)}>
+            <Button
+              variant="ghost"
+              disabled={intakeGate?.blocks}
+              title={intakeGate?.blocks ? (intakeGate.warning || 'Save intake and calibrate before screening') : undefined}
+              onClick={() => {
+                if (intakeGate?.blocks) {
+                  window.alert(intakeGate.warning || 'Save HM intake and calibrate before screening candidates.')
+                  return
+                }
+                navigate(`/analyze?requisition_id=${id}`)
+              }}
+            >
               Screen candidate
             </Button>
           )}
@@ -608,7 +739,14 @@ export default function RequisitionDetailPage() {
 
       {tab === 'intake' && (
         <Card className="p-6">
-          <IntakeForm intake={intake} onChange={setIntake} readOnly={!canEditIntake} />
+          <IntakeWorkflowBar intakeGate={intakeGate} req={req} />
+          <IntakeForm
+            intake={intake}
+            onChange={setIntake}
+            readOnly={!canEditIntake}
+            onSuggest={canEditIntake ? suggestIntake : null}
+            suggesting={suggestingIntake}
+          />
         </Card>
       )}
 
