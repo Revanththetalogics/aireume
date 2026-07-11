@@ -50,8 +50,11 @@ def upgrade() -> None:
     # bare database those core tables are never created and revision 002 fails
     # reflecting `candidates`.
     #
-    # These 15 tables are the ones defined in the models but created by *no*
+    # These tables are the ones defined in the models but created by *no*
     # migration (the legacy create_all set), minus dead_letter_jobs (see below).
+    # Requisition tables (except requisition_candidates, which FKs screening_results)
+    # must be created before screening_results because the model now references
+    # requisitions.id. Migration 056 remains idempotent for these tables.
     # We create them here from the model
     # metadata. All later ALTERs against them are idempotent (guarded by column/
     # index existence checks), so materialising them at their final shape is
@@ -70,6 +73,10 @@ def upgrade() -> None:
         "users",
         "candidates",
         "role_templates",
+        "requisitions",
+        "requisition_criteria_versions",
+        "requisition_hiring_managers",
+        "tenant_requisition_settings",
         "screening_results",
         "screening_projects",
         "screening_project_candidates",
