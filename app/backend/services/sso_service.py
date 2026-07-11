@@ -379,7 +379,9 @@ class SSOService:
         user = db.query(User).filter(User.email == email, User.tenant_id == tenant_id).first()
 
         if user:
-            if user.role != role:
+            # Only sync role when the IdP asserted group membership; otherwise
+            # preserve manually assigned roles for pre-existing accounts.
+            if groups and user.role != role:
                 user.role = role
                 db.commit()
                 db.refresh(user)
