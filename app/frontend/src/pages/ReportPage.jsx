@@ -1279,10 +1279,10 @@ export default function ReportPage() {
             />
           )}
 
-          {/* Score Summary — visible in both screen and PDF */}
+          {/* Score Summary — resume-only view; hero covers screened candidates */}
           {!hasDeterministicData ? (
             <Skeleton variant="card" />
-          ) : (
+          ) : result?.call_fit_score == null ? (
             <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 flex items-center gap-6">
               <div className="flex flex-col items-center justify-center w-24 h-24 rounded-full bg-brand-50 ring-4 ring-brand-100 shrink-0">
                 <AnimatedScore score={result.fit_score} size="lg" animate={!isReportComplete} />
@@ -1313,6 +1313,23 @@ export default function ReportPage() {
                 </div>
                 <p className="text-sm text-slate-500">Overall fit score based on skills, experience, education, and timeline analysis.</p>
               </div>
+            </div>
+          ) : (
+            <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 flex flex-wrap items-center gap-2">
+              {result.final_recommendation && (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-700 ring-1 ring-brand-200">
+                  {safeStr(result.final_recommendation)}
+                </span>
+              )}
+              {result.risk_level && (
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  result.risk_level === 'Low' ? 'bg-green-100 text-green-700' :
+                  result.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                  'bg-red-100 text-red-700'
+                }`}>
+                  {safeStr(result.risk_level)} Risk
+                </span>
+              )}
             </div>
           )}
 

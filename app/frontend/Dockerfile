@@ -1,6 +1,11 @@
 # Build stage
 FROM node:20-alpine AS builder
 
+ARG BUILD_ID=dev
+ARG GIT_SHA=dev
+ENV BUILD_ID=$BUILD_ID
+ENV GIT_SHA=$GIT_SHA
+
 WORKDIR /app
 
 # Copy package files

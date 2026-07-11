@@ -140,6 +140,30 @@ class TestRequisitionApi:
         assert data["is_calibrated"] is True
         assert data["current_criteria_version"] >= 1
 
+    def test_update_criteria_endpoint(self, auth_client, db):
+        user = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Criteria Edit",
+            jd_text="Python and SQL required for analytics engineering role.",
+        )
+        calibrate_requisition(db, req, user_id=user.id)
+        db.commit()
+        resp = auth_client.put(
+            f"/api/requisitions/{req.id}/criteria",
+            json={"must_haves": ["Python", "SQL", "Stakeholder updates"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_criteria_version"] >= 2
+        assert "Stakeholder updates" in data["calibrated_criteria_json"]["must_haves"]
+
+        versions = auth_client.get(f"/api/requisitions/{req.id}/criteria-versions")
+        assert versions.status_code == 200
+        assert len(versions.json()) >= 2
+
     def test_hm_scoped_list(self, client, db, auth_client):
         admin = _admin_user(db)
         hm = User(
@@ -233,3 +257,60 @@ class TestRequisitionApi:
             RequisitionCandidate.candidate_id == row.candidate_id,
         ).first()
         assert rc is not None
+
+
+class TestPipelineBackfill:
+    def test_backfill_from_legacy_screening(self, db, auth_client):
+        from app.backend.tests.test_workflows_e2e import _JD
+        from app.backend.services.requisition_service import (
+            backfill_pipeline_from_screenings,
+            create_requisition,
+        )
+        from app.backend.models.db_models import Candidate, RequisitionCandidate, ScreeningResult, RoleTemplate
+
+        user = _admin_user(db)
+        tpl = RoleTemplate(
+            tenant_id=user.tenant_id,
+            name="Legacy FP&A",
+            jd_text=_JD,
+        )
+        db.add(tpl)
+        db.flush()
+
+        cand = Candidate(tenant_id=user.tenant_id, name="Legacy Cand", email="legacy@test.com")
+        db.add(cand)
+        db.flush()
+
+        sr = ScreeningResult(
+            tenant_id=user.tenant_id,
+            candidate_id=cand.id,
+            role_template_id=tpl.id,
+            resume_text="x",
+            jd_text=_JD,
+            parsed_data="{}",
+            analysis_result='{"recommendation":"consider","fit_score":65}',
+            deterministic_score=65,
+            status="pending",
+        )
+        db.add(sr)
+        db.flush()
+
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Financial Analyst",
+            jd_text=_JD,
+        )
+        req.legacy_role_template_id = tpl.id
+        db.flush()
+
+        result = backfill_pipeline_from_screenings(db, req, commit=True)
+        assert result["added"] >= 1
+
+        rc = db.query(RequisitionCandidate).filter(
+            RequisitionCandidate.requisition_id == req.id,
+            RequisitionCandidate.candidate_id == cand.id,
+        ).first()
+        assert rc is not None
+        assert rc.screening_result_id == sr.id

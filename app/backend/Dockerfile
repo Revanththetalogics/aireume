@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+ARG BUILD_ID=dev
+ARG GIT_SHA=dev
+ENV BUILD_ID=$BUILD_ID
+ENV GIT_SHA=$GIT_SHA
+
 WORKDIR /app
 
 # Install system dependencies

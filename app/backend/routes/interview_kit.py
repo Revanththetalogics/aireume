@@ -426,12 +426,14 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
         db.add(overall)
 
     from app.backend.services.consolidated_recommendation import (
-        compute_consolidated,
+        compute_consolidated_for_result,
         persist_outcome_to_screening_result,
     )
 
     analysis_score = analysis.get("fit_score") or result.deterministic_score
-    outcome = compute_consolidated(
+    outcome = compute_consolidated_for_result(
+        db,
+        result,
         analysis_score=analysis_score,
         call_score=recruiter_score,
         call_source="human",

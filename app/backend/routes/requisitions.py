@@ -32,6 +32,7 @@ from app.backend.models.db_models import (
 )
 from app.backend.models.schemas import (
     RequisitionCalibrateRequest,
+    RequisitionCriteriaUpdate,
     RequisitionCandidateAdd,
     RequisitionCandidateOut,
     RequisitionCandidateStatusUpdate,
@@ -48,6 +49,7 @@ from app.backend.models.schemas import (
 from app.backend.services.audit_service import log_tenant_event
 from app.backend.services.requisition_service import (
     assign_hiring_managers,
+    backfill_pipeline_from_screenings,
     build_submission_packet,
     calibrate_requisition,
     create_requisition,
@@ -58,6 +60,7 @@ from app.backend.services.requisition_service import (
     migrate_legacy_data,
     requisition_to_dict,
     req_candidate_to_dict,
+    update_criteria_manual,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,11 +108,22 @@ def get_settings(
     db: Session = Depends(get_db),
 ):
     row = get_or_create_tenant_settings(db, current_user.tenant_id)
+    from app.backend.models.db_models import Tenant
+    import json
+    tenant = db.get(Tenant, current_user.tenant_id)
+    hw = {}
+    if tenant and tenant.metadata_json:
+        try:
+            meta = json.loads(tenant.metadata_json)
+            hw = meta.get("hiring_signal_weights") or {}
+        except (json.JSONDecodeError, TypeError):
+            hw = {}
     db.commit()
     return TenantRequisitionSettingsOut(
         tenant_id=row.tenant_id,
         intake_gate_mode=row.intake_gate_mode,
         hm_pipeline_permission=row.hm_pipeline_permission,
+        hiring_signal_weights=hw,
         updated_at=row.updated_at,
     )
 
@@ -125,6 +139,17 @@ def update_settings(
         row.intake_gate_mode = body.intake_gate_mode
     if body.hm_pipeline_permission is not None:
         row.hm_pipeline_permission = body.hm_pipeline_permission
+    if body.hiring_signal_weights is not None:
+        from app.backend.models.db_models import Tenant
+        import json
+        tenant = db.get(Tenant, current_user.tenant_id)
+        if tenant:
+            try:
+                meta = json.loads(tenant.metadata_json or "{}")
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+            meta["hiring_signal_weights"] = body.hiring_signal_weights
+            tenant.metadata_json = json.dumps(meta)
     db.commit()
     db.refresh(row)
     log_tenant_event(
@@ -136,10 +161,21 @@ def update_settings(
         details=body.model_dump(exclude_none=True),
     )
     db.commit()
+    from app.backend.models.db_models import Tenant
+    import json
+    tenant = db.get(Tenant, current_user.tenant_id)
+    hw = {}
+    if tenant and tenant.metadata_json:
+        try:
+            meta = json.loads(tenant.metadata_json)
+            hw = meta.get("hiring_signal_weights") or {}
+        except (json.JSONDecodeError, TypeError):
+            hw = {}
     return TenantRequisitionSettingsOut(
         tenant_id=row.tenant_id,
         intake_gate_mode=row.intake_gate_mode,
         hm_pipeline_permission=row.hm_pipeline_permission,
+        hiring_signal_weights=hw,
         updated_at=row.updated_at,
     )
 
@@ -332,6 +368,38 @@ def calibrate(
     return _to_out(db, req, current_user.tenant_id)
 
 
+@router.put("/{req_id}/criteria", response_model=RequisitionOut)
+def update_criteria(
+    req_id: int,
+    body: RequisitionCriteriaUpdate,
+    current_user: User = Depends(require_recruiter_or_admin),
+    db: Session = Depends(get_db),
+):
+    req = _load_req(db, req_id, current_user.tenant_id)
+    if not can_manage_requisition(current_user, req):
+        raise HTTPException(status_code=403, detail="Not allowed to edit criteria for this requisition")
+    if not req.calibrated_criteria_json:
+        raise HTTPException(status_code=400, detail="Calibrate criteria before editing")
+    update_criteria_manual(
+        db,
+        req,
+        user_id=current_user.id,
+        criteria=body.model_dump(exclude_unset=True),
+    )
+    db.commit()
+    db.refresh(req)
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="requisition.criteria_edit",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"version": req.current_criteria_version},
+    )
+    db.commit()
+    return _to_out(db, req, current_user.tenant_id)
+
+
 @router.post("/{req_id}/hm-approval", response_model=RequisitionOut)
 def hm_approval(
     req_id: int,
@@ -431,6 +499,8 @@ def get_pipeline(
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
     require_requisition_access(current_user, req, db)
+    sync = backfill_pipeline_from_screenings(db, req)
+    db.commit()
     rows = (
         db.query(RequisitionCandidate)
         .options(
@@ -444,7 +514,11 @@ def get_pipeline(
     for rc in rows:
         st = rc.pipeline_status if rc.pipeline_status in pipeline else "pending"
         pipeline[st].append(req_candidate_to_dict(rc, rc.candidate))
-    return {"requisition_id": req_id, "pipeline": pipeline}
+    return {
+        "requisition_id": req_id,
+        "pipeline": pipeline,
+        "sync": sync,
+    }
 
 
 @router.put("/{req_id}/candidates/{candidate_id}", response_model=RequisitionCandidateOut)

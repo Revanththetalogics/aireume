@@ -13,6 +13,7 @@ export { default as LiveScreenCallShell } from './LiveScreenCallShell'
 export { default as LiveScreenKitReadinessGate } from './LiveScreenKitReadinessGate'
 export { default as ConsolidatedScoreHero } from './ConsolidatedScoreHero'
 export { default as InterviewOutcomeBadges } from './InterviewOutcomeBadges'
+export { default as AnalyticsHub } from './AnalyticsHub'
 export {
   InterviewSessionRow,
   InterviewSessionSection,

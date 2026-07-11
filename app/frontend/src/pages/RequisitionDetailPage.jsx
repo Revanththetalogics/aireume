@@ -17,9 +17,12 @@ import {
   addCandidatesToRequisition,
   getCandidates,
   getRequisitionCriteriaVersions,
+  updateRequisitionCriteria,
+  updateRequisition,
 } from '../lib/api'
 import { PIPELINE_STAGES } from '../lib/constants'
 import { Button, Card } from '../components/ui'
+import { ScoreProgression } from '../components/patterns/InterviewOutcomeBadges'
 import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { REQUISITIONS } from '../lib/uxLabels'
@@ -37,6 +40,100 @@ const COLUMN_STYLES = {
   shortlisted: { header: 'bg-green-50 text-green-800 border-green-200', badge: 'bg-green-100 text-green-700' },
   rejected: { header: 'bg-red-50 text-red-800 border-red-200', badge: 'bg-red-100 text-red-700' },
   hired: { header: 'bg-indigo-50 text-indigo-800 border-indigo-200', badge: 'bg-indigo-100 text-indigo-700' },
+}
+
+function CriteriaVersionDiff({ versions }) {
+  if (versions.length < 2) return null
+  const [newer, older] = versions
+  const newerCriteria = newer.criteria_json || {}
+  const olderCriteria = older.criteria_json || {}
+  const listKeys = ['must_haves', 'good_to_haves', 'deal_breakers']
+
+  const diffFor = (key) => {
+    const a = new Set(olderCriteria[key] || [])
+    const b = new Set(newerCriteria[key] || [])
+    return {
+      added: [...b].filter((x) => !a.has(x)),
+      removed: [...a].filter((x) => !b.has(x)),
+    }
+  }
+
+  const hasChanges = listKeys.some((k) => {
+    const d = diffFor(k)
+    return d.added.length > 0 || d.removed.length > 0
+  })
+  if (!hasChanges) return null
+
+  return (
+    <div className="rounded-xl bg-brand-50/60 ring-1 ring-brand-100 p-4 space-y-3">
+      <p className="text-xs font-semibold text-slate-500 uppercase">
+        Changes v{older.version} → v{newer.version}
+      </p>
+      {listKeys.map((key) => {
+        const { added, removed } = diffFor(key)
+        if (!added.length && !removed.length) return null
+        return (
+          <div key={key} className="text-sm">
+            <p className="font-semibold text-slate-700 capitalize">{key.replace(/_/g, ' ')}</p>
+            {added.map((item) => (
+              <p key={`add-${item}`} className="text-emerald-700">+ {item}</p>
+            ))}
+            {removed.map((item) => (
+              <p key={`rem-${item}`} className="text-red-600">− {item}</p>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function parseScoringWeights(sw) {
+  if (!sw) return { resume: 40, interview: 60 }
+  try {
+    const obj = typeof sw === 'string' ? JSON.parse(sw) : sw
+    return {
+      resume: Math.round((obj.resume_weight ?? 0.4) * 100),
+      interview: Math.round((obj.interview_weight ?? 0.6) * 100),
+    }
+  } catch {
+    return { resume: 40, interview: 60 }
+  }
+}
+
+function CriteriaEditForm({ criteria, onChange, readOnly }) {
+  const fields = [
+    { key: 'must_haves', label: 'Must-haves (one per line)', rows: 6 },
+    { key: 'good_to_haves', label: 'Good-to-haves (one per line)', rows: 4 },
+    { key: 'deal_breakers', label: 'Deal-breakers (one per line)', rows: 2 },
+  ]
+  const getValue = (key) => {
+    const v = criteria[key]
+    if (Array.isArray(v)) return v.join('\n')
+    return v || ''
+  }
+  const setValue = (key, raw) => {
+    onChange({
+      ...criteria,
+      [key]: raw.split('\n').map((s) => s.trim()).filter(Boolean),
+    })
+  }
+  return (
+    <div className="space-y-4">
+      {fields.map(({ key, label, rows }) => (
+        <label key={key} className="block text-sm">
+          <span className="font-semibold text-slate-700">{label}</span>
+          <textarea
+            value={getValue(key)}
+            onChange={(e) => setValue(key, e.target.value)}
+            rows={rows}
+            disabled={readOnly}
+            className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm resize-none disabled:opacity-60 font-mono"
+          />
+        </label>
+      ))}
+    </div>
+  )
 }
 
 function IntakeForm({ intake, onChange, readOnly }) {
@@ -104,8 +201,13 @@ function PipelineCard({ item, onStatusChange, onSubmit, onOutcome, canWritePipel
         )}
       </button>
       <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
-        {item.fit_score != null && (
-          <span className="text-xs font-bold text-brand-700">{item.fit_score}</span>
+        {(item.fit_score != null || item.call_fit_score != null) && (
+          <ScoreProgression
+            analysisScore={item.fit_score}
+            callScore={item.call_fit_score}
+            callSource={item.call_source}
+            compact
+          />
         )}
         {item.submission_status === 'submitted' && (
           <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">Submitted</span>
@@ -161,12 +263,17 @@ export default function RequisitionDetailPage() {
   const [pipeline, setPipeline] = useState({})
   const [analytics, setAnalytics] = useState(null)
   const [criteriaVersions, setCriteriaVersions] = useState([])
+  const [editCriteria, setEditCriteria] = useState(null)
+  const [pipelineSync, setPipelineSync] = useState(null)
   const [tab, setTab] = useState(searchParams.get('tab') || 'overview')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showAddCandidates, setShowAddCandidates] = useState(false)
   const [allCandidates, setAllCandidates] = useState([])
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([])
+  const [resumeWeight, setResumeWeight] = useState(40)
+  const [interviewWeight, setInterviewWeight] = useState(60)
+  const [savingWeights, setSavingWeights] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -179,7 +286,11 @@ export default function RequisitionDetailPage() {
       ])
       setReq(r)
       setIntake(r.intake_json || {})
+      const weights = parseScoringWeights(r.scoring_weights)
+      setResumeWeight(weights.resume)
+      setInterviewWeight(weights.interview)
       setPipeline(pipe.pipeline || {})
+      setPipelineSync(pipe.sync || null)
       setAnalytics(stats)
       setCriteriaVersions(Array.isArray(versions) ? versions : [])
     } catch {
@@ -192,6 +303,26 @@ export default function RequisitionDetailPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const saveHiringWeights = async () => {
+    setSavingWeights(true)
+    try {
+      const updated = await updateRequisition(id, {
+        scoring_weights: {
+          resume_weight: resumeWeight / 100,
+          interview_weight: interviewWeight / 100,
+        },
+      })
+      setReq(updated)
+      const weights = parseScoringWeights(updated.scoring_weights)
+      setResumeWeight(weights.resume)
+      setInterviewWeight(weights.interview)
+    } catch {
+      window.alert('Failed to save hiring signal weights')
+    } finally {
+      setSavingWeights(false)
+    }
+  }
 
   const saveIntake = async () => {
     setSaving(true)
@@ -227,6 +358,21 @@ export default function RequisitionDetailPage() {
       setReq(updated)
     } catch {
       window.alert('Approval failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveCriteria = async () => {
+    if (!editCriteria) return
+    setSaving(true)
+    try {
+      const updated = await updateRequisitionCriteria(id, editCriteria)
+      setReq(updated)
+      setEditCriteria(null)
+      await load()
+    } catch {
+      window.alert('Failed to save criteria')
     } finally {
       setSaving(false)
     }
@@ -419,6 +565,39 @@ export default function RequisitionDetailPage() {
               </div>
             </div>
           )}
+          {canWrite && (
+            <div className="pt-4 border-t border-brand-50">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Hiring signal weights</p>
+              <p className="text-xs text-slate-500 mb-3">Override tenant defaults for combined resume + interview score on this requisition.</p>
+              <div className="flex flex-wrap items-end gap-4">
+                <label className="text-sm">
+                  Resume %
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={resumeWeight}
+                    onChange={(e) => setResumeWeight(Number(e.target.value))}
+                    className="mt-1 block w-24 rounded-xl border border-brand-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  Interview %
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={interviewWeight}
+                    onChange={(e) => setInterviewWeight(Number(e.target.value))}
+                    className="mt-1 block w-24 rounded-xl border border-brand-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <Button onClick={saveHiringWeights} disabled={savingWeights} size="sm">
+                  {savingWeights ? 'Saving…' : 'Save weights'}
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="pt-4 border-t border-brand-50">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">JD preview</p>
             <p className="text-sm text-slate-600 whitespace-pre-wrap line-clamp-6">{req.jd_text}</p>
@@ -436,32 +615,60 @@ export default function RequisitionDetailPage() {
         <Card className="p-6 space-y-4">
           {req.is_calibrated ? (
             <>
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Must-haves</p>
-                <ul className="list-disc list-inside text-sm text-slate-700">
-                  {(criteria.must_haves || []).map((s) => <li key={s}>{s}</li>)}
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Good-to-haves</p>
-                <ul className="list-disc list-inside text-sm text-slate-700">
-                  {(criteria.good_to_haves || []).map((s) => <li key={s}>{s}</li>)}
-                </ul>
-              </div>
-              {(criteria.deal_breakers || []).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Deal-breakers</p>
-                  <ul className="list-disc list-inside text-sm text-red-700">
-                    {criteria.deal_breakers.map((s) => <li key={s}>{s}</li>)}
-                  </ul>
+              {canWrite && (
+                <div className="flex flex-wrap gap-2 justify-end">
+                  {editCriteria == null ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setEditCriteria({ ...(req.calibrated_criteria_json || {}) })}
+                    >
+                      Edit criteria
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="ghost" onClick={() => setEditCriteria(null)}>Cancel</Button>
+                      <Button onClick={saveCriteria} disabled={saving}>Save criteria</Button>
+                    </>
+                  )}
                 </div>
+              )}
+              {editCriteria != null ? (
+                <CriteriaEditForm
+                  criteria={editCriteria}
+                  onChange={setEditCriteria}
+                  readOnly={!canWrite}
+                />
+              ) : (
+                <>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Must-haves</p>
+                    <ul className="list-disc list-inside text-sm text-slate-700">
+                      {(criteria.must_haves || []).map((s) => <li key={s}>{s}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Good-to-haves</p>
+                    <ul className="list-disc list-inside text-sm text-slate-700">
+                      {(criteria.good_to_haves || []).map((s) => <li key={s}>{s}</li>)}
+                    </ul>
+                  </div>
+                  {(criteria.deal_breakers || []).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Deal-breakers</p>
+                      <ul className="list-disc list-inside text-sm text-red-700">
+                        {criteria.deal_breakers.map((s) => <li key={s}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (
             <p className="text-slate-500 text-sm">{REQUISITIONS.notCalibratedWarning}</p>
           )}
           {criteriaVersions.length > 0 && (
-            <div className="pt-4 border-t border-brand-50">
+            <div className="pt-4 border-t border-brand-50 space-y-3">
+              <CriteriaVersionDiff versions={criteriaVersions} />
               <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Version history</p>
               <ul className="space-y-1 text-sm text-slate-600">
                 {criteriaVersions.map((v) => (
@@ -474,6 +681,13 @@ export default function RequisitionDetailPage() {
       )}
 
       {tab === 'pipeline' && (
+        <>
+          {pipelineSync?.added > 0 && (
+            <div className="mb-4 text-sm text-emerald-800 bg-emerald-50 ring-1 ring-emerald-200 rounded-xl px-4 py-3">
+              Synced {pipelineSync.added} candidate{pipelineSync.added !== 1 ? 's' : ''} from prior screenings
+              {pipelineSync.linked > 0 ? ` (${pipelineSync.linked} requisition links updated)` : ''}.
+            </div>
+          )}
         <div className="flex gap-4 overflow-x-auto pb-4">
           {PIPELINE_STAGES.map((stage) => {
             const items = pipeline[stage] || []
@@ -500,6 +714,7 @@ export default function RequisitionDetailPage() {
             )
           })}
         </div>
+        </>
       )}
 
       {showAddCandidates && (

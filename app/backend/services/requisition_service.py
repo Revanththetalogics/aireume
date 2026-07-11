@@ -361,6 +361,7 @@ def create_requisition(
         fields.get("primary_hiring_manager_id"),
         fields.get("hiring_manager_ids"),
     )
+    backfill_pipeline_from_screenings(db, req)
     return req
 
 
@@ -510,6 +511,12 @@ def migrate_legacy_data(db: Session, tenant_id: int) -> int:
             ))
 
     db.flush()
+    for req_id in template_to_req.values():
+        req_row = db.get(Requisition, req_id)
+        if req_row:
+            backfill_pipeline_from_screenings(db, req_row)
+
+    db.flush()
     logger.info("Migrated %s requisitions for tenant %s", created, tenant_id)
     return created
 
@@ -525,8 +532,12 @@ def _map_project_status(status: str) -> str:
 
 def req_candidate_to_dict(rc: RequisitionCandidate, candidate: Candidate | None = None) -> dict[str, Any]:
     fit_score = None
+    call_fit_score = None
+    call_source = None
     if rc.screening_result:
         fit_score = rc.screening_result.deterministic_score
+        call_fit_score = rc.screening_result.call_fit_score
+        call_source = rc.screening_result.call_source
     return {
         "id": rc.id,
         "requisition_id": rc.requisition_id,
@@ -546,6 +557,8 @@ def req_candidate_to_dict(rc: RequisitionCandidate, candidate: Candidate | None 
         "candidate_name": getattr(candidate, "name", None) if candidate else None,
         "candidate_email": getattr(candidate, "email", None) if candidate else None,
         "fit_score": fit_score,
+        "call_fit_score": call_fit_score,
+        "call_source": call_source,
     }
 
 
@@ -632,3 +645,185 @@ def build_submission_packet(
         ],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ─── Pipeline backfill (legacy JD → requisition_candidates) ─────────────────
+
+_PIPELINE_STATUSES = {"pending", "in-review", "shortlisted", "rejected", "hired"}
+
+
+def _map_screening_to_pipeline(sr: ScreeningResult) -> str:
+    """Map screening result status/recommendation to pipeline column."""
+    raw_status = (sr.status or "pending").lower().replace("_", "-")
+    if raw_status in _PIPELINE_STATUSES:
+        return raw_status
+
+    analysis = _json_loads(sr.analysis_result, {})
+    rec = str(analysis.get("recommendation") or analysis.get("fit_label") or "").lower()
+    if any(k in rec for k in ("shortlist", "strong match", "strong fit", "hire")):
+        return "shortlisted"
+    if any(k in rec for k in ("reject", "not recommended", "no hire", "weak")):
+        return "rejected"
+    if any(k in rec for k in ("consider", "moderate", "review")):
+        return "in-review"
+    return "pending"
+
+
+def backfill_pipeline_from_screenings(
+    db: Session,
+    req: Requisition,
+    *,
+    commit: bool = False,
+) -> dict[str, int]:
+    """
+    Idempotently attach matching screening_results to requisition_candidates.
+
+    Matches screenings where:
+      - requisition_id == req.id, OR
+      - role_template_id == req.legacy_role_template_id (legacy JD path)
+
+    Returns counts: {added, linked, skipped}.
+    """
+    if not req.legacy_role_template_id:
+        ensure_legacy_role_template(db, req)
+
+    legacy_tpl = req.legacy_role_template_id
+    added = 0
+    linked = 0
+    skipped = 0
+
+    q = db.query(ScreeningResult).filter(
+        ScreeningResult.tenant_id == req.tenant_id,
+        ScreeningResult.candidate_id.isnot(None),
+        ScreeningResult.is_active == True,  # noqa: E712
+    )
+    if legacy_tpl:
+        q = q.filter(
+            (ScreeningResult.requisition_id == req.id)
+            | (
+                (ScreeningResult.role_template_id == legacy_tpl)
+                & (
+                    (ScreeningResult.requisition_id.is_(None))
+                    | (ScreeningResult.requisition_id == req.id)
+                )
+            )
+        )
+    else:
+        q = q.filter(ScreeningResult.requisition_id == req.id)
+
+    screenings = q.order_by(ScreeningResult.timestamp.desc()).all()
+    seen_candidates: set[int] = set()
+
+    for sr in screenings:
+        cid = sr.candidate_id
+        if not cid or cid in seen_candidates:
+            skipped += 1
+            continue
+        seen_candidates.add(cid)
+
+        if sr.requisition_id != req.id:
+            sr.requisition_id = req.id
+            linked += 1
+
+        existing = (
+            db.query(RequisitionCandidate)
+            .filter(
+                RequisitionCandidate.requisition_id == req.id,
+                RequisitionCandidate.candidate_id == cid,
+            )
+            .first()
+        )
+        if existing:
+            if not existing.screening_result_id and sr.id:
+                existing.screening_result_id = sr.id
+            skipped += 1
+            continue
+
+        db.add(RequisitionCandidate(
+            requisition_id=req.id,
+            candidate_id=cid,
+            screening_result_id=sr.id,
+            pipeline_status=_map_screening_to_pipeline(sr),
+            added_by=None,
+        ))
+        added += 1
+
+    db.flush()
+    if commit:
+        db.commit()
+    return {"added": added, "linked": linked, "skipped": skipped}
+
+
+def update_criteria_manual(
+    db: Session,
+    req: Requisition,
+    *,
+    user_id: int | None,
+    criteria: dict[str, Any],
+) -> RequisitionCriteriaVersion:
+    """Save recruiter/admin criteria edit as a new version (audit trail)."""
+    current = _json_loads(req.calibrated_criteria_json, {})
+    if not current:
+        current = merge_calibration_from_jd_and_intake(
+            req.jd_text,
+            _json_loads(req.intake_json, {}),
+        )
+
+    updated = {**current}
+    for key in ("must_haves", "good_to_haves", "deal_breakers"):
+        if key in criteria and criteria[key] is not None:
+            updated[key] = criteria[key]
+    for key in ("environment", "seniority_bar", "team_context", "success_criteria_90d"):
+        if key in criteria and criteria[key] is not None:
+            updated[key] = criteria[key]
+
+    version_num = (req.current_criteria_version or 0) + 1
+    version = RequisitionCriteriaVersion(
+        requisition_id=req.id,
+        version=version_num,
+        criteria_json=_json_dumps(updated),
+        source="manual_edit",
+        created_by=user_id,
+    )
+    db.add(version)
+    req.current_criteria_version = version_num
+    req.calibrated_criteria_json = _json_dumps(updated)
+    req.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return version
+
+
+def get_hiring_signal_weights(
+    db: Session,
+    req: Requisition | None,
+    tenant_id: int,
+) -> tuple[float, float]:
+    """Return (resume_weight, interview_weight) — per-requisition override or tenant default."""
+    default_resume, default_interview = 0.4, 0.6
+
+    from app.backend.models.db_models import Tenant
+    tenant_row = db.get(Tenant, tenant_id)
+    if tenant_row and tenant_row.metadata_json:
+        meta = _json_loads(tenant_row.metadata_json, {})
+        hw = meta.get("hiring_signal_weights") or {}
+        if hw.get("resume") is not None:
+            default_resume = float(hw["resume"])
+        if hw.get("interview") is not None:
+            default_interview = float(hw["interview"])
+
+    if req and req.scoring_weights:
+        sw = (
+            _json_loads(req.scoring_weights, {})
+            if isinstance(req.scoring_weights, str)
+            else (req.scoring_weights or {})
+        )
+        if sw.get("resume_weight") is not None:
+            default_resume = float(sw["resume_weight"])
+        if sw.get("interview_weight") is not None:
+            default_interview = float(sw["interview_weight"])
+
+    total = default_resume + default_interview
+    if total <= 0:
+        return 0.4, 0.6
+    return default_resume / total, default_interview / total
+

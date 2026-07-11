@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -453,3 +453,73 @@ async def compute_skill_trends_endpoint(
     target = _date.today().replace(day=1)
     count = compute_monthly_snapshot(db, tenant_id, target_date=target)
     return {"snapshots_created": count, "period": target.strftime("%Y-%m")}
+
+
+# ── Analytics hub (interactive deep-dive) ─────────────────────────────────────
+
+@router.get("/api/analytics/hub")
+async def get_analytics_hub(
+    period: str = Query("last_30_days"),
+    requisition_id: Optional[int] = Query(None),
+    recruiter_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.analytics_hub_service import build_analytics_hub
+    return build_analytics_hub(
+        db,
+        current_user.tenant_id,
+        period=period,
+        requisition_id=requisition_id,
+        recruiter_id=recruiter_id,
+    )
+
+
+# ── Report builder & BI export ────────────────────────────────────────────────
+
+@router.get("/api/analytics/reports/templates")
+async def list_report_templates_endpoint(current_user: User = Depends(get_current_user)):
+    from app.backend.services.report_builder_service import list_report_templates
+    return {"templates": list_report_templates()}
+
+
+@router.post("/api/analytics/reports/run")
+async def run_report_endpoint(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.audit_service import log_tenant_event
+    from app.backend.services.report_builder_service import run_report
+    try:
+        result = run_report(
+            db,
+            current_user.tenant_id,
+            template_id=body.get("template_id", ""),
+            period=body.get("period", "last_30_days"),
+            requisition_id=body.get("requisition_id"),
+            format=body.get("format", "json"),
+        )
+        log_tenant_event(
+            db,
+            actor=current_user,
+            action="analytics.report_export",
+            resource_type="report",
+            details={
+                "template_id": body.get("template_id"),
+                "format": body.get("format", "json"),
+                "period": body.get("period", "last_30_days"),
+                "requisition_id": body.get("requisition_id"),
+            },
+        )
+        db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/analytics/reports/bi-manifest")
+async def bi_manifest_endpoint(current_user: User = Depends(get_current_user)):
+    from app.backend.services.report_builder_service import bi_export_manifest
+    return bi_export_manifest(current_user.tenant_id)

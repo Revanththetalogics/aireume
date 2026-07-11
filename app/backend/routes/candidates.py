@@ -227,6 +227,24 @@ def list_candidates(
             latest = candidate_results[0]
             latest_status = latest.status or "pending"
             latest_result_id = latest.id
+            latest_call_fit_score = latest.call_fit_score
+            latest_call_source = latest.call_source
+            latest_consolidated = latest.consolidated_recommendation
+        else:
+            latest_call_fit_score = None
+            latest_call_source = None
+            latest_consolidated = None
+
+        # Prefer deterministic score for display when available
+        if candidate_results:
+            det_scores = [
+                r.deterministic_score for r in candidate_results
+                if r.deterministic_score is not None
+            ]
+            if det_scores:
+                best_score = max(det_scores)
+            elif latest_call_fit_score is not None and best_score is not None:
+                pass  # keep analysis best_score as analysis leg
 
         # Extract top 5 matched skills from latest screening result
         matched_skills = []
@@ -247,6 +265,9 @@ def list_candidates(
             "best_score":      best_score,
             "latest_status":   latest_status,
             "latest_result_id": latest_result_id,
+            "call_fit_score":  latest_call_fit_score,
+            "call_source":     latest_call_source,
+            "consolidated_recommendation": latest_consolidated,
             "matched_skills":  matched_skills,
             # Enriched profile fields
             "current_role":    c.current_role,

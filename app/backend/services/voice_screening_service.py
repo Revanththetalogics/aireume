@@ -434,7 +434,7 @@ async def process_completed_call(db: Session, session_id: int):
         from sqlalchemy import select
         from app.backend.models.db_models import ScreeningResult
         from app.backend.services.consolidated_recommendation import (
-            compute_consolidated,
+            compute_consolidated_for_result,
             persist_outcome_to_screening_result,
         )
 
@@ -455,7 +455,9 @@ async def process_completed_call(db: Session, session_id: int):
                 analysis = json.loads(sr.analysis_result or "{}")
             except json.JSONDecodeError:
                 analysis = {}
-            outcome = compute_consolidated(
+            outcome = compute_consolidated_for_result(
+                db,
+                sr,
                 analysis_score=analysis.get("fit_score") or sr.deterministic_score,
                 call_score=assessment.get("overall_score"),
                 call_source="ai",

@@ -55,6 +55,8 @@ def compute_consolidated(
     call_recommendation: str | None = None,
     analysis_recommendation: str | None = None,
     evidence: list[str] | None = None,
+    resume_weight: float = 0.4,
+    interview_weight: float = 0.6,
 ) -> dict[str, Any]:
     """
     Derive consolidated recommendation from document analysis and call evidence.
@@ -89,8 +91,15 @@ def compute_consolidated(
             "confidence": "low",
         }
 
-    # Weighted blend: call evidence weighted slightly higher (60/40)
-    blended = int(doc_score * 0.4 + live_score * 0.6)
+    # Weighted blend — defaults 40/40 resume/interview; overridable per requisition
+    rw, iw = resume_weight, interview_weight
+    total_w = rw + iw
+    if total_w <= 0:
+        rw, iw = 0.4, 0.6
+        total_w = 1.0
+    else:
+        rw, iw = rw / total_w, iw / total_w
+    blended = int(doc_score * rw + live_score * iw)
     delta = live_score - doc_score
 
     rec = _recommendation_from_blended(blended, call_recommendation, analysis_recommendation)
@@ -150,6 +159,24 @@ def _recommendation_from_blended(
         return "strong_reject" if blended < 35 else "reject"
 
     return _recommendation_from_score(blended)
+
+
+def compute_consolidated_for_result(
+    db: Any,
+    result: Any,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Compute consolidated outcome using tenant/requisition hiring signal weights."""
+    from app.backend.models.db_models import Requisition
+    from app.backend.services.requisition_service import get_hiring_signal_weights
+
+    req = db.get(Requisition, result.requisition_id) if result.requisition_id else None
+    resume_weight, interview_weight = get_hiring_signal_weights(db, req, result.tenant_id)
+    return compute_consolidated(
+        resume_weight=resume_weight,
+        interview_weight=interview_weight,
+        **kwargs,
+    )
 
 
 def persist_outcome_to_screening_result(

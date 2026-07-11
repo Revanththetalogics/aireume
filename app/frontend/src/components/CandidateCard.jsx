@@ -2,7 +2,7 @@ import { Check, AlertTriangle } from 'lucide-react'
 import ScoreBadge from './ScoreBadge'
 import RecommendationBadge from './RecommendationBadge'
 import QuickActions from './QuickActions'
-import InterviewOutcomeBadges from './patterns/InterviewOutcomeBadges'
+import InterviewOutcomeBadges, { ScoreProgression } from './patterns/InterviewOutcomeBadges'
 
 /**
  * Complete candidate card for list display — 30-second review design.
@@ -42,30 +42,43 @@ export default function CandidateCard({
   } = candidate || {}
 
   const topSkills = skills.slice(0, 3)
-  const topHighlights = highlights.slice(0, 3)
+  const extraSkills = Math.max(0, skills.length - 3)
+  const topHighlights = highlights.slice(0, 2)
 
   return (
     <div
       className={`
-        bg-white rounded-xl shadow-sm border border-slate-100
-        transition-shadow duration-200
-        hover:shadow-md
+        flex flex-col h-full min-h-[280px]
+        bg-white rounded-2xl shadow-sm ring-1 ring-brand-100
+        transition-all duration-200
+        hover:shadow-brand-md hover:ring-brand-200
         ${selected ? 'ring-2 ring-brand-500' : ''}
         ${className}
       `}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {/* Card header */}
+      {/* Card header — fixed min height for grid alignment */}
       <div
-        className="p-4 cursor-pointer"
+        className="p-4 cursor-pointer flex-1 flex flex-col min-h-[140px]"
         onClick={() => onSelect?.(candidate)}
       >
         <div className="flex items-start gap-3">
-          <ScoreBadge score={fit_score} size="md" animated />
+          {call_fit_score != null ? (
+            <div className="shrink-0 pt-1">
+              <ScoreProgression
+                analysisScore={fit_score}
+                callScore={call_fit_score}
+                callSource={call_source}
+                compact
+              />
+            </div>
+          ) : (
+            <ScoreBadge score={fit_score} size="md" animated />
+          )}
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start justify-between gap-2 min-h-[52px]">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 truncate">
                   {name || 'Unknown Candidate'}
@@ -84,7 +97,7 @@ export default function CandidateCard({
               </div>
               <RecommendationBadge score={fit_score} size="sm" />
             </div>
-            {(call_fit_score != null || consolidated_recommendation) && (
+            {(call_fit_score != null || consolidated_recommendation) && call_fit_score == null && (
               <InterviewOutcomeBadges
                 analysisScore={fit_score}
                 callScore={call_fit_score}
@@ -123,13 +136,13 @@ export default function CandidateCard({
 
         {/* Skills */}
         {topSkills.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-4">
+          <div className="mt-auto pt-3 flex flex-wrap items-center gap-3 min-h-[48px]">
             {topSkills.map((skill, idx) => (
-              <div key={idx} className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-medium text-slate-600 truncate max-w-[80px]">
+              <div key={idx} className="flex items-center gap-2 min-w-0 flex-1 basis-[40%]">
+                <span className="text-xs font-medium text-slate-600 truncate max-w-[72px]">
                   {skill.name}
                 </span>
-                <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[72px]">
                   <div
                     className="h-full rounded-full bg-gradient-brand"
                     style={{ width: `${Math.min(skill.score || 0, 100)}%` }}
@@ -137,12 +150,15 @@ export default function CandidateCard({
                 </div>
               </div>
             ))}
+            {extraSkills > 0 && (
+              <span className="text-[10px] font-semibold text-slate-400">+{extraSkills} more</span>
+            )}
           </div>
         )}
       </div>
 
-      {/* Quick actions footer */}
-      <div className="px-4 pb-4 pt-0">
+      {/* Quick actions footer — pinned to bottom */}
+      <div className="px-4 pb-4 pt-2 mt-auto border-t border-brand-50">
         <QuickActions
           candidateId={id}
           currentStatus={status}

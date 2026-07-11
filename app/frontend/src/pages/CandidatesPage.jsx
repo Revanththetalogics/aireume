@@ -37,7 +37,7 @@ function openCandidateDestination(navigate, candidate) {
 
 
 const AVATAR_COLORS = [
-  'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500',
+  'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-brand-500',
   'bg-teal-500', 'bg-orange-500', 'bg-cyan-500', 'bg-rose-500',
   'bg-violet-500', 'bg-emerald-500',
 ]
@@ -241,7 +241,7 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
       {/* View Full Profile link */}
       <button
         onClick={() => navigate(`/candidates/${profile.id}`)}
-        className="text-sm text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 hover:underline"
+        className="text-sm text-brand-600 hover:text-brand-800 font-bold flex items-center gap-1 hover:underline"
       >
         View Full Profile <ChevronRight className="w-4 h-4" />
       </button>
@@ -329,7 +329,7 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
       {narrative && (
         <div>
           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Narrative Summary</h4>
-          <blockquote className="text-sm text-gray-700 leading-relaxed border-l-3 border-indigo-300 pl-4 italic bg-indigo-50/50 py-2 rounded-r-lg">
+          <blockquote className="text-sm text-gray-700 leading-relaxed border-l-3 border-brand-300 pl-4 italic bg-brand-50/50 py-2 rounded-r-lg">
             {safeStr(narrative)}
           </blockquote>
         </div>
@@ -639,21 +639,21 @@ export default function CandidatesPage() {
           <div className="flex items-center gap-1 ml-auto">
             <button
               onClick={() => handleViewModeChange('table')}
-              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
               title="Table view"
             >
               <List className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleViewModeChange('cards')}
-              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
               title="Cards view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleViewModeChange('split')}
-              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'split' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'split' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
               title="Split panel view"
             >
               <Columns className="w-4 h-4" />
@@ -742,7 +742,7 @@ export default function CandidatesPage() {
                   </th>
                   <th
                     onClick={() => handleSort('name')}
-                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide min-w-[200px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'name' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide min-w-[200px] cursor-pointer hover:text-brand-600 select-none ${sortBy === 'name' ? 'font-extrabold text-brand-600' : 'font-bold text-brand-700'}`}
                   >
                     Name <SortIcon column="name" />
                   </th>
@@ -750,20 +750,20 @@ export default function CandidatesPage() {
                   <th className="px-4 py-3 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
                   <th
                     onClick={() => handleSort('result_count')}
-                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'result_count' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-brand-600 select-none ${sortBy === 'result_count' ? 'font-extrabold text-brand-600' : 'font-bold text-brand-700'}`}
                   >
                     Applications <SortIcon column="result_count" />
                   </th>
                   <th
                     onClick={() => handleSort('best_score')}
-                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'best_score' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-brand-600 select-none ${sortBy === 'best_score' ? 'font-extrabold text-brand-600' : 'font-bold text-brand-700'}`}
                   >
                     Best Score <SortIcon column="best_score" />
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-brand-700 uppercase tracking-wide max-w-[200px]">Top Skills</th>
                   <th
                     onClick={() => handleSort('created_at')}
-                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide whitespace-nowrap min-w-[100px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide whitespace-nowrap min-w-[100px] cursor-pointer hover:text-brand-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-brand-600' : 'font-bold text-brand-700'}`}
                   >
                     Added <SortIcon column="created_at" />
                   </th>
@@ -885,17 +885,21 @@ export default function CandidatesPage() {
 
             {/* ── CARDS VIEW ── */}
             {viewMode === 'cards' && (
-              <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
                 {displayedCandidates.map((c, idx) => (
                   <StaggerItem key={c.id}>
                   <CandidateCard
                     key={c.id}
+                    className="h-full"
                     candidate={{
                       id: c.latest_result_id || c.id,
                       name: c.name,
                       email: c.email,
                       title: c.title || c.current_title,
                       fit_score: c.best_score,
+                      call_fit_score: c.call_fit_score,
+                      call_source: c.call_source,
+                      consolidated_recommendation: c.consolidated_recommendation,
                       status: c.latest_status || 'pending',
                       skills: (c.matched_skills || []).map(s => typeof s === 'string' ? { name: s, score: 100 } : s),
                       highlights: [],
@@ -937,7 +941,7 @@ export default function CandidatesPage() {
                         onMouseEnter={() => prefetchCandidate(c.id)}
                         onMouseLeave={cancelPrefetch}
                         className={`flex items-center gap-2.5 px-4 py-3 cursor-pointer transition-colors border-l-3 ${
-                          isActive ? 'bg-indigo-50 border-l-indigo-600' : 'border-l-transparent hover:bg-gray-50'
+                          isActive ? 'bg-brand-50 border-l-brand-600' : 'border-l-transparent hover:bg-gray-50'
                         } ${selectedIndex === idx ? 'ring-2 ring-inset ring-brand-500' : ''}` }
                       >
                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
@@ -962,7 +966,7 @@ export default function CandidatesPage() {
                     </div>
                   ) : splitLoading ? (
                     <div className="flex items-center justify-center h-full">
-                      <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                      <Loader2 className="w-6 h-6 text-brand-500 animate-spin" />
                     </div>
                   ) : !splitProfile ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-400">

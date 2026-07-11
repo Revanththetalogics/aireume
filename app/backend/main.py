@@ -668,6 +668,15 @@ async def health_check():
     }
 
 
+@app.get("/api/version")
+async def app_version():
+    """Build id for deploy refresh detection (compare with frontend __APP_BUILD_ID__)."""
+    return {
+        "build_id": os.getenv("BUILD_ID") or os.getenv("GIT_SHA") or "dev",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.get("/api/health")
 async def api_health_check():
     """

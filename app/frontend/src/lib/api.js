@@ -1167,6 +1167,11 @@ export async function calibrateRequisition(reqId, criteriaJson = null) {
   return response.data
 }
 
+export async function updateRequisitionCriteria(reqId, criteria) {
+  const response = await api.put(`/requisitions/${reqId}/criteria`, criteria)
+  return response.data
+}
+
 export async function hmApproveRequisition(reqId, approved, notes = null) {
   const response = await api.post(`/requisitions/${reqId}/hm-approval`, {
     approved,
@@ -1745,6 +1750,26 @@ export async function computeSkillTrends() {
 
 export async function getScreeningAnalytics(period = 'last_30_days') {
   const response = await api.get('/analytics/screening', { params: { period } })
+  return response.data
+}
+
+export async function getAnalyticsHub(params = {}) {
+  const response = await api.get('/analytics/hub', { params })
+  return response.data
+}
+
+export async function getReportTemplates() {
+  const response = await api.get('/analytics/reports/templates')
+  return response.data
+}
+
+export async function runAnalyticsReport(body) {
+  const response = await api.post('/analytics/reports/run', body)
+  return response.data
+}
+
+export async function getBiExportManifest() {
+  const response = await api.get('/analytics/reports/bi-manifest')
   return response.data
 }
 

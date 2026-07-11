@@ -1,5 +1,6 @@
 import { Sparkles, FileSearch, Phone, ArrowRight } from 'lucide-react'
 import { Badge, Card } from '../ui'
+import { ScoreProgression } from './InterviewOutcomeBadges'
 
 const RECOMMENDATION_STYLES = {
   advance_hm: { label: 'Advance to HM', color: 'emerald' },
@@ -62,6 +63,18 @@ export default function ConsolidatedScoreHero({
         <div className="flex items-center gap-2 mb-4">
           <Sparkles className="w-4 h-4 text-white/90" />
           <h3 className="text-sm font-bold text-white uppercase tracking-wide">Hiring Signal</h3>
+        </div>
+
+        <div className="mb-4 rounded-2xl bg-white/15 ring-1 ring-white/25 px-4 py-3">
+          <p className="text-[10px] font-semibold text-white/70 uppercase tracking-wider mb-1">Combined score</p>
+          <div className="text-2xl sm:text-3xl text-white">
+            <ScoreProgression
+              analysisScore={analysisScore}
+              callScore={callScore}
+              callSource={callSource}
+              inverted
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-3 mb-4">

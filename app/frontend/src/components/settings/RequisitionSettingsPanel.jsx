@@ -11,6 +11,8 @@ export default function RequisitionSettingsPanel() {
   const [saving, setSaving] = useState(false)
   const [gateMode, setGateMode] = useState('warn')
   const [hmPerm, setHmPerm] = useState('view_only')
+  const [resumeWeight, setResumeWeight] = useState(40)
+  const [interviewWeight, setInterviewWeight] = useState(60)
 
   useEffect(() => {
     getRequisitionSettings()
@@ -18,6 +20,9 @@ export default function RequisitionSettingsPanel() {
         setSettings(s)
         setGateMode(s.intake_gate_mode || 'warn')
         setHmPerm(s.hm_pipeline_permission || 'view_only')
+        const hw = s.hiring_signal_weights || {}
+        setResumeWeight(Math.round((hw.resume ?? 0.4) * 100))
+        setInterviewWeight(Math.round((hw.interview ?? 0.6) * 100))
       })
       .catch(() => setSettings(null))
       .finally(() => setLoading(false))
@@ -29,6 +34,10 @@ export default function RequisitionSettingsPanel() {
       const updated = await updateRequisitionSettings({
         intake_gate_mode: gateMode,
         hm_pipeline_permission: hmPerm,
+        hiring_signal_weights: {
+          resume: resumeWeight / 100,
+          interview: interviewWeight / 100,
+        },
       })
       setSettings(updated)
     } catch {
@@ -79,6 +88,34 @@ export default function RequisitionSettingsPanel() {
           <option value="shortlist_reject">Shortlist / reject</option>
           <option value="full">Full pipeline control</option>
         </select>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold text-slate-700 mb-1">Default hiring signal weights</label>
+        <p className="text-xs text-slate-500 mb-2">Tenant default for combined score (resume vs interview). Per-requisition overrides in requisition scoring settings.</p>
+        <div className="flex flex-wrap items-center gap-4 max-w-md">
+          <label className="text-sm">
+            Resume %
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={resumeWeight}
+              onChange={(e) => setResumeWeight(Number(e.target.value))}
+              className="mt-1 block w-24 rounded-xl border border-brand-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            Interview %
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={interviewWeight}
+              onChange={(e) => setInterviewWeight(Number(e.target.value))}
+              className="mt-1 block w-24 rounded-xl border border-brand-200 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
       </div>
       <Button onClick={handleSave} disabled={saving}>
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}

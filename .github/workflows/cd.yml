@@ -77,6 +77,9 @@ jobs:
         file: ./app/backend/Dockerfile
         push: true
         tags: ${{ env.DH_USER }}/resume-backend:${{ env.IMAGE_TAG }}
+        build-args: |
+          BUILD_ID=${{ github.sha }}
+          GIT_SHA=${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -87,6 +90,9 @@ jobs:
         context: ./app/frontend
         push: true
         tags: ${{ env.DH_USER }}/resume-frontend:${{ env.IMAGE_TAG }}
+        build-args: |
+          BUILD_ID=${{ github.sha }}
+          GIT_SHA=${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false

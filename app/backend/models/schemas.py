@@ -1160,6 +1160,17 @@ class RequisitionCalibrateRequest(BaseModel):
     merge_jd_parse: bool = True
 
 
+class RequisitionCriteriaUpdate(BaseModel):
+    """Manual criteria edit — creates a new version (source: manual_edit)."""
+    must_haves: Optional[List[str]] = None
+    good_to_haves: Optional[List[str]] = None
+    deal_breakers: Optional[List[str]] = None
+    environment: Optional[str] = None
+    seniority_bar: Optional[str] = None
+    team_context: Optional[str] = None
+    success_criteria_90d: Optional[str] = None
+
+
 class RequisitionHmApproval(BaseModel):
     approved: bool
     notes: Optional[str] = None
@@ -1201,6 +1212,7 @@ class RequisitionOutcomeUpdate(BaseModel):
 class TenantRequisitionSettingsUpdate(BaseModel):
     intake_gate_mode: Optional[str] = None
     hm_pipeline_permission: Optional[str] = None
+    hiring_signal_weights: Optional[Dict[str, float]] = None
 
     @field_validator("intake_gate_mode")
     @classmethod
@@ -1299,6 +1311,7 @@ class TenantRequisitionSettingsOut(BaseModel):
     tenant_id: int
     intake_gate_mode: str
     hm_pipeline_permission: str
+    hiring_signal_weights: Optional[Dict[str, float]] = None
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

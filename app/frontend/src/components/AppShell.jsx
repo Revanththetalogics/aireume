@@ -4,9 +4,11 @@ import { LiveScreenModeProvider, useLiveScreenMode } from '../contexts/LiveScree
 import { useEffect } from 'react'
 import { showError } from '../lib/toast'
 import { VIEWER_READ_ONLY_MESSAGE } from '../lib/rbac'
+import useDeployRefresh from '../hooks/useDeployRefresh'
 
 function AppShellInner({ children }) {
   const { active: liveScreenActive } = useLiveScreenMode()
+  useDeployRefresh()
 
   useEffect(() => {
     const onForbidden = (e) => {

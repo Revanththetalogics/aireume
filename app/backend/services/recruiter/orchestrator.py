@@ -419,7 +419,7 @@ class RecruiterOrchestrator:
         if interview_session.screening_result_id:
             from app.backend.services.consolidated_recommendation import (
                 average_scores,
-                compute_consolidated,
+                compute_consolidated_for_result,
                 persist_outcome_to_screening_result,
             )
 
@@ -439,7 +439,9 @@ class RecruiterOrchestrator:
                     or recommendation.get("overall_score")
                     or adjusted_fitment.get("adjusted_score")
                 )
-                outcome = compute_consolidated(
+                outcome = compute_consolidated_for_result(
+                    self.db,
+                    sr,
                     analysis_score=analysis_score,
                     call_score=call_score,
                     call_source="ai",
