@@ -109,6 +109,8 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 The Live Screen Kit requires background **interview kit enrichment**. If questions are still generating, wait for enrichment to complete before starting a live call.
 
+**Debugging kit fallback:** Check `interview_kit_status` on the report API (`ready` = Gemini kit, `fallback` = template kit). When fallback, `interview_kit_error` explains why (e.g. `timeout:`, `empty_kit:`, `ValueError:`). Search backend logs for `Interview kit LLM` + `screening_result_id`. Env: `LLM_INTERVIEW_KIT_TIMEOUT` (default 180s), `LLM_INTERVIEW_KIT_RETRIES` (default 2).
+
 ### Team Collaboration
 - **Multi-User Tenants** — Role-based access control (admin/recruiter/viewer)
 - **Member Invitations** — Email-based team onboarding

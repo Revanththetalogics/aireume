@@ -652,8 +652,9 @@ export default function ResultCard({ result, defaultExpandEducation = false, ski
   const narrativeReady = narrativeData !== null || hasNarrativeContent(result)
 
   // Narrative-only enhancing state — do not conflate with interview kit / voice plan polling
-  const isNarrativeEnhancing =
-    !narrativeReady && (isPolling || isNarrativePending(result) || needsNarrativeHydration(result))
+  const isNarrativeEnhancing = skipNarrativePolling
+    ? false
+    : !narrativeReady && (isPolling || isNarrativePending(result) || needsNarrativeHydration(result))
   
   // Check if narrative is AI-enhanced (real LLM response vs fallback)
   // narrativeData comes from polling, result.narrative_json would be from initial result
@@ -914,9 +915,19 @@ export default function ResultCard({ result, defaultExpandEducation = false, ski
 
             {/* Must-Have Skills */}
             {(() => {
-              const matched = skill_analysis.matched_required || []
-              const missing = skill_analysis.missing_required || []
-              const total = matched.length + missing.length
+              let matched = skill_analysis.matched_required || []
+              let missing = skill_analysis.missing_required || []
+              let total = matched.length + missing.length
+              if (total === 0) {
+                const reqSkills = result?.jd_analysis?.required_skills || skill_analysis.required_skills || []
+                const flatMatched = skill_analysis.matched_skills || matched_skills || []
+                if (Array.isArray(reqSkills) && reqSkills.length > 0) {
+                  const matchedLower = new Set(flatMatched.map((s) => String(s).toLowerCase()))
+                  matched = reqSkills.filter((s) => matchedLower.has(String(s).toLowerCase()))
+                  missing = reqSkills.filter((s) => !matchedLower.has(String(s).toLowerCase()))
+                  total = reqSkills.length
+                }
+              }
               const profAnalysis = skill_analysis.proficiency_analysis || {}
               const hotSet = new Set((onet_hot_skills || []).map(s => typeof s === 'string' ? s.toLowerCase() : String(s).toLowerCase()))
               if (total === 0) return null

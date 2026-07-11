@@ -870,6 +870,14 @@ export default function AnalyzePage() {
       }))
     } catch {}
     setIsAnalyzing(true)
+    if (files.length > 1) {
+      setAnalysisProgress({ completed: 0, total: files.length })
+      setFileStatuses(files.map((f, i) => ({
+        filename: f.name,
+        status: 'queued',
+        index: i + 1,
+      })))
+    }
 
     let activeReqId = loadedRequisitionId
 
@@ -1136,7 +1144,7 @@ export default function AnalyzePage() {
 
   const remainingAnalyses = getRemainingAnalyses()
 
-  // Detect batch start stuck state (no SSE progress after 5s)
+  // Detect batch start stuck state (no SSE progress after 15s)
   useEffect(() => {
     if (!isAnalyzing || analysisProgress.total > 0) {
       return undefined
@@ -1144,7 +1152,7 @@ export default function AnalyzePage() {
     const timer = setTimeout(() => {
       setBatchStuckError('The analysis service did not respond. Check your connection and try again.')
       setIsAnalyzing(false)
-    }, 5000)
+    }, 15000)
     return () => clearTimeout(timer)
   }, [isAnalyzing, analysisProgress.total])
 

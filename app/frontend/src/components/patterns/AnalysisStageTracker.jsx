@@ -76,7 +76,7 @@ export default function AnalysisStageTracker({ result, showStreamPhases = false,
               <span className={state === 'active' ? 'font-semibold text-brand-900' : 'text-slate-600'}>
                 {item.label}
                 {state === 'active' && '…'}
-                {state === 'fallback' && ' (standard)'}
+                {state === 'fallback' && ' (template)'}
                 {state === 'skipped' && ' (n/a)'}
               </span>
             </li>

@@ -25,9 +25,21 @@ describe('enrichmentUtils', () => {
     expect(isKitPending({ interview_kit_status: 'ready' })).toBe(false)
   })
 
-  it('detects voice strategy ready', () => {
-    expect(isVoiceStrategyReady({ voice_strategy_status: 'ready' })).toBe(true)
-    expect(isVoiceStrategyReady({ voice_strategy_status: 'pending' })).toBe(false)
+  it('maps kit fallback to fallback phase (not complete)', () => {
+    const phases = getEnrichmentPhaseStatus({
+      narrative_status: 'ready',
+      interview_kit_status: 'fallback',
+    })
+    expect(phases.interview_kit).toBe('fallback')
+    expect(phases.narrative).toBe('complete')
+  })
+
+  it('maps kit ready to complete', () => {
+    const phases = getEnrichmentPhaseStatus({
+      narrative_status: 'ready',
+      interview_kit_status: 'ready',
+    })
+    expect(phases.interview_kit).toBe('complete')
   })
 
   it('merges poll result into previous state', () => {

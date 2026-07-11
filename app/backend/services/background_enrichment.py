@@ -19,7 +19,8 @@ from app.backend.services.llm_service import get_ollama_semaphore
 log = logging.getLogger("aria.enrichment")
 
 DEFAULT_VOICE_STRATEGY_CONFIG = {"duration_minutes": 20, "question_count": 12}
-INTERVIEW_KIT_TIMEOUT = float(os.getenv("LLM_INTERVIEW_KIT_TIMEOUT", os.getenv("LLM_NARRATIVE_TIMEOUT", "300")))
+INTERVIEW_KIT_TIMEOUT = float(os.getenv("LLM_INTERVIEW_KIT_TIMEOUT", "180"))
+KIT_LLM_MAX_ATTEMPTS = max(1, int(os.getenv("LLM_INTERVIEW_KIT_RETRIES", "2")))
 VOICE_STRATEGY_TIMEOUT = float(os.getenv("LLM_VOICE_STRATEGY_TIMEOUT", "180"))
 
 
@@ -149,6 +150,27 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
         )
     must_have_ctx = "\n".join(must_have_ctx_lines) if must_have_ctx_lines else "  No must-have skills data available"
 
+    hm_topics = context.get("hm_screen_topics") or []
+    hm_lines = []
+    for t in hm_topics[:8]:
+        if isinstance(t, dict):
+            q = (t.get("question") or "").strip()
+            cat = (t.get("category") or "hm_focus").strip()
+            if q:
+                hm_lines.append(f"- [{cat}] {q}")
+        elif isinstance(t, str) and t.strip():
+            hm_lines.append(f"- [hm_focus] {t.strip()}")
+    hm_screen_ctx = "\n".join(hm_lines) if hm_lines else "  None — use calibrated must-haves and skill gaps"
+
+    deal_breakers = context.get("deal_breakers") or []
+    deal_text = "; ".join(str(d) for d in deal_breakers[:6]) if deal_breakers else "None specified"
+
+    calibrated_must = context.get("calibrated_must_haves") or []
+    cal_text = ", ".join(str(s) for s in calibrated_must[:12]) if calibrated_must else "See must-have skills above"
+
+    hm_notes = (context.get("hm_notes") or "").strip() or "None"
+    success_90d = (context.get("success_criteria_90d") or "").strip() or "None"
+
     lang_ctx = context.get("language_context", {})
     lang_instruction = lang_ctx.get("llm_instruction", "")
     lang_prefix = f"\n{lang_instruction}\n" if lang_instruction else ""
@@ -181,6 +203,11 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "risk_flags": risk_flags,
         "score_rationales_summary": score_rationales_summary,
         "must_have_ctx": must_have_ctx,
+        "hm_screen_ctx": hm_screen_ctx,
+        "deal_breakers_text": deal_text,
+        "calibrated_must_text": cal_text,
+        "hm_notes": hm_notes,
+        "success_criteria_90d": success_90d,
         "lang_prefix": lang_prefix,
     }
 
@@ -202,6 +229,14 @@ RISK FLAGS:
 MUST-HAVE SKILLS CONTEXT:
 {ctx["must_have_ctx"]}
 
+HM SCREEN-FOCUS TOPICS (PRIMARY — build threads from these first):
+{ctx["hm_screen_ctx"]}
+
+CALIBRATED MUST-HAVES: {ctx["calibrated_must_text"]}
+DEAL-BREAKERS TO VERIFY: {ctx["deal_breakers_text"]}
+HM NOTES: {ctx["hm_notes"]}
+90-DAY SUCCESS: {ctx["success_criteria_90d"]}
+
 Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this JSON:
 {{
   "interview_questions": {{
@@ -217,8 +252,9 @@ Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this
       {{"id": "H1", "label": "hiring hypothesis", "priority": "must_have|risk|nice_to_have|gate", "why": "reason"}}
     ],
     "open": {{
-      "script": "natural 2-3 sentence opener",
-      "listen_for": ["signal 1", "signal 2"]
+      "script": "",
+      "listen_for": ["signal 1", "signal 2"],
+      "recruiter_owned": true
     }},
     "threads": [
       {{
@@ -251,7 +287,9 @@ Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this
 }}
 
 RULES:
-- 3-4 conversation THREADS (ownership, risk gap, judgment). Each thread has 1-3 steps (follow-ups inline).
+- HM SCREEN-FOCUS topics are PRIMARY: dedicate the first thread to them when provided.
+- 3-4 conversation THREADS (HM focus when present, ownership, risk gap, judgment). Each thread has 1-3 steps (follow-ups inline).
+- Leave open.script empty (recruiter_owned) — recruiters use their own opener.
 - 8-12 total spoken steps across threads. Also populate technical_questions / experience_deep_dive_questions / behavioral_questions as flattened copies of thread steps for legacy UI.
 - Keep every spoken line under 200 characters — recruiters say these live on a call.
 - Sound like a senior recruiter: varied phrasing, no repeated stems, no "walk me through one project" more than once.
@@ -321,7 +359,7 @@ def _normalize_interview_kit(data: dict) -> dict:
 
 
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate interview kit JSON only (separate from narrative)."""
+    """Generate interview kit JSON only (separate from narrative). Retries on transient failures."""
     from app.backend.services.hybrid_pipeline import _parse_llm_json_response, _is_ollama_cloud
     from app.backend.services.llm_service import use_gemini_for_analysis
 
@@ -333,15 +371,32 @@ async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, 
     else:
         num_predict = 2500 if not _is_ollama_cloud(base_url) else 4000
 
-    raw = await _invoke_llm_prompt(prompt, num_predict=num_predict)
-    if not raw or len(raw) < 20:
-        raise ValueError("Interview kit LLM returned empty response")
+    last_err: Optional[Exception] = None
+    for attempt in range(KIT_LLM_MAX_ATTEMPTS):
+        try:
+            raw = await _invoke_llm_prompt(prompt, num_predict=num_predict)
+            if not raw or len(raw) < 20:
+                raise ValueError("Interview kit LLM returned empty response")
 
-    parsed = _parse_llm_json_response(raw)
-    if parsed is None:
-        raise ValueError("Interview kit LLM returned non-JSON response")
+            parsed = _parse_llm_json_response(raw)
+            if parsed is None:
+                raise ValueError("Interview kit LLM returned non-JSON response")
 
-    return _normalize_interview_kit(parsed)
+            return _normalize_interview_kit(parsed)
+        except Exception as err:
+            last_err = err
+            if attempt < KIT_LLM_MAX_ATTEMPTS - 1:
+                log.warning(
+                    "Interview kit LLM attempt %s/%s failed: %s: %s — retrying",
+                    attempt + 1,
+                    KIT_LLM_MAX_ATTEMPTS,
+                    type(err).__name__,
+                    str(err)[:160],
+                )
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                raise last_err from err
+    raise RuntimeError("Interview kit LLM failed after retries")
 
 
 def _update_screening_fields(
@@ -382,6 +437,8 @@ def _merge_interview_kit(
     tenant_id: int,
     interview_questions: dict,
     kit_status: str,
+    *,
+    kit_error: Optional[str] = None,
 ) -> bool:
     from app.backend.db.database import SessionLocal
     from app.backend.models.db_models import ScreeningResult
@@ -407,6 +464,7 @@ def _merge_interview_kit(
             narrative["interview_questions"] = interview_questions
             result.narrative_json = json.dumps(narrative, default=str)
             result.interview_kit_status = kit_status
+            result.interview_kit_error = kit_error if kit_status == "fallback" else None
 
             analysis = {}
             if result.analysis_result:
@@ -442,17 +500,31 @@ async def background_interview_kit(
     python_result: Dict[str, Any],
 ) -> None:
     """Background task: generate interview kit and merge into stored report."""
+    from app.backend.db.database import SessionLocal
     from app.backend.services.hybrid_pipeline import _build_fallback_narrative
     from app.backend.services.interview_kit_generator import count_kit_questions
+    from app.backend.services.interview_kit_context import load_kit_inputs_for_screening
 
     log.info("Interview kit background task started for screening_result_id=%s", screening_result_id)
     _update_screening_fields(
         screening_result_id,
         tenant_id,
         interview_kit_status="processing",
+        interview_kit_error=None,
     )
 
+    db = SessionLocal()
+    try:
+        kit_inputs = load_kit_inputs_for_screening(db, screening_result_id, tenant_id)
+    finally:
+        db.close()
+
+    if kit_inputs:
+        llm_context = {**llm_context, **kit_inputs}
+        python_result = {**python_result, "kit_inputs": kit_inputs}
+
     kit_status = "fallback"
+    kit_error: Optional[str] = None
     interview_questions = None
 
     try:
@@ -467,6 +539,7 @@ async def background_interview_kit(
             kit_status = "ready"
             log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
         else:
+            kit_error = "empty_kit: LLM returned zero questions"
             log.warning(
                 "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic fallback",
                 screening_result_id,
@@ -474,19 +547,35 @@ async def background_interview_kit(
             fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
             interview_questions = fallback.get("interview_questions", {})
             kit_status = "fallback"
-    except Exception as err:
+    except asyncio.TimeoutError:
+        kit_error = f"timeout: exceeded {INTERVIEW_KIT_TIMEOUT:.0f}s"
         log.warning(
-            "Interview kit LLM failed for screening_result_id=%s: %s: %s",
+            "Interview kit LLM timed out for screening_result_id=%s after %.0fs",
             screening_result_id,
-            type(err).__name__,
-            str(err)[:200],
+            INTERVIEW_KIT_TIMEOUT,
+        )
+        fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
+        interview_questions = fallback.get("interview_questions", {})
+        kit_status = "fallback"
+    except Exception as err:
+        kit_error = f"{type(err).__name__}: {str(err)[:200]}"
+        log.warning(
+            "Interview kit LLM failed for screening_result_id=%s: %s",
+            screening_result_id,
+            kit_error,
         )
         fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
         interview_questions = fallback.get("interview_questions", {})
         kit_status = "fallback"
 
     if interview_questions:
-        _merge_interview_kit(screening_result_id, tenant_id, interview_questions, kit_status)
+        _merge_interview_kit(
+            screening_result_id,
+            tenant_id,
+            interview_questions,
+            kit_status,
+            kit_error=kit_error,
+        )
 
 
 async def background_voice_strategy(

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle } from 'lucide-react'
-import { listRequisitions, createRequisition } from '../lib/api'
+import { listRequisitions, createRequisition, getTeamMembers } from '../lib/api'
 import { Button } from '../components/ui'
 import { PageHeaderCard } from '../components/patterns/PageHeader'
 import usePermissions from '../hooks/usePermissions'
@@ -29,7 +29,8 @@ export default function RequisitionsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState('all')
-  const [form, setForm] = useState({ title: '', jd_text: '', client_name: '', location: '' })
+  const [form, setForm] = useState({ title: '', jd_text: '', client_name: '', location: '', primary_hiring_manager_id: '' })
+  const [teamMembers, setTeamMembers] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,6 +51,17 @@ export default function RequisitionsPage() {
     load()
   }, [load])
 
+  useEffect(() => {
+    if (!canWrite) return
+    getTeamMembers()
+      .then((data) => setTeamMembers(Array.isArray(data) ? data : []))
+      .catch(() => setTeamMembers([]))
+  }, [canWrite])
+
+  const hmCandidates = teamMembers.filter(
+    (m) => m.role === 'hiring_manager' || m.role === 'admin' || m.role === 'recruiter',
+  )
+
   const handleCreate = async (e) => {
     e.preventDefault()
     if (!form.title.trim() || !form.jd_text.trim()) return
@@ -61,9 +73,15 @@ export default function RequisitionsPage() {
         client_name: form.client_name.trim() || null,
         location: form.location.trim() || null,
         status: 'draft',
+        primary_hiring_manager_id: form.primary_hiring_manager_id
+          ? Number(form.primary_hiring_manager_id)
+          : null,
+        hiring_manager_ids: form.primary_hiring_manager_id
+          ? [Number(form.primary_hiring_manager_id)]
+          : [],
       })
       setShowCreate(false)
-      setForm({ title: '', jd_text: '', client_name: '', location: '' })
+      setForm({ title: '', jd_text: '', client_name: '', location: '', primary_hiring_manager_id: '' })
       navigate(`/requisitions/${req.id}`)
     } catch (err) {
       window.alert(err.response?.data?.detail?.message || err.response?.data?.detail || 'Failed to create requisition')
@@ -136,6 +154,21 @@ export default function RequisitionsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
               />
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="font-semibold text-slate-700">Primary hiring manager (optional)</span>
+              <select
+                value={form.primary_hiring_manager_id}
+                onChange={(e) => setForm((f) => ({ ...f, primary_hiring_manager_id: e.target.value }))}
+                className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm bg-white"
+              >
+                <option value="">Assign later in intake</option>
+                {hmCandidates.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.email} ({m.role.replace(/_/g, ' ')})
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="block text-sm sm:col-span-2">
               <span className="font-semibold text-slate-700">Job description</span>

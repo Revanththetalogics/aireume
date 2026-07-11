@@ -217,6 +217,9 @@ def _build_briefing(
     missing: List[str],
     role_family: str,
     screen_objective: str,
+    *,
+    hm_topics: Optional[List[Dict[str, str]]] = None,
+    deal_breakers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     name = profile.get("name") or "Candidate"
     role = profile.get("current_role") or "professional"
@@ -225,10 +228,19 @@ def _build_briefing(
         f"Confirm depth on {s} with a concrete example"
         for s in matched[:3]
     ] or ["Open with recent role scope before drilling into skills"]
-    probes = [
-        f"JD needs {s} — resume is light; dedicate a thread"
-        for s in missing[:3]
-    ] or ["Validate core role fit in the ownership thread"]
+    probes: List[str] = []
+    for topic in (hm_topics or [])[:3]:
+        q = (topic.get("question") or "").strip()
+        if q:
+            probes.append(f"HM focus: {q}")
+    for db in (deal_breakers or [])[:2]:
+        probes.append(f"Deal-breaker to verify: {db}")
+    for s in missing[:3]:
+        if len(probes) >= 4:
+            break
+        probes.append(f"Probe {s} — light on resume; ask for a concrete example")
+    if not probes:
+        probes = ["Validate core role fit in the ownership thread"]
     notes = [
         "Run threads in order; skip follow-ups when the candidate is already specific.",
         f"Screen objective: {screen_objective}",
@@ -280,12 +292,29 @@ def _playbook_to_legacy(threads: List[Dict[str, Any]]) -> Dict[str, List[Dict[st
     }
 
 
+def _hm_focus_thread_steps(topics: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    steps: List[Dict[str, Any]] = []
+    for topic in topics[:4]:
+        q = (topic.get("question") or "").strip()
+        if not q:
+            continue
+        rationale = (topic.get("rationale") or "").strip()
+        listen = [rationale] if rationale else ["Specific example with personal contribution"]
+        steps.append(_question_item(
+            q if q.endswith("?") else f"{q}?",
+            listen=listen,
+            follow_ups=["What was your personal role in that?", "How recent was that work?"],
+        ))
+    return steps
+
+
 def generate_targeted_interview_kit(
     *,
     profile: Optional[Dict[str, Any]] = None,
     jd_analysis: Optional[Dict[str, Any]] = None,
     skill_analysis: Optional[Dict[str, Any]] = None,
     parsed_data: Optional[Dict[str, Any]] = None,
+    kit_inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a recruiter playbook with conversation threads (v2)."""
     profile = sanitize_candidate_profile(profile or {})
@@ -353,7 +382,30 @@ def generate_targeted_interview_kit(
         years=years,
     )
 
+    kit_inputs = kit_inputs or {}
+    hm_topics = kit_inputs.get("hm_screen_topics") or []
+    deal_breakers = kit_inputs.get("deal_breakers") or []
+    calibrated_must = kit_inputs.get("calibrated_must_haves") or []
+
+    if calibrated_must and not missing:
+        req_lower = {s.lower() for s in matched}
+        missing = [s for s in calibrated_must if s.lower() not in req_lower][:5]
+
     threads: List[Dict[str, Any]] = []
+
+    # Thread 0 — HM screen-focus (primary when defined)
+    if hm_topics:
+        hm_steps = [_normalize_step(s) for s in _hm_focus_thread_steps(hm_topics)]
+        if hm_steps:
+            threads.append({
+                "id": "thread_hm_focus",
+                "title": "HM screen focus",
+                "kind": "judgment",
+                "hypothesis_ids": ["H0"],
+                "time_minutes": 8,
+                "priority": "must_have",
+                "steps": hm_steps,
+            })
 
     # Thread 1 — ownership
     ownership_steps = [_normalize_step(s) for s in ownership_thread_steps(role_family, ctx)]
@@ -393,7 +445,10 @@ def generate_targeted_interview_kit(
     })
 
     legacy = _playbook_to_legacy(threads)
-    briefing = _build_briefing(profile, matched, missing, role_family, screen_objective)
+    briefing = _build_briefing(
+        profile, matched, missing, role_family, screen_objective,
+        hm_topics=hm_topics, deal_breakers=deal_breakers,
+    )
 
     return {
         "kit_version": KIT_VERSION,
@@ -401,11 +456,12 @@ def generate_targeted_interview_kit(
         "candidate_briefing": briefing,
         "hypotheses": hypotheses,
         "open": {
-            "script": build_open_script(role_family, ctx),
+            "script": "",
             "listen_for": [
                 "Answers in projects and ownership, not only team names",
                 "Asks clarifying questions about the role (senior signal)",
             ],
+            "recruiter_owned": True,
         },
         "threads": threads,
         "close": {
@@ -473,7 +529,7 @@ def refresh_interview_questions_in_analysis(
     """Regenerate interview kit from stored analysis fields (rescore / report view)."""
     existing = analysis.get("interview_questions")
     status = (kit_status or analysis.get("interview_kit_status") or "").lower()
-    if not force and status == "ready" and count_kit_questions(existing) > 0:
+    if not force and status in ("ready", "fallback") and count_kit_questions(existing) > 0:
         return existing if isinstance(existing, dict) else {}
 
     profile = analysis.get("candidate_profile") or {}
@@ -482,6 +538,21 @@ def refresh_interview_questions_in_analysis(
             profile = {**profile, "work_experience": parsed_data.get("work_experience") or []}
         if not profile.get("name") and parsed_data.get("contact_info"):
             profile = {**profile, "name": parsed_data["contact_info"].get("name")}
+
+    kit_inputs = analysis.get("kit_inputs") or {}
+    if not kit_inputs and analysis.get("requisition_id") and analysis.get("tenant_id"):
+        try:
+            from app.backend.db.database import SessionLocal
+            from app.backend.services.interview_kit_context import load_kit_inputs_for_requisition
+            db = SessionLocal()
+            try:
+                kit_inputs = load_kit_inputs_for_requisition(
+                    db, analysis["requisition_id"], analysis["tenant_id"],
+                )
+            finally:
+                db.close()
+        except Exception:
+            kit_inputs = {}
 
     kit = generate_targeted_interview_kit(
         profile=profile,
@@ -493,6 +564,7 @@ def refresh_interview_questions_in_analysis(
             "missing_required": analysis.get("missing_skills") or [],
         },
         parsed_data=parsed_data,
+        kit_inputs=kit_inputs,
     )
     analysis["interview_questions"] = kit
     return kit

@@ -42,7 +42,8 @@ class TestGenerateTargetedInterviewKit:
         assert kit["screen_objective"]
         assert len(kit["hypotheses"]) >= 3
         assert len(kit["threads"]) >= 2
-        assert kit["open"]["script"]
+        assert kit["open"]["recruiter_owned"] is True
+        assert kit["open"]["script"] == ""
         assert kit["close"]["script"]
         assert kit["hm_debrief_template"]["must_haves"]
 

@@ -765,8 +765,13 @@ export default function ReportPage() {
         totalQ: kitReadiness.totalQ,
       }
     }
-    return resolveInterviewKit(interviewQsForKit, analysisData, roleForKit)
-  }, [forceFallbackKit, kitReadiness, interviewQsForKit, analysisData, roleForKit])
+    return resolveInterviewKit(
+      interviewQsForKit,
+      analysisData,
+      roleForKit,
+      result?.interview_kit_status,
+    )
+  }, [forceFallbackKit, kitReadiness, interviewQsForKit, analysisData, roleForKit, result?.interview_kit_status])
 
   useEffect(() => {
     setLiveScreenActive(screenMode)

@@ -3885,6 +3885,7 @@ def get_narrative(
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
             "interview_kit_status": getattr(result, "interview_kit_status", None),
+            "interview_kit_error": getattr(result, "interview_kit_error", None),
             "voice_strategy_status": getattr(result, "voice_strategy_status", None),
         }
 
@@ -3901,6 +3902,7 @@ def get_narrative(
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
             "interview_kit_status": getattr(result, "interview_kit_status", None),
+            "interview_kit_error": getattr(result, "interview_kit_error", None),
             "voice_strategy_status": getattr(result, "voice_strategy_status", None),
         }
 
@@ -3915,6 +3917,7 @@ def get_narrative(
                     "status": "ready",
                     "narrative": narrative,
                     "interview_kit_status": kit_status,
+                    "interview_kit_error": getattr(result, "interview_kit_error", None),
                     "voice_strategy_status": voice_strategy_status,
                     **_outcome_payload(result),
                 }
@@ -3923,10 +3926,13 @@ def get_narrative(
     
     # Still pending or processing
     kit_status = getattr(result, "interview_kit_status", None)
+    kit_error = getattr(result, "interview_kit_error", None)
     voice_strategy_status = getattr(result, "voice_strategy_status", None)
     payload = {"status": status or "pending", **_outcome_payload(result)}
     if kit_status:
         payload["interview_kit_status"] = kit_status
+    if kit_error:
+        payload["interview_kit_error"] = kit_error
     if voice_strategy_status:
         payload["voice_strategy_status"] = voice_strategy_status
     return payload

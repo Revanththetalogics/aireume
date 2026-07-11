@@ -98,7 +98,8 @@ function normalizeStatus(status) {
 }
 
 function normalizeKitStatus(kit, narrative) {
-  if (kit === 'ready' || kit === 'fallback') return 'complete'
+  if (kit === 'ready') return 'complete'
+  if (kit === 'fallback') return 'fallback'
   if (kit === 'skipped') return 'skipped'
   if (kit === 'processing') return 'active'
   if (narrative === 'ready' || narrative === 'fallback') return 'pending'
@@ -138,6 +139,7 @@ export function mergeNarrativePollResult(prev, data) {
     narrative_status: data.status,
     narrative_pending: !narrativeDone,
     interview_kit_status: kit ?? prev?.interview_kit_status,
+    interview_kit_error: data.interview_kit_error ?? prev?.interview_kit_error,
     voice_strategy_status: voice ?? prev?.voice_strategy_status,
     narrative_error: data.error ?? prev?.narrative_error,
     ai_enhanced: data.status === 'ready',

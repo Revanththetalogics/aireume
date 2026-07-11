@@ -435,6 +435,9 @@ def get_screening_result(
     if not merged_data.get("work_experience"):
         merged_data["work_experience"] = parsed.get("work_experience", [])
 
+    merged_data["requisition_id"] = result.requisition_id
+    merged_data["tenant_id"] = result.tenant_id
+
     refresh_interview_questions_in_analysis(
         merged_data,
         parsed_data=parsed,
@@ -500,6 +503,7 @@ def get_screening_result(
         "narrative_status":     result.narrative_status or "pending",
         "narrative_error":      result.narrative_error,
         "interview_kit_status": getattr(result, "interview_kit_status", None) or "pending",
+        "interview_kit_error": getattr(result, "interview_kit_error", None),
         "voice_strategy_status": getattr(result, "voice_strategy_status", None) or "pending",
         **outcome_fields_from_result(result),
         "ai_enhanced":          result.narrative_status == "ready" and result.narrative_json is not None,
@@ -514,6 +518,7 @@ def get_screening_result(
     response_data["status_updated_at"] = result.status_updated_at
     response_data["role_template_id"] = result.role_template_id
     response_data["interview_kit_status"] = getattr(result, "interview_kit_status", None) or "pending"
+    response_data["interview_kit_error"] = getattr(result, "interview_kit_error", None)
     response_data["voice_strategy_status"] = getattr(result, "voice_strategy_status", None) or "pending"
     response_data.update(outcome_fields_from_result(result))
 

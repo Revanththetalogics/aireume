@@ -230,10 +230,11 @@ export function buildFallbackKit({
 }
 
 /** Merge AI kit with deterministic fallback when categories are empty. */
-export function resolveInterviewKit(interviewQuestions, analysisData, roleTitle) {
+export function resolveInterviewKit(interviewQuestions, analysisData, roleTitle, interviewKitStatus = null) {
   const aiCount = countKitQuestions(interviewQuestions)
   if (aiCount > 0) {
-    return { kit: interviewQuestions, isFallback: false, totalQ: aiCount }
+    const isFallback = interviewKitStatus === 'fallback'
+    return { kit: interviewQuestions, isFallback, totalQ: aiCount }
   }
 
   const fallback = buildFallbackKit({
@@ -262,7 +263,12 @@ export function getKitReadiness(interviewKitStatus, interviewQuestions, analysis
     return { state: 'loading', totalQ: 0, isFallback: false, kit: null }
   }
 
-  const resolved = resolveInterviewKit(interviewQuestions, analysisData, roleTitle)
+  const resolved = resolveInterviewKit(
+    interviewQuestions,
+    analysisData,
+    roleTitle,
+    interviewKitStatus,
+  )
   if (resolved.totalQ > 0) {
     return {
       state: resolved.isFallback ? 'fallback' : 'ready',
@@ -312,6 +318,8 @@ function sanitizeStrengthLine(line) {
 function sanitizeProbeLine(line) {
   if (!line || typeof line !== 'string') return line
   let text = line.trim()
+  text = text.replace(/^JD needs\s+/i, 'Probe ')
+  text = text.replace(/\s*—\s*resume is light[^.]*\.?/gi, '')
   const gapIdx = text.search(/\s—\sHIGH priority gap/i)
   if (gapIdx > 0) text = text.slice(0, gapIdx).trim()
   text = text.replace(/^\?\s*/, '').replace(/^Probe:\s*/i, '')

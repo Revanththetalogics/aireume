@@ -138,6 +138,7 @@ function CriteriaEditForm({ criteria, onChange, readOnly }) {
 
 function IntakeForm({ intake, onChange, readOnly }) {
   const fields = [
+    { key: 'screen_focus_topics', label: 'HM screen-focus topics (one per line — primary kit input)', rows: 4, list: true },
     { key: 'must_haves', label: 'Must-haves (one per line)', rows: 4 },
     { key: 'good_to_haves', label: 'Good-to-haves (one per line)', rows: 3 },
     { key: 'deal_breakers', label: 'Deal-breakers (one per line)', rows: 2 },
@@ -155,7 +156,7 @@ function IntakeForm({ intake, onChange, readOnly }) {
   }
 
   const setValue = (key, raw) => {
-    const listKeys = ['must_haves', 'good_to_haves', 'deal_breakers']
+    const listKeys = ['must_haves', 'good_to_haves', 'deal_breakers', 'screen_focus_topics']
     if (listKeys.includes(key)) {
       onChange({
         ...intake,

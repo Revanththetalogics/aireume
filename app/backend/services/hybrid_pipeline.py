@@ -1768,6 +1768,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         jd_analysis=jd_a,
         skill_analysis=skill_analysis,
         parsed_data=python_result.get("parsed_data"),
+        kit_inputs=python_result.get("kit_inputs"),
     )
 
     # Build fallback candidate_profile_summary from deterministic data

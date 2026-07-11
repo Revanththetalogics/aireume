@@ -32,10 +32,24 @@ describe('liveScreenKitUtils', () => {
     expect(kit.threads.length).toBeGreaterThan(0)
   })
 
-  it('resolves to fallback when AI kit empty', () => {
-    const resolved = resolveInterviewKit({}, { missing_skills: ['React'] }, 'Dev')
+  it('marks stored kit as fallback when interview_kit_status is fallback', () => {
+    const kit = {
+      kit_version: 2,
+      threads: [{ steps: [{ text: 'How do you handle budgeting?' }] }],
+    }
+    const resolved = resolveInterviewKit(kit, {}, 'Analyst', 'fallback')
     expect(resolved.isFallback).toBe(true)
-    expect(resolved.totalQ).toBeGreaterThan(0)
+    expect(resolved.totalQ).toBe(1)
+  })
+
+  it('getKitReadiness reports fallback state from status', () => {
+    const kit = {
+      kit_version: 2,
+      threads: [{ steps: [{ text: 'Probe topic?' }] }],
+    }
+    const readiness = getKitReadiness('fallback', kit, {}, 'Analyst')
+    expect(readiness.state).toBe('fallback')
+    expect(readiness.isFallback).toBe(true)
   })
 
   it('getKitReadiness returns loading state', () => {

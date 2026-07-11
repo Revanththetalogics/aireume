@@ -328,6 +328,10 @@ def update_intake(
     req = _load_req(db, req_id, current_user.tenant_id)
     require_requisition_write(current_user, req, db)
     req.intake_json = json.dumps(body.intake_json)
+    from app.backend.services.interview_kit_context import sync_must_ask_from_intake
+    must_ask = sync_must_ask_from_intake(body.intake_json)
+    if must_ask is not None:
+        req.must_ask_questions_json = must_ask
     if body.intake_status:
         req.intake_status = body.intake_status
     if req.status == "draft":
