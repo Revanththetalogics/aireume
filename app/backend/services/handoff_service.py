@@ -10,6 +10,7 @@ from app.backend.models.db_models import (
     Candidate,
     InterviewEvaluation,
     OverallAssessment,
+    Requisition,
     RoleTemplate,
     ScreeningResult,
     User,
@@ -62,30 +63,62 @@ def build_handoff_package(
     db: Session,
     *,
     tenant_id: int,
-    jd_id: int,
+    jd_id: Optional[int] = None,
+    requisition_id: Optional[int] = None,
     viewer_user_id: Optional[int] = None,
     generated_by_email: Optional[str] = None,
     public_view: bool = False,
 ) -> dict:
-    """Return structured HM handoff data for a role template."""
-    jd = db.query(RoleTemplate).filter(
-        RoleTemplate.id == jd_id,
-        RoleTemplate.tenant_id == tenant_id,
-    ).first()
-    if not jd:
-        return None
+    """Return structured HM handoff data for a requisition or legacy role template."""
+    title = ""
+    req = None
+    jd = None
 
-    results = (
-        db.query(ScreeningResult)
-        .join(Candidate, ScreeningResult.candidate_id == Candidate.id)
-        .filter(
-            ScreeningResult.role_template_id == jd_id,
-            ScreeningResult.status == "shortlisted",
-            ScreeningResult.is_active == True,
+    if requisition_id:
+        req = db.query(Requisition).filter(
+            Requisition.id == requisition_id,
+            Requisition.tenant_id == tenant_id,
+        ).first()
+        if not req:
+            return None
+        title = req.title
+        results_q = db.query(ScreeningResult).join(
+            Candidate, ScreeningResult.candidate_id == Candidate.id,
+        ).filter(
             ScreeningResult.tenant_id == tenant_id,
+            ScreeningResult.is_active == True,
+            ScreeningResult.status == "shortlisted",
         )
-        .all()
-    )
+        results_q = results_q.filter(
+            (ScreeningResult.requisition_id == requisition_id)
+            | (ScreeningResult.role_template_id == req.legacy_role_template_id)
+        )
+        results = results_q.all()
+        entity_id = requisition_id
+        entity_type = "requisition"
+    elif jd_id:
+        jd = db.query(RoleTemplate).filter(
+            RoleTemplate.id == jd_id,
+            RoleTemplate.tenant_id == tenant_id,
+        ).first()
+        if not jd:
+            return None
+        title = jd.name
+        results = (
+            db.query(ScreeningResult)
+            .join(Candidate, ScreeningResult.candidate_id == Candidate.id)
+            .filter(
+                ScreeningResult.role_template_id == jd_id,
+                ScreeningResult.status == "shortlisted",
+                ScreeningResult.is_active == True,
+                ScreeningResult.tenant_id == tenant_id,
+            )
+            .all()
+        )
+        entity_id = jd_id
+        entity_type = "role_template"
+    else:
+        return None
 
     result_ids = [r.id for r in results]
     assessment_map: dict[int, OverallAssessment] = {}
@@ -177,12 +210,23 @@ def build_handoff_package(
             dim_values.append(val if val is not None else 0)
         comparison_candidates[cand_name] = dim_values
 
+    intake = {}
+    criteria = {}
+    if req:
+        intake = _safe_json(req.intake_json)
+        criteria = _safe_json(req.calibrated_criteria_json)
+
     return {
-        "jd_name": jd.name,
-        "jd_id": jd.id,
+        "jd_name": title,
+        "requisition_title": title,
+        "jd_id": entity_id,
+        "requisition_id": requisition_id or (req.id if req else None),
+        "entity_type": entity_type,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "generated_by": generated_by_email,
         "public_view": public_view,
+        "intake_summary": intake,
+        "calibrated_must_haves": criteria.get("must_haves") or [],
         "shortlisted_candidates": shortlisted_candidates,
         "comparison_matrix": {
             "dimensions": [label for label, _key in _MATRIX_DIMENSIONS],

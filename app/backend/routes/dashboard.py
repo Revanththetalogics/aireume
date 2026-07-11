@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin
-from app.backend.models.db_models import Candidate, RoleTemplate, ScreeningResult, User
+from app.backend.models.db_models import Candidate, Requisition, RequisitionCandidate, RoleTemplate, ScreeningResult, User
 from app.backend.services.skill_trend_service import compute_monthly_snapshot, get_skill_trends
 
 logger = logging.getLogger(__name__)
@@ -140,6 +140,49 @@ async def get_dashboard_summary(
             "avg_fit_score": round(sum(fit_scores) / len(fit_scores), 1) if fit_scores else 0,
         })
 
+    # ── Pipeline by Requisition (primary) ────────────────────────────────────
+    from app.backend.services.requisition_service import migrate_legacy_data
+
+    migrate_legacy_data(db, tenant_id)
+    db.commit()
+
+    requisitions = (
+        db.query(Requisition)
+        .filter(Requisition.tenant_id == tenant_id)
+        .order_by(Requisition.updated_at.desc())
+        .limit(50)
+        .all()
+    )
+    pipeline_by_requisition = []
+    for req in requisitions:
+        req_results = [r for r in results if r.requisition_id == req.id]
+        if not req_results and req.legacy_role_template_id:
+            req_results = [r for r in results if r.role_template_id == req.legacy_role_template_id]
+        rc_rows = (
+            db.query(RequisitionCandidate)
+            .filter(RequisitionCandidate.requisition_id == req.id)
+            .all()
+        )
+        by_status: Dict[str, int] = Counter()
+        fit_scores = []
+        for r in req_results:
+            by_status[r.status or "pending"] += 1
+            analysis = _safe_parse_json(r.analysis_result)
+            score = _extract_fit_score(analysis)
+            if score is not None:
+                fit_scores.append(score)
+        for rc in rc_rows:
+            by_status[rc.pipeline_status or "pending"] += 1
+        pipeline_by_requisition.append({
+            "requisition_id": req.id,
+            "title": req.title,
+            "status": req.status,
+            "is_calibrated": bool(req.calibrated_criteria_json),
+            "total_candidates": max(len(req_results), len(rc_rows)),
+            "by_status": dict(by_status),
+            "avg_fit_score": round(sum(fit_scores) / len(fit_scores), 1) if fit_scores else 0,
+        })
+
     # ── Weekly metrics ──────────────────────────────────────────────────────────
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     weekly_results = (
@@ -178,6 +221,7 @@ async def get_dashboard_summary(
             "shortlisted_count": shortlisted_count,
         },
         "pipeline_by_jd": pipeline_by_jd,
+        "pipeline_by_requisition": pipeline_by_requisition,
         "weekly_metrics": {
             "analyses_this_week": len(weekly_results),
             "avg_fit_score": round(sum(weekly_fit_scores) / len(weekly_fit_scores), 1) if weekly_fit_scores else 0,

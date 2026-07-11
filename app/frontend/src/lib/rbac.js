@@ -3,12 +3,23 @@
 export const TENANT_ROLE_ADMIN = 'admin'
 export const TENANT_ROLE_RECRUITER = 'recruiter'
 export const TENANT_ROLE_VIEWER = 'viewer'
+export const TENANT_ROLE_HIRING_MANAGER = 'hiring_manager'
 
 const WRITE_ROLES = new Set([TENANT_ROLE_ADMIN, TENANT_ROLE_RECRUITER])
+const RECRUITER_NAV_ROLES = new Set([
+  TENANT_ROLE_ADMIN,
+  TENANT_ROLE_RECRUITER,
+  TENANT_ROLE_VIEWER,
+])
 
 export function normalizeTenantRole(role) {
   const r = (role || TENANT_ROLE_RECRUITER).toLowerCase()
-  if (r === TENANT_ROLE_ADMIN || r === TENANT_ROLE_RECRUITER || r === TENANT_ROLE_VIEWER) {
+  if (
+    r === TENANT_ROLE_ADMIN
+    || r === TENANT_ROLE_RECRUITER
+    || r === TENANT_ROLE_VIEWER
+    || r === TENANT_ROLE_HIRING_MANAGER
+  ) {
     return r
   }
   return TENANT_ROLE_RECRUITER
@@ -22,6 +33,8 @@ export function getPermissions(user) {
     isAdmin: role === TENANT_ROLE_ADMIN,
     isRecruiter: role === TENANT_ROLE_RECRUITER,
     isViewer: role === TENANT_ROLE_VIEWER,
+    isHiringManager: role === TENANT_ROLE_HIRING_MANAGER,
+    showRecruiterNav: RECRUITER_NAV_ROLES.has(role),
   }
 }
 

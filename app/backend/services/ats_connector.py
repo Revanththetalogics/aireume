@@ -192,6 +192,88 @@ class ATSConnector:
 
             return {"success": False, "status": None, "error": str(e)}
 
+    async def sync_requisitions(
+        self,
+        connection: ATSConnection,
+        tenant_id: int,
+    ) -> dict[str, Any]:
+        """Pull open requisitions from ATS — creates/updates local Requisition rows."""
+        from app.backend.models.db_models import Requisition
+        from app.backend.services.requisition_service import create_requisition
+
+        adapter = self._get_adapter(connection.provider)
+        if not hasattr(adapter, "fetch_open_requisitions"):
+            return {
+                "success": True,
+                "synced": 0,
+                "message": f"Provider {connection.provider} has no requisition sync adapter yet",
+            }
+
+        try:
+            openings = await adapter.fetch_open_requisitions(connection)
+            synced = 0
+            for opening in openings or []:
+                ext_id = str(opening.get("id") or opening.get("external_id") or "")
+                if not ext_id:
+                    continue
+                existing = (
+                    self.db.query(Requisition)
+                    .filter(
+                        Requisition.tenant_id == tenant_id,
+                        Requisition.external_ats_id == ext_id,
+                        Requisition.ats_provider == connection.provider,
+                    )
+                    .first()
+                )
+                title = opening.get("title") or opening.get("name") or f"ATS Opening {ext_id}"
+                jd = opening.get("jd_text") or opening.get("content") or title
+                if existing:
+                    existing.title = title
+                    existing.jd_text = jd
+                    existing.status = "sourcing"
+                else:
+                    create_requisition(
+                        self.db,
+                        tenant_id=tenant_id,
+                        created_by=None,
+                        title=title,
+                        jd_text=jd,
+                        status="sourcing",
+                    )
+                    req = (
+                        self.db.query(Requisition)
+                        .filter(Requisition.tenant_id == tenant_id)
+                        .order_by(Requisition.id.desc())
+                        .first()
+                    )
+                    if req:
+                        req.external_ats_id = ext_id
+                        req.ats_provider = connection.provider
+                synced += 1
+
+            self._log_sync(
+                connection=connection,
+                direction="pull",
+                entity_type="requisitions",
+                payload={"count": synced},
+                success=True,
+            )
+            connection.last_sync_at = datetime.now(timezone.utc)
+            connection.last_sync_status = "success"
+            self.db.commit()
+            return {"success": True, "synced": synced}
+        except Exception as e:
+            logger.error("ATS requisition sync failed: %s", e)
+            self._log_sync(
+                connection=connection,
+                direction="pull",
+                entity_type="requisitions",
+                success=False,
+                error_message=str(e),
+            )
+            self.db.commit()
+            return {"success": False, "error": str(e)}
+
     def verify_inbound_webhook(
         self,
         connection: ATSConnection,
@@ -283,6 +365,26 @@ class BaseATSAdapter:
     def parse_pull_status(self, data: dict) -> Optional[str]:
         return None
 
+    def get_requisitions_endpoint(self, connection: ATSConnection) -> str:
+        raise NotImplementedError
+
+    def parse_requisitions_list(self, data: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def fetch_open_requisitions(self, connection: ATSConnection) -> list[dict[str, Any]]:
+        url = self.get_requisitions_endpoint(connection)
+        headers = self.get_headers(connection)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code >= 400:
+                logger.warning("ATS requisitions fetch failed HTTP %s for %s", resp.status_code, connection.provider)
+                return []
+            try:
+                payload = resp.json()
+            except Exception:
+                return []
+            return self.parse_requisitions_list(payload)
+
 
 class GreenhouseAdapter(BaseATSAdapter):
     """Greenhouse Harvest API adapter."""
@@ -318,6 +420,23 @@ class GreenhouseAdapter(BaseATSAdapter):
     def parse_pull_status(self, data):
         return data.get("status")
 
+    def get_requisitions_endpoint(self, connection):
+        base = connection.base_url or "https://harvest.greenhouse.io"
+        return f"{base}/v1/jobs?status=open"
+
+    def parse_requisitions_list(self, data):
+        jobs = data if isinstance(data, list) else data.get("jobs") or data.get("data") or []
+        out = []
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            out.append({
+                "id": str(job.get("id") or job.get("job_id") or ""),
+                "title": job.get("name") or job.get("title"),
+                "jd_text": job.get("notes") or job.get("content") or job.get("name") or "",
+            })
+        return out
+
 
 class LeverAdapter(BaseATSAdapter):
     """Lever API adapter."""
@@ -350,6 +469,23 @@ class LeverAdapter(BaseATSAdapter):
 
     def parse_pull_status(self, data):
         return data.get("stage")
+
+    def get_requisitions_endpoint(self, connection):
+        base = connection.base_url or "https://api.lever.co/v1"
+        return f"{base}/postings?state=published"
+
+    def parse_requisitions_list(self, data):
+        postings = data if isinstance(data, list) else data.get("data") or []
+        out = []
+        for p in postings:
+            if not isinstance(p, dict):
+                continue
+            out.append({
+                "id": str(p.get("id") or ""),
+                "title": p.get("text") or p.get("title"),
+                "jd_text": p.get("descriptionPlain") or p.get("description") or p.get("text") or "",
+            })
+        return out
 
 
 class WorkdayAdapter(BaseATSAdapter):
@@ -387,6 +523,25 @@ class WorkdayAdapter(BaseATSAdapter):
 
     def parse_pull_status(self, data):
         return data.get("Status_Code")
+
+    def get_requisitions_endpoint(self, connection):
+        base = connection.base_url or ""
+        if not base:
+            raise ValueError("Workday adapter requires base_url to be configured")
+        return f"{base}/ccx/api/job_requisitions?status=open"
+
+    def parse_requisitions_list(self, data):
+        rows = data if isinstance(data, list) else data.get("Report_Entry") or data.get("data") or []
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            out.append({
+                "id": str(row.get("Job_Requisition_ID") or row.get("id") or ""),
+                "title": row.get("Job_Title") or row.get("title"),
+                "jd_text": row.get("Job_Description") or row.get("jd_text") or row.get("Job_Title") or "",
+            })
+        return out
 
 
 class GenericAdapter(BaseATSAdapter):
@@ -431,3 +586,22 @@ class GenericAdapter(BaseATSAdapter):
 
     def parse_pull_status(self, data):
         return data.get("status")
+
+    def get_requisitions_endpoint(self, connection):
+        base = connection.base_url or connection.webhook_url or ""
+        if not base:
+            raise ValueError("Generic adapter requires base_url or webhook_url")
+        return base.rstrip("/") + "/requisitions"
+
+    def parse_requisitions_list(self, data):
+        rows = data if isinstance(data, list) else data.get("requisitions") or data.get("openings") or data.get("data") or []
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            out.append({
+                "id": str(row.get("id") or row.get("external_id") or ""),
+                "title": row.get("title") or row.get("name"),
+                "jd_text": row.get("jd_text") or row.get("content") or row.get("description") or row.get("title") or "",
+            })
+        return out

@@ -2,7 +2,7 @@
  * Centralized constants for the ARIA frontend application.
  *
  * Contains status configurations, score color mappings, recommendation labels,
- * and pipeline stage definitions shared across CandidatesPage, JDCandidatesPage,
+ * and pipeline stage definitions shared across CandidatesPage and RequisitionDetailPage,
  * KanbanBoard, and other candidate-facing views.
  */
 

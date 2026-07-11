@@ -5,6 +5,7 @@
 
 export const NAV = {
   home: 'Home',
+  requisitions: 'Requisitions',
   roles: 'Roles',
   analyze: 'Analyze',
   candidates: 'Candidates',
@@ -17,6 +18,26 @@ export const NAV = {
   team: 'Team',
   settings: 'Settings',
   interviewReview: 'Interview Review',
+  hmDashboard: 'My Openings',
+}
+
+export const REQUISITIONS = {
+  pageTitle: 'Requisitions',
+  pageSubtitle: 'Calibrated openings — HM intake, criteria, and pipeline in one place',
+  createCta: 'New Requisition',
+  emptyHint: 'Create a requisition to run intake, calibrate must-haves, and source candidates.',
+  hmPageTitle: 'My Openings',
+  hmPageSubtitle: 'Approve intake, review submissions, and track pipeline for your roles',
+  intakeTab: 'Intake',
+  criteriaTab: 'Criteria',
+  pipelineTab: 'Pipeline',
+  overviewTab: 'Overview',
+  calibrateCta: 'Calibrate criteria',
+  approveIntakeCta: 'Approve intake',
+  requestChangesCta: 'Request changes',
+  submitToHmCta: 'Submit to HM',
+  statusDraft: 'Draft',
+  notCalibratedWarning: 'Complete HM intake and calibration before screening candidates.',
 }
 
 export const ROLES = {

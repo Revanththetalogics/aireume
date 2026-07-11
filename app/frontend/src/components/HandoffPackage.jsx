@@ -365,7 +365,7 @@ export default function HandoffPackage({ initialData = null, publicMode = false 
           </div>
           <p className="text-red-600 font-medium">{error}</p>
           <button
-            onClick={() => navigate('/jd-library')}
+            onClick={() => navigate('/requisitions')}
             className="mt-4 text-sm font-semibold text-brand-600 hover:text-brand-800"
           >
             Back to JD Library

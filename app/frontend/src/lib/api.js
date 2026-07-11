@@ -172,7 +172,10 @@ api.interceptors.response.use(
 /**
  * Submit a resume analysis job to the queue (returns immediately with job_id)
  */
-export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5, templateId = null, skillOverrides = null) {
+export async function submitAnalysisJob(
+  file, jobDescription, jobFile = null, scoringWeights = null, priority = 5,
+  templateId = null, skillOverrides = null, requisitionId = null,
+) {
   const formData = new FormData()
   formData.append('resume_file', file)
   if (jobFile) {
@@ -180,16 +183,8 @@ export async function submitAnalysisJob(file, jobDescription, jobFile = null, sc
   } else {
     formData.append('jd_text', jobDescription)
   }
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
   formData.append('priority', priority.toString())
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
-  if (skillOverrides) {
-    formData.append('skill_overrides', JSON.stringify(skillOverrides))
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights })
   
   const response = await api.post('/queue/submit-file', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -208,6 +203,7 @@ export async function submitBatchToQueue(
   templateId = null,
   skillOverrides = null,
   priority = 8,
+  requisitionId = null,
 ) {
   const formData = new FormData()
   files.forEach((file) => formData.append('resume_files', file))
@@ -216,16 +212,8 @@ export async function submitBatchToQueue(
   } else {
     formData.append('jd_text', jobDescription)
   }
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
   formData.append('priority', priority.toString())
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
-  if (skillOverrides) {
-    formData.append('skill_overrides', JSON.stringify(skillOverrides))
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights })
 
   const response = await api.post('/queue/submit-batch', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -299,7 +287,10 @@ export async function analyzeResumeAsync(file, jobDescription, jobFile = null, s
 
 // ─── Resume Analysis (Legacy Synchronous) ─────────────────────────────────────
 
-export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null, templateId = null, skillOverrides = null) {
+export async function analyzeResume(
+  file, jobDescription, jobFile = null, scoringWeights = null,
+  templateId = null, skillOverrides = null, requisitionId = null,
+) {
   const formData = new FormData()
   formData.append('resume', file)
   if (jobFile) {
@@ -307,15 +298,7 @@ export async function analyzeResume(file, jobDescription, jobFile = null, scorin
   } else {
     formData.append('job_description', jobDescription)
   }
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
-  if (skillOverrides) {
-    formData.append('skill_overrides', JSON.stringify(skillOverrides))
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights })
   const response = await api.post('/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
@@ -341,6 +324,7 @@ export async function analyzeResumeStream(
   onStageComplete = null,
   templateId = null,
   skillOverrides = null,
+  requisitionId = null,
 ) {
   const formData = new FormData()
   formData.append('resume', file)
@@ -349,15 +333,7 @@ export async function analyzeResumeStream(
   } else {
     formData.append('job_description', jobDescription)
   }
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
-  if (skillOverrides) {
-    formData.append('skill_overrides', JSON.stringify(skillOverrides))
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights })
 
   const baseURL = import.meta.env.VITE_API_URL || '/api'
 
@@ -466,7 +442,10 @@ export async function analyzeResumeStream(
   return finalResult
 }
 
-export async function analyzeBatch(files, jobDescription, jobFile = null, scoringWeights = null, templateId = null) {
+export async function analyzeBatch(
+  files, jobDescription, jobFile = null, scoringWeights = null,
+  templateId = null, requisitionId = null,
+) {
   const formData = new FormData()
   files.forEach((f) => formData.append('resumes', f))
   if (jobFile) {
@@ -474,12 +453,7 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
   } else {
     formData.append('job_description', jobDescription)
   }
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, scoringWeights })
   const response = await api.post('/analyze/batch', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
@@ -500,7 +474,10 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
  * @param {Function} callbacks.onOverallProgress - Called with overall upload progress
  * @returns {Promise} Analysis results
  */
-export async function analyzeBatchChunked(files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {}, templateId = null) {
+export async function analyzeBatchChunked(
+  files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {},
+  templateId = null, requisitionId = null,
+) {
   const { uploadMultipleFiles } = await import('./uploadChunked')
 
   // Upload all files using chunked upload
@@ -531,12 +508,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
     formData.append('job_description', jobDescription)
   }
 
-  if (scoringWeights) {
-    formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  }
-  if (templateId) {
-    formData.append('template_id', templateId)
-  }
+  appendAnalyzeContext(formData, { requisitionId, templateId, scoringWeights })
 
   const response = await api.post('/analyze/batch-chunked', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -566,7 +538,10 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
  * @param {Function} callbacks.onDone - Called with (total, successful, failedCount) when complete
  * @returns {Promise<void>}
  */
-export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}, templateId = null, skillOverrides = null) {
+export async function analyzeBatchStream(
+  files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {},
+  templateId = null, skillOverrides = null, requisitionId = null,
+) {
   const {
     onFileProgress, onOverallProgress, onFileComplete, onFileError,  // upload callbacks
     onProcessing, // (index, total, filename) => void
@@ -604,9 +579,7 @@ export async function analyzeBatchStream(files, jobDescription, jdFile = null, s
   })
   if (jobDescription) formData.append('job_description', jobDescription)
   if (jdFile) formData.append('job_file', jdFile)
-  if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
-  if (templateId) formData.append('template_id', templateId)
-  if (skillOverrides) formData.append('skill_overrides', JSON.stringify(skillOverrides))
+  appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights })
 
   // Phase 3: Open SSE stream
   const baseURL = import.meta.env.VITE_API_URL || '/api'
@@ -743,38 +716,98 @@ export async function viewCandidateResume(candidateId) {
   setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
-// ─── Templates ───────────────────────────────────────────────────────────────
+// ─── Templates (legacy — prefer requisitions) ────────────────────────────────
 
+/** @deprecated Use getRequisitionsForPicker */
 export async function getTemplates() {
-  const res = await api.get('/templates')
-  return res.data.templates || res.data
+  return getRequisitionsForPicker()
+}
+
+/** Requisitions shaped for JD picker dropdowns (replaces Role Template library). */
+export async function getRequisitionsForPicker() {
+  const data = await listRequisitions()
+  const arr = Array.isArray(data) ? data : []
+  return arr.map((r) => ({
+    id: r.id,
+    name: r.title,
+    title: r.title,
+    jd_text: r.jd_text,
+    scoring_weights: r.scoring_weights,
+    required_skills_override: r.required_skills_override,
+    nice_to_have_skills_override: r.nice_to_have_skills_override,
+    is_calibrated: r.is_calibrated,
+    intake_gate_warning: r.intake_gate_warning,
+    status: r.status,
+    client_name: r.client_name,
+    location: r.location,
+  }))
+}
+
+function appendAnalyzeContext(formData, { requisitionId, templateId, skillOverrides, scoringWeights } = {}) {
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  if (requisitionId) {
+    formData.append('requisition_id', String(requisitionId))
+  } else if (templateId) {
+    formData.append('template_id', String(templateId))
+  }
+  if (skillOverrides) {
+    formData.append('skill_overrides', JSON.stringify(skillOverrides))
+  }
 }
 
 export async function createTemplate(data) {
-  const res = await api.post('/templates', data)
-  return res.data
+  const created = await createRequisition({
+    title: data.name,
+    jd_text: data.jd_text,
+    tags: data.tags,
+    scoring_weights: data.scoring_weights,
+    required_skills_override: typeof data.required_skills_override === 'string'
+      ? JSON.parse(data.required_skills_override || '[]')
+      : data.required_skills_override,
+    nice_to_have_skills_override: typeof data.nice_to_have_skills_override === 'string'
+      ? JSON.parse(data.nice_to_have_skills_override || '[]')
+      : data.nice_to_have_skills_override,
+    status: 'draft',
+  })
+  return { ...created, name: created.title }
 }
 
-export async function createTemplateFromFile(name, file, tags, scoringWeights) {
-  const formData = new FormData()
-  formData.append('name', name)
-  formData.append('jd_file', file)
-  if (tags) formData.append('tags', tags)
-  if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
-
-  const res = await api.post('/templates/from-file', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+export async function createRequisitionFromFile(title, file, tags, scoringWeights) {
+  const text = await file.text()
+  return createRequisition({
+    title,
+    jd_text: text,
+    tags,
+    scoring_weights: scoringWeights,
+    status: 'draft',
   })
-  return res.data
+}
+
+/** @deprecated Use createRequisitionFromFile */
+export async function createTemplateFromFile(name, file, tags, scoringWeights) {
+  return createRequisitionFromFile(name, file, tags, scoringWeights)
 }
 
 export async function updateTemplate(id, data) {
-  const res = await api.put(`/templates/${id}`, data)
-  return res.data
+  const payload = { ...data }
+  if (payload.name) {
+    payload.title = payload.name
+    delete payload.name
+  }
+  if (typeof payload.required_skills_override === 'string') {
+    try { payload.required_skills_override = JSON.parse(payload.required_skills_override) } catch { /* keep */ }
+  }
+  if (typeof payload.nice_to_have_skills_override === 'string') {
+    try { payload.nice_to_have_skills_override = JSON.parse(payload.nice_to_have_skills_override) } catch { /* keep */ }
+  }
+  const updated = await updateRequisition(id, payload)
+  return { ...updated, name: updated.title }
 }
 
 export async function deleteTemplate(id) {
-  await api.delete(`/templates/${id}`)
+  await deleteRequisition(id)
 }
 
 // ─── Skill Classification Templates ─────────────────────────────────────────
@@ -985,7 +1018,8 @@ export async function analyzeTranscript(
   transcriptText,
   candidateId,
   roleTemplateId,
-  sourcePlatform
+  sourcePlatform,
+  requisitionId = null,
 ) {
   const formData = new FormData()
   if (transcriptFile) {
@@ -993,8 +1027,12 @@ export async function analyzeTranscript(
   } else if (transcriptText) {
     formData.append('transcript_text', transcriptText)
   }
-  if (candidateId)    formData.append('candidate_id', candidateId)
-  if (roleTemplateId) formData.append('role_template_id', roleTemplateId)
+  if (candidateId) formData.append('candidate_id', candidateId)
+  if (requisitionId) {
+    formData.append('requisition_id', requisitionId)
+  } else if (roleTemplateId) {
+    formData.append('role_template_id', roleTemplateId)
+  }
   if (sourcePlatform) formData.append('source_platform', sourcePlatform)
 
   const res = await api.post('/transcript/analyze', formData, {
@@ -1084,7 +1122,113 @@ export async function getATSSyncLogs(connectionId, limit = 50) {
   return response.data
 }
 
-// ─── Screening Projects ───────────────────────────────────────────────────────
+// ─── Requisitions ─────────────────────────────────────────────────────────────
+
+export async function listRequisitions(status = null, mineOnly = false) {
+  const params = {}
+  if (status) params.status = status
+  if (mineOnly) params.mine_only = true
+  const response = await api.get('/requisitions', { params })
+  return response.data
+}
+
+export async function getRequisition(reqId) {
+  const response = await api.get(`/requisitions/${reqId}`)
+  return response.data
+}
+
+export async function createRequisition(data) {
+  const response = await api.post('/requisitions', data)
+  return response.data
+}
+
+export async function updateRequisition(reqId, data) {
+  const response = await api.put(`/requisitions/${reqId}`, data)
+  return response.data
+}
+
+export async function deleteRequisition(reqId) {
+  await api.delete(`/requisitions/${reqId}`)
+}
+
+export async function updateRequisitionIntake(reqId, intakeJson, intakeStatus = null) {
+  const response = await api.put(`/requisitions/${reqId}/intake`, {
+    intake_json: intakeJson,
+    intake_status: intakeStatus,
+  })
+  return response.data
+}
+
+export async function calibrateRequisition(reqId, criteriaJson = null) {
+  const response = await api.post(`/requisitions/${reqId}/calibrate`, {
+    criteria_json: criteriaJson,
+    merge_jd_parse: true,
+  })
+  return response.data
+}
+
+export async function hmApproveRequisition(reqId, approved, notes = null) {
+  const response = await api.post(`/requisitions/${reqId}/hm-approval`, {
+    approved,
+    notes,
+  })
+  return response.data
+}
+
+export async function getRequisitionPipeline(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/pipeline`)
+  return response.data
+}
+
+export async function updateRequisitionCandidateStatus(reqId, candidateId, pipelineStatus) {
+  const response = await api.put(`/requisitions/${reqId}/candidates/${candidateId}`, {
+    pipeline_status: pipelineStatus,
+  })
+  return response.data
+}
+
+export async function submitCandidateToHm(reqId, candidateId, submissionJson = {}) {
+  const response = await api.post(`/requisitions/${reqId}/candidates/${candidateId}/submit`, {
+    submission_json: submissionJson,
+  })
+  return response.data
+}
+
+export async function recordHmOutcome(reqId, candidateId, outcome, reasonCode = null, notes = null) {
+  const response = await api.put(`/requisitions/${reqId}/candidates/${candidateId}/outcome`, {
+    hm_outcome: outcome,
+    outcome_reason_code: reasonCode,
+    outcome_notes: notes,
+  })
+  return response.data
+}
+
+export async function getRequisitionAnalytics(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/analytics`)
+  return response.data
+}
+
+export async function getRequisitionSettings() {
+  const response = await api.get('/requisitions/settings')
+  return response.data
+}
+
+export async function updateRequisitionSettings(data) {
+  const response = await api.put('/requisitions/settings', data)
+  return response.data
+}
+
+export async function checkRequisitionIntakeGate(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/intake-gate`)
+  return response.data
+}
+
+export async function getRequisitionCriteriaVersions(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/criteria-versions`)
+  return response.data
+}
+
+// ─── Screening Projects (legacy — prefer requisitions) ─────────────────────────
 
 export async function listProjects(status = null) {
   const params = status ? { status } : {}
@@ -1162,9 +1306,10 @@ export async function rescoreAnalysis(resultId, { required_skills, nice_to_have_
   return response.data
 }
 
-export async function analyzeCandidateJd(candidateId, { job_description, scoring_weights = null }) {
+export async function analyzeCandidateJd(candidateId, { job_description, requisition_id = null, scoring_weights = null }) {
   const response = await api.post(`/candidates/${candidateId}/analyze-jd`, {
     job_description,
+    requisition_id,
     scoring_weights,
   })
   return response.data
@@ -1605,13 +1750,36 @@ export async function getScreeningAnalytics(period = 'last_30_days') {
 
 // ─── HM Handoff Package ──────────────────────────────────────────────────────
 
-export async function getHandoffPackage(jdId) {
-  const response = await api.get(`/jd/${jdId}/handoff-package`)
+export async function getHandoffPackage(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/handoff-package`)
   return response.data
 }
 
-export async function createHandoffShareLink(jdId, options = {}) {
-  const response = await api.post(`/jd/${jdId}/share-links`, options)
+export async function createHandoffShareLink(reqId, options = {}) {
+  const response = await api.post(`/requisitions/${reqId}/share-links`, options)
+  return response.data
+}
+
+export async function listHandoffShareLinks(reqId) {
+  const response = await api.get(`/requisitions/${reqId}/share-links`)
+  return response.data
+}
+
+export async function revokeHandoffShareLink(reqId, linkId) {
+  const response = await api.delete(`/requisitions/${reqId}/share-links/${linkId}`)
+  return response.data
+}
+
+export async function syncATSRequisitions(connectionId) {
+  const response = await api.post(`/ats/connections/${connectionId}/sync-requisitions`)
+  return response.data
+}
+
+export async function addCandidatesToRequisition(reqId, candidateIds, screeningResultIds = null) {
+  const response = await api.post(`/requisitions/${reqId}/candidates`, {
+    candidate_ids: candidateIds,
+    screening_result_ids: screeningResultIds,
+  })
   return response.data
 }
 

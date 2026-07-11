@@ -12,10 +12,11 @@ import {
   analyzeBatchStream, 
   submitBatchToQueue,
   extractJdFromUrl, 
-  getTemplates, 
-  createTemplate,
-  createTemplateFromFile,
-  updateTemplate,
+  getRequisitionsForPicker,
+  createRequisition,
+  createRequisitionFromFile,
+  updateRequisition,
+  checkRequisitionIntakeGate,
   getNarrative,
   checkHealth,
   parseJdPreview,
@@ -41,8 +42,8 @@ import { mergeNarrativePollResult, isNarrativePending, isKitPending, isReportCac
 import {
   ANALYZE_STEPS,
   buildSetupSummary,
-  buildRoleTemplateName,
-  buildRoleTemplateTags,
+  buildRequisitionTitle,
+  buildRequisitionTags,
   extractRoleTitle,
   getActiveAnalyzeStep,
   isAnalyzeStepComplete,
@@ -186,11 +187,11 @@ export default function AnalyzePage() {
   }, [files.length])
   const [currentStep, setCurrentStep] = useState(1)
   const [draftSaved, setDraftSaved] = useState(false)
-  const [showJdLibrary, setShowJdLibrary] = useState(false)
-  const [savedJds, setSavedJds] = useState([])
-  const [loadedFromLibrary, setLoadedFromLibrary] = useState(false)
-  const [loadedTemplateId, setLoadedTemplateId] = useState(null)
-  const jdLibraryRef = useRef(null)
+  const [showRequisitionPicker, setShowRequisitionPicker] = useState(false)
+  const [requisitions, setRequisitions] = useState([])
+  const [hasLoadedRequisition, setHasLoadedRequisition] = useState(false)
+  const [loadedRequisitionId, setLoadedRequisitionId] = useState(null)
+  const requisitionPickerRef = useRef(null)
 
   // Skill Classification state (mandatory review before analysis)
   const [jdParseResult, setJdParseResult]     = useState(null)
@@ -239,15 +240,24 @@ export default function AnalyzePage() {
     }
   }, [])
 
-  // Load saved JDs
+  // Load requisitions for picker
   useEffect(() => {
-    getTemplates()
+    getRequisitionsForPicker()
       .then((res) => {
         const arr = Array.isArray(res) ? res : res?.templates || []
-        setSavedJds(arr)
+        setRequisitions(arr)
       })
-      .catch(() => setSavedJds([]))
+      .catch(() => setRequisitions([]))
   }, [])
+
+  // Load requisition from URL query (?requisition_id=)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const reqId = params.get('requisition_id')
+    if (!reqId || !requisitions.length) return
+    const req = requisitions.find((r) => String(r.id) === reqId)
+    if (req) handleLoadRequisition(req)
+  }, [location.search, requisitions])
 
   // Auto-save draft to localStorage
   useEffect(() => {
@@ -369,7 +379,7 @@ export default function AnalyzePage() {
     sessionRestoredRef.current = true
   }, [location.search])
 
-  // Load JD from location state (from JD Library or ReportPage)
+  // Load JD from location state (from Requisitions or ReportPage)
   useEffect(() => {
     if (location.state?.jd_text) {
       setJdText(location.state.jd_text)
@@ -387,13 +397,13 @@ export default function AnalyzePage() {
       if (location.state.jdParseResult) {
         setJdParseResult(location.state.jdParseResult)
       }
-      // Mark as loaded from library to prevent duplicate JD creation
-      if (location.state.template_id) {
-        setLoadedFromLibrary(true)
-        setLoadedTemplateId(location.state.template_id)
+      // Mark as loaded requisition to prevent duplicate creation on analyze
+      if (location.state.requisition_id || location.state.template_id) {
+        setHasLoadedRequisition(true)
+        setLoadedRequisitionId(location.state.requisition_id || location.state.template_id)
       }
-      if (location.state.template_name) {
-        setRoleName(location.state.template_name)
+      if (location.state.requisition_title || location.state.template_name) {
+        setRoleName(location.state.requisition_title || location.state.template_name)
         roleNameTouchedRef.current = true
       }
     }
@@ -436,11 +446,11 @@ export default function AnalyzePage() {
     }
   }, [location.state])
 
-  // Close JD library on outside click
+  // Close requisition picker on outside click
   useEffect(() => {
     const handleClick = (e) => {
-      if (jdLibraryRef.current && !jdLibraryRef.current.contains(e.target)) {
-        setShowJdLibrary(false)
+      if (requisitionPickerRef.current && !requisitionPickerRef.current.contains(e.target)) {
+        setShowRequisitionPicker(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -717,13 +727,13 @@ export default function AnalyzePage() {
     setShowAiSuggestion(false)
   }
 
-  // Load JD from library
-  const handleLoadJd = (template) => {
-    setJdText(template.jd_text)
+  // Load requisition from picker
+  const handleLoadRequisition = (requisition) => {
+    setJdText(requisition.jd_text)
     setJdMode('text')
-    setShowJdLibrary(false)
-    setRoleName(template.name || '')
-    roleNameTouchedRef.current = Boolean(template.name)
+    setShowRequisitionPicker(false)
+    setRoleName(requisition.name || requisition.title || '')
+    roleNameTouchedRef.current = Boolean(requisition.name || requisition.title)
     
     // Robust override parser — handles null, "", "null", "[]", JSON strings, arrays
     const parseOverride = (val) => {
@@ -738,8 +748,8 @@ export default function AnalyzePage() {
       return []
     }
 
-    const reqOverride = parseOverride(template.required_skills_override)
-    const niceOverride = parseOverride(template.nice_to_have_skills_override)
+    const reqOverride = parseOverride(requisition.required_skills_override)
+    const niceOverride = parseOverride(requisition.nice_to_have_skills_override)
     const hasOverrides = reqOverride.length > 0 || niceOverride.length > 0
 
     if (hasOverrides) {
@@ -752,7 +762,7 @@ export default function AnalyzePage() {
       setJdParseResult({
         required_skills: reqOverride,
         nice_to_have_skills: niceOverride,
-        restored_from_template: true
+        restored_from_requisition: true
       })
       // Skip the auto-parse effect so it doesn't clobber restored state
       skipAutoParseRef.current = true
@@ -763,17 +773,16 @@ export default function AnalyzePage() {
       setJdParseResult(null)
     }
     
-    // Mark as loaded from library to prevent duplicate save
-    setLoadedFromLibrary(true)
-    setLoadedTemplateId(template.id)
+    setHasLoadedRequisition(true)
+    setLoadedRequisitionId(requisition.id)
     
     // Load weights if available
     let hasWeights = false
-    if (template.scoring_weights) {
+    if (requisition.scoring_weights) {
       try {
-        const savedWeights = typeof template.scoring_weights === 'string' 
-          ? JSON.parse(template.scoring_weights) 
-          : template.scoring_weights
+        const savedWeights = typeof requisition.scoring_weights === 'string' 
+          ? JSON.parse(requisition.scoring_weights) 
+          : requisition.scoring_weights
         
         // Only set weights if they're valid and not empty
         if (savedWeights && Object.keys(savedWeights).length > 0) {
@@ -862,33 +871,46 @@ export default function AnalyzePage() {
     } catch {}
     setIsAnalyzing(true)
 
+    let activeReqId = loadedRequisitionId
+
     try {
-      // Only save JD template if it's NEW (not loaded from library)
-      // This prevents duplicate JD creation
-      if (!loadedFromLibrary) {
-        const templateName = buildRoleTemplateName(roleName, jdParseResult, roleCategory)
-        const templateTags = buildRoleTemplateTags(jdParseResult, roleCategory)
+      if (!hasLoadedRequisition) {
+        const reqTitle = buildRequisitionTitle(roleName, jdParseResult, roleCategory)
+        const reqTags = buildRequisitionTags(jdParseResult, roleCategory)
+        let created
         if (jdMode === 'text') {
-          await createTemplate({
-            name: templateName,
+          created = await createRequisition({
+            title: reqTitle,
             jd_text: jdText,
             scoring_weights: weights,
-            tags: templateTags,
-            required_skills_override: skillOverrides ? JSON.stringify(skillOverrides.required_skills) : null,
-            nice_to_have_skills_override: skillOverrides ? JSON.stringify(skillOverrides.nice_to_have_skills) : null,
+            tags: reqTags,
+            required_skills_override: skillOverrides?.required_skills ?? null,
+            nice_to_have_skills_override: skillOverrides?.nice_to_have_skills ?? null,
+            status: 'draft',
           })
         } else {
-          await createTemplateFromFile(templateName, jdFile, templateTags, weights)
+          created = await createRequisitionFromFile(reqTitle, jdFile, reqTags, weights)
         }
-      } else if (loadedTemplateId && skillOverrides) {
-        // Template already exists — update it with the latest skill overrides
+        activeReqId = created.id
+        setLoadedRequisitionId(created.id)
+        setHasLoadedRequisition(true)
+      } else if (loadedRequisitionId && skillOverrides) {
         try {
-          await updateTemplate(loadedTemplateId, {
-            required_skills_override: JSON.stringify(skillOverrides.required_skills),
-            nice_to_have_skills_override: JSON.stringify(skillOverrides.nice_to_have_skills),
+          await updateRequisition(loadedRequisitionId, {
+            required_skills_override: skillOverrides.required_skills,
+            nice_to_have_skills_override: skillOverrides.nice_to_have_skills,
           })
         } catch (err) {
-          console.warn('Failed to update template overrides before analysis:', err)
+          console.warn('Failed to update requisition overrides before analysis:', err)
+        }
+      }
+
+      if (activeReqId) {
+        const gate = await checkRequisitionIntakeGate(activeReqId)
+        if (gate.blocks) {
+          setError(gate.warning || 'Complete HM intake and calibration before screening.')
+          setIsAnalyzing(false)
+          return
         }
       }
 
@@ -906,8 +928,9 @@ export default function AnalyzePage() {
             else if (event.stage === 'scoring') setStreamStage('scoring')
             else if (event.stage === 'complete') setStreamStage('complete')
           },
-          loadedTemplateId,
+          null,
           skillOverrides,
+          activeReqId,
         )
         setStreamStage(null)
         setSingleFileName(null)
@@ -929,8 +952,10 @@ export default function AnalyzePage() {
           jdMode === 'text' ? jdText : null,
           jdMode === 'file' ? jdFile : null,
           weights,
-          loadedTemplateId,
+          null,
           skillOverrides,
+          8,
+          activeReqId,
         )
         trackQueueBatch(batch)
         showSuccess(`Queued ${batch.queued} resume${batch.queued !== 1 ? 's' : ''} for background analysis`)
@@ -1069,8 +1094,9 @@ export default function AnalyzePage() {
               showSuccess(`${successful} of ${total} resumes analyzed`)
             },
           },
-          loadedTemplateId,
+          null,
           skillOverrides,
+          activeReqId,
         )
       }
 
@@ -1254,28 +1280,28 @@ export default function AnalyzePage() {
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description & Skill Review</h2>
-            <div className="relative" ref={jdLibraryRef}>
+            <div className="relative" ref={requisitionPickerRef}>
               <button
-                onClick={() => setShowJdLibrary(!showJdLibrary)}
+                onClick={() => setShowRequisitionPicker(!showRequisitionPicker)}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition-colors ring-1 ring-brand-200"
               >
                 <LayoutTemplate className="w-4 h-4" />
-                Load from Library
+                Load from Requisitions
               </button>
               
-              {showJdLibrary && savedJds.length > 0 && (
+              {showRequisitionPicker && requisitions.length > 0 && (
                 <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-brand-lg ring-1 ring-brand-100 p-4 z-10 max-h-96 overflow-y-auto">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Saved Job Descriptions</p>
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Open Requisitions</p>
                   <div className="space-y-2">
-                    {savedJds.map(jd => (
+                    {requisitions.map((req) => (
                       <button
-                        key={jd.id}
-                        onClick={() => handleLoadJd(jd)}
+                        key={req.id}
+                        onClick={() => handleLoadRequisition(req)}
                         className="w-full text-left p-3 rounded-xl hover:bg-brand-50 transition-colors ring-1 ring-slate-100 hover:ring-brand-200"
                       >
-                        <p className="text-sm font-semibold text-brand-900 truncate">{jd.name}</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {new Date(jd.created_at).toLocaleDateString()}
+                        <p className="text-sm font-semibold text-brand-900 truncate">{req.name || req.title}</p>
+                        <p className="text-xs text-slate-500 mt-1 capitalize">
+                          {req.status?.replace(/_/g, ' ') || 'draft'}
                         </p>
                       </button>
                     ))}
@@ -1307,8 +1333,8 @@ export default function AnalyzePage() {
             ))}
           </div>
 
-          {/* Role name — used when saving to library */}
-          {!loadedFromLibrary && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
+          {/* Role title — used when creating a new requisition on analyze */}
+          {!hasLoadedRequisition && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
             <div className="mb-4">
               <label htmlFor="role-name" className="block text-sm font-semibold text-brand-900 mb-1.5">
                 Role name
@@ -1327,7 +1353,7 @@ export default function AnalyzePage() {
               <p className="text-xs text-slate-500 mt-1.5">
                 {parsingJd
                   ? 'Detecting role title from job description…'
-                  : 'Saved to your Roles library when you analyze. Edit if the detected title is wrong.'}
+                  : 'Saved as a requisition when you analyze. Edit if the detected title is wrong.'}
               </p>
             </div>
           )}
@@ -1523,15 +1549,15 @@ export default function AnalyzePage() {
                 onConfirm={async (overrides) => {
                   setSkillOverrides(overrides)
                   setSkillsConfirmed(true)
-                  // Persist overrides to the template so they are restored on next load
-                  if (loadedTemplateId) {
+                  // Persist overrides to requisition so they are restored on next load
+                  if (loadedRequisitionId) {
                     try {
-                      await updateTemplate(loadedTemplateId, {
-                        required_skills_override: JSON.stringify(overrides.required_skills),
-                        nice_to_have_skills_override: JSON.stringify(overrides.nice_to_have_skills),
+                      await updateRequisition(loadedRequisitionId, {
+                        required_skills_override: overrides.required_skills,
+                        nice_to_have_skills_override: overrides.nice_to_have_skills,
                       })
                     } catch (err) {
-                      console.warn('Failed to persist skill overrides to template:', err)
+                      console.warn('Failed to persist skill overrides to requisition:', err)
                     }
                   }
                 }}

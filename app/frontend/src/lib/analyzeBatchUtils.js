@@ -1,7 +1,7 @@
 /** Helpers for batch analysis progress copy and step state on AnalyzePage. */
 
 export const ANALYZE_STEPS = [
-  { num: 1, label: 'JD & Skills', shortLabel: 'JD' },
+  { num: 1, label: 'Role & Skills', shortLabel: 'Role' },
   { num: 2, label: 'Upload', shortLabel: 'Upload' },
   { num: 3, label: 'Results', shortLabel: 'Results' },
 ]
@@ -84,18 +84,24 @@ export function extractRoleTitle(jdParseResult, roleCategory, roleName) {
   return ''
 }
 
-export function buildRoleTemplateName(roleName, jdParseResult, roleCategory) {
+export function buildRequisitionTitle(roleName, jdParseResult, roleCategory) {
   const name = extractRoleTitle(jdParseResult, roleCategory, roleName)
   if (name) return name
-  return `Role - ${new Date().toLocaleDateString()}`
+  return `Requisition - ${new Date().toLocaleDateString()}`
 }
 
-export function buildRoleTemplateTags(jdParseResult, roleCategory) {
+export function buildRequisitionTags(jdParseResult, roleCategory) {
   const domain = (jdParseResult?.domain || '').trim()
   if (domain && domain !== 'other' && domain !== 'general') return domain
   if (roleCategory && roleCategory !== 'general') return roleCategory
   return null
 }
+
+/** @deprecated Use buildRequisitionTitle */
+export const buildRoleTemplateName = buildRequisitionTitle
+
+/** @deprecated Use buildRequisitionTags */
+export const buildRoleTemplateTags = buildRequisitionTags
 
 export function buildSetupSummary({
   roleCategory,

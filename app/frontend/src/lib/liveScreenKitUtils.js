@@ -61,8 +61,31 @@ export function normalizeQuestion(q) {
   return { text: String(q), what_to_listen_for: [], follow_ups: [] }
 }
 
+export function isPlaybookKit(kit) {
+  return Boolean(kit && kit.kit_version === 2 && Array.isArray(kit.threads) && kit.threads.length > 0)
+}
+
+const THREAD_KIND_TO_CATEGORY = {
+  risk: 'technical',
+  ownership: 'experience_deep_dive',
+  judgment: 'behavioral',
+  technical: 'technical',
+  general: 'experience_deep_dive',
+}
+
+export function getThreadsFromKit(interviewQuestions) {
+  if (!isPlaybookKit(interviewQuestions)) return []
+  return interviewQuestions.threads
+}
+
 export function countKitQuestions(interviewQuestions) {
   if (!interviewQuestions || typeof interviewQuestions !== 'object') return 0
+  if (isPlaybookKit(interviewQuestions)) {
+    return interviewQuestions.threads.reduce(
+      (n, t) => n + (Array.isArray(t.steps) ? t.steps.length : 0),
+      0,
+    )
+  }
   return CATEGORY_KEYS.reduce(
     (n, key) => n + (Array.isArray(interviewQuestions[key]) ? interviewQuestions[key].length : 0),
     0,
@@ -74,113 +97,134 @@ export function buildFallbackKit({
   matchedSkills = [],
   roleTitle = '',
   workExperience = [],
+  candidateName = '',
 }) {
   const context = roleTitle || 'this role'
   const family = detectRoleFamily(roleTitle)
   const filteredMissing = filterMissingSkills(missingSkills, roleTitle)
-  const company = workExperience[0]?.company?.trim()
-  const title = workExperience[0]?.title?.trim()
+  const company = workExperience[0]?.company?.trim() || 'your last employer'
+  const title = workExperience[0]?.title?.trim() || 'your role'
+  const primary = matchedSkills[0] || roleTitle || 'core skills'
+  const riskSkill = filteredMissing[0]
 
-  const technical = [
-    ...filteredMissing.slice(0, 3).map((skill, idx) => {
-      const template = GAP_PROBE_TEMPLATES[idx % GAP_PROBE_TEMPLATES.length]
-      const text = template.length === 2 ? template(skill, context) : template(skill)
-      return {
-        text,
-        what_to_listen_for: [`Practical ${skill} examples`, 'Adjacent experience'],
-        follow_ups: [`Pick one example — what did you do with ${skill}?`],
-        scoring_criteria: {
-          strong: `Clear ${skill} example with context`,
-          adequate: 'Some adjacent experience',
-          weak: 'No exposure and no transferable example',
-        },
-      }
-    }),
-    ...matchedSkills.slice(0, 2).map((skill) => ({
-      text: company
-        ? `At ${company}, what did you personally own involving ${skill}?`
-        : `You mention ${skill} — walk me through one project and your contribution.`,
-      what_to_listen_for: [`Hands-on ${skill}`, 'Personal contribution', 'Outcome'],
-      follow_ups: [`What was the hardest part of that ${skill} work?`],
-      scoring_criteria: {
-        strong: `Detailed ${skill} example with ownership`,
-        adequate: 'Relevant but light on detail',
-        weak: 'Cannot substantiate resume claim',
-      },
-    })),
-  ]
-
-  const experience = []
-  if (company && title) {
-    if (family === 'talent_acquisition') {
-      experience.push({
-        text: `At ${company} as ${title}, walk me through a tough hire from intake to close.`,
-        what_to_listen_for: ['Full-cycle ownership', 'Stakeholders', 'Outcome'],
-        follow_ups: ['What made that search difficult?'],
-      })
-    } else if (family === 'sap') {
-      experience.push({
-        text: `At ${company} as ${title}, what SAP modules or integrations did you own?`,
-        what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
-        follow_ups: ['What broke in production and how did you fix it?'],
-      })
-    } else {
-      experience.push({
-        text: `At ${company} as ${title}, what was your core scope and biggest deliverable?`,
-        what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
-        follow_ups: ['What was the hardest part of that work?'],
-      })
-    }
-  }
-  if (matchedSkills[0]) {
-    experience.push({
-      text: `What's the toughest live issue you've fixed involving ${matchedSkills[0]}?`,
-      what_to_listen_for: ['Root cause', 'Resolution steps', 'Impact'],
-      follow_ups: [],
-    })
-  }
-
-  const behavioral = family === 'talent_acquisition'
+  const ownershipSteps = family === 'sap'
     ? [{
+        text: `Talk me through your most recent MM/ERP engagement — phase, modules, and what you personally owned.`,
+        what_to_listen_for: ['Implementation phase', 'Modules', 'Personal deliverables'],
+        follow_ups: ['What did you sign off before go-live?'],
+      }]
+    : family === 'talent_acquisition'
+      ? [{
+          text: 'Walk me through a search you owned end to end — from intake to offer.',
+          what_to_listen_for: ['Full-cycle ownership', 'Stakeholders', 'Outcome'],
+          follow_ups: ['What made that search difficult?'],
+        }]
+      : [{
+          text: `Walk me through your most recent role at ${company} — what you owned and your biggest deliverable.`,
+          what_to_listen_for: ['Scope owned', 'Tools/skills', 'Outcome'],
+          follow_ups: ['What would your manager say you were accountable for?'],
+        }]
+
+  const riskSteps = riskSkill
+    ? [{
+        text: `This role needs ${riskSkill} — where has that shown up in your work, and what was your hands-on part?`,
+        what_to_listen_for: [`Practical ${riskSkill}`, 'Personal contribution', 'Honest depth'],
+        follow_ups: [`Pick one example — what did you personally do with ${riskSkill}?`],
+      }]
+    : []
+
+  const judgmentStep = family === 'talent_acquisition'
+    ? {
         text: 'Tell me about a hiring manager who kept moving the goalposts — how did you handle it?',
         what_to_listen_for: ['Stakeholder management', 'Pushback', 'Outcome'],
         follow_ups: ['What would you do differently?'],
-      }]
-    : roleTitle
-      ? [{
-          text: `Describe a high-pressure situation in your ${roleTitle} work — how did you prioritize?`,
-          what_to_listen_for: ['Problem clarity', 'Stakeholder handling', 'Resolution'],
-          follow_ups: ['Who did you coordinate with?'],
-        }]
-      : [{
-          text: 'Describe a deadline slip — what did you do to recover?',
-          what_to_listen_for: ['Ownership', 'Prioritization', 'Outcome'],
+      }
+    : family === 'sap'
+      ? {
+          text: 'Describe a go-live or hypercare issue you handled — your role under pressure.',
+          what_to_listen_for: ['Ownership', 'Resolution', 'Outcome'],
           follow_ups: [],
-        }]
+        }
+      : {
+          text: `Tell me about a time you had to push back on a stakeholder in your ${context} work.`,
+          what_to_listen_for: ['Judgment', 'Communication', 'Outcome'],
+          follow_ups: [],
+        }
 
-  if (technical.length === 0 && experience.length === 0) {
-    technical.push({
-      text: 'Walk me through your most relevant project for this role — what did you own?',
-      what_to_listen_for: ['Role alignment', 'Specific accomplishments'],
-      follow_ups: [],
+  const threads = [
+    {
+      id: 'thread_ownership',
+      title: 'Core role ownership',
+      kind: 'ownership',
+      hypothesis_ids: ['H1'],
+      time_minutes: 6,
+      priority: 'must_have',
+      steps: ownershipSteps,
+    },
+  ]
+  if (riskSteps.length) {
+    threads.push({
+      id: 'thread_risk',
+      title: `Risk area — ${riskSkill}`,
+      kind: 'risk',
+      hypothesis_ids: ['H2'],
+      time_minutes: 7,
+      priority: 'risk',
+      steps: riskSteps,
     })
   }
+  threads.push({
+    id: 'thread_judgment',
+    title: 'Stakeholder judgment',
+    kind: 'judgment',
+    hypothesis_ids: ['H3'],
+    time_minutes: 5,
+    priority: 'must_have',
+    steps: [judgmentStep],
+  })
+
+  const legacy = { technical_questions: [], behavioral_questions: [], culture_fit_questions: [], experience_deep_dive_questions: [] }
+  threads.forEach((thread) => {
+    const cat = THREAD_KIND_TO_CATEGORY[thread.kind] || 'experience_deep_dive'
+    const key = `${cat === 'technical' ? 'technical' : cat === 'behavioral' ? 'behavioral' : 'experience_deep_dive'}_questions`
+    legacy[key].push(...thread.steps)
+  })
+
+  const screenObjective = `Validate fit for ${context} — confirm ${primary}${riskSkill ? `, de-risk ${riskSkill}` : ''}.`
 
   return {
+    kit_version: 2,
+    screen_objective: screenObjective,
     candidate_briefing: {
-      profile_snapshot: company && title ? `${title} background at ${company}.` : 'Review resume before the call.',
-      strengths_to_confirm: matchedSkills.slice(0, 3).map(
-        (s) => `Resume shows ${s} — ask for a concrete example`,
-      ),
-      areas_to_probe: filteredMissing.slice(0, 3).map(
-        (s) => `JD needs ${s} — light on resume, worth a direct question`,
-      ),
-      context_notes: ['Keep the screen to 20–25 minutes; prioritize must-have gaps first.'],
+      profile_snapshot: company && title ? `${title} at ${company}.` : 'Review resume before the call.',
+      strengths_to_confirm: matchedSkills.slice(0, 3).map((s) => `Confirm depth on ${s} with a concrete example`),
+      areas_to_probe: filteredMissing.slice(0, 3).map((s) => `JD needs ${s} — dedicate a thread`),
+      context_notes: ['Run threads in order; use one follow-up if answers are vague.'],
     },
-    technical_questions: technical.slice(0, 5),
-    behavioral_questions: behavioral.slice(0, 1),
+    hypotheses: [
+      { id: 'H1', label: `Can they own ${primary} work end-to-end?`, priority: 'must_have', why: 'Core role fit' },
+      ...(riskSkill ? [{ id: 'H2', label: `Is ${riskSkill} a real gap?`, priority: 'risk', why: 'Top missing must-have' }] : []),
+      { id: 'H3', label: 'Can they handle stakeholders under pressure?', priority: 'must_have', why: 'Judgment bar' },
+    ],
+    open: {
+      script: `Hi ${candidateName || 'there'}, thanks for your time. I'd like to understand what you've owned recently and clarify fit for this ${context} role.`,
+      listen_for: ['Ownership language', 'Clarifying questions about the role'],
+    },
+    threads,
+    close: {
+      script: 'What are you looking for next — type of work and start timing?',
+      logistics: ['Notice period', 'Location / travel', 'Contract vs permanent'],
+    },
+    hm_debrief_template: {
+      fit_summary_prompt: `Summarize fit for ${context}`,
+      must_haves: [{ requirement: primary, status: 'pending' }],
+      hm_focus_if_proceed: riskSkill ? [`Deep-dive ${riskSkill}`] : ['Validate ownership on latest engagement'],
+      residual_risks: riskSkill ? [`Unverified: ${riskSkill}`] : [],
+    },
+    technical_questions: legacy.technical_questions.slice(0, 5),
+    behavioral_questions: legacy.behavioral_questions.slice(0, 2),
     culture_fit_questions: [],
-    experience_deep_dive_questions: experience.slice(0, 3),
+    experience_deep_dive_questions: legacy.experience_deep_dive_questions.slice(0, 3),
     _fallback: true,
   }
 }
@@ -200,6 +244,7 @@ export function resolveInterviewKit(interviewQuestions, analysisData, roleTitle)
       analysisData?.work_experience ||
       analysisData?.candidate_profile?.work_experience ||
       [],
+    candidateName: analysisData?.candidate_profile?.name || analysisData?.candidate_name || '',
   })
   const fallbackCount = countKitQuestions(fallback)
   if (fallbackCount > 0) {
@@ -311,7 +356,36 @@ export function getCategoriesFromKit(interviewQuestions) {
   ].filter((c) => c.questions.length > 0)
 }
 
+export const THREAD_PRIORITY_META = {
+  must_have: { label: 'Must-have', color: 'text-blue-700', bg: 'bg-blue-50', ring: 'ring-blue-200' },
+  risk: { label: 'Risk / gap', color: 'text-amber-800', bg: 'bg-amber-50', ring: 'ring-amber-200' },
+  nice_to_have: { label: 'Nice-to-have', color: 'text-slate-600', bg: 'bg-slate-50', ring: 'ring-slate-200' },
+}
+
 export function flattenQuestions(interviewQuestions) {
+  if (isPlaybookKit(interviewQuestions)) {
+    const flat = []
+    const categoryIndices = {}
+    interviewQuestions.threads.forEach((thread) => {
+      const category = THREAD_KIND_TO_CATEGORY[thread.kind] || 'experience_deep_dive'
+      if (categoryIndices[category] == null) categoryIndices[category] = 0
+      ;(thread.steps || []).forEach((rawQ) => {
+        const index = categoryIndices[category]
+        flat.push({
+          category,
+          categoryLabel: CATEGORY_META[category]?.label || category,
+          threadId: thread.id,
+          threadTitle: thread.title,
+          threadPriority: thread.priority,
+          index,
+          question: normalizeQuestion(rawQ),
+        })
+        categoryIndices[category] += 1
+      })
+    })
+    return flat
+  }
+
   const categories = getCategoriesFromKit(interviewQuestions)
   const flat = []
   categories.forEach((cat) => {
@@ -363,18 +437,24 @@ export function applyVoiceTone(text, tone = 'conversational') {
   return spokenQuestionText(text)
 }
 
-export function buildGlanceBullets(briefing, flatQuestions, limit = 5) {
+export function buildGlanceBullets(briefing, flatQuestions, kit, limit = 5) {
   const bullets = []
+  if (kit?.screen_objective) {
+    bullets.push(kit.screen_objective)
+  }
   ;(briefing?.areas_to_probe || []).slice(0, 2).forEach((line) => {
     bullets.push(line.startsWith('JD needs') ? line : `Probe: ${line}`)
   })
-  ;(briefing?.strengths_to_confirm || []).slice(0, 1).forEach((line) => {
-    bullets.push(line.startsWith('Resume') ? line : `Confirm: ${line}`)
-  })
+  if (isPlaybookKit(kit)) {
+    kit.threads.slice(0, 2).forEach((t) => {
+      const first = t.steps?.[0]?.text
+      if (first && bullets.length < limit) bullets.push(`${t.title}: ${first}`)
+    })
+  }
   for (const item of flatQuestions || []) {
     if (bullets.length >= limit) break
     const text = item?.question?.text
-    if (text) bullets.push(text)
+    if (text && !bullets.some((b) => b.includes(text.slice(0, 40)))) bullets.push(text)
   }
   return bullets.slice(0, limit)
 }
@@ -407,4 +487,24 @@ export function formatHmDebriefText({
     }
   }
   return lines.join('\n')
+}
+
+export function formatHmDebriefWithTemplate({
+  candidateName = 'Candidate',
+  roleTitle = 'Role',
+  kit = null,
+  summary = '',
+  recommendation = '',
+}) {
+  const base = formatHmDebriefText({ candidateName, roleTitle, recommendation, summary })
+  const tmpl = kit?.hm_debrief_template
+  if (!tmpl) return base
+  const extra = []
+  if (tmpl.residual_risks?.length) {
+    extra.push('', 'Residual risks', ...tmpl.residual_risks.map((r) => `• ${r}`))
+  }
+  if (tmpl.hm_focus_if_proceed?.length) {
+    extra.push('', 'HM focus if proceed', ...tmpl.hm_focus_if_proceed.map((r) => `• ${r}`))
+  }
+  return base + extra.join('\n')
 }

@@ -202,41 +202,64 @@ RISK FLAGS:
 MUST-HAVE SKILLS CONTEXT:
 {ctx["must_have_ctx"]}
 
-Generate a targeted interview kit. Return ONLY this JSON:
+Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this JSON:
 {{
   "interview_questions": {{
+    "kit_version": 2,
+    "screen_objective": "one sentence hiring goal",
     "candidate_briefing": {{
       "profile_snapshot": "2-3 sentence summary",
       "strengths_to_confirm": ["skill 1", "skill 2"],
       "areas_to_probe": ["gap with severity"],
-      "context_notes": ["why question targets gap X"]
+      "context_notes": ["recruiter coaching notes"]
     }},
-    "technical_questions": [
-      {{"text": "scenario question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
+    "hypotheses": [
+      {{"id": "H1", "label": "hiring hypothesis", "priority": "must_have|risk|nice_to_have|gate", "why": "reason"}}
     ],
-    "behavioral_questions": [
-      {{"text": "STAR question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
+    "open": {{
+      "script": "natural 2-3 sentence opener",
+      "listen_for": ["signal 1", "signal 2"]
+    }},
+    "threads": [
+      {{
+        "id": "thread_ownership",
+        "title": "thread title",
+        "kind": "ownership|risk|judgment",
+        "hypothesis_ids": ["H1"],
+        "time_minutes": 6,
+        "priority": "must_have",
+        "steps": [
+          {{"text": "spoken question", "what_to_listen_for": ["signal"], "follow_ups": ["if vague ask"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
+        ]
+      }}
     ],
-    "culture_fit_questions": [
-      {{"text": "motivation question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
-    ],
-    "experience_deep_dive_questions": [
-      {{"text": "project deep-dive", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
-    ]
+    "close": {{
+      "script": "motivation and next steps",
+      "logistics": ["notice period", "travel"]
+    }},
+    "hm_debrief_template": {{
+      "fit_summary_prompt": "prompt for HM summary",
+      "must_haves": [{{"requirement": "skill", "status": "pending"}}],
+      "hm_focus_if_proceed": ["technical focus 1"],
+      "residual_risks": ["risk 1"]
+    }},
+    "technical_questions": [],
+    "behavioral_questions": [],
+    "culture_fit_questions": [],
+    "experience_deep_dive_questions": []
   }}
 }}
 
 RULES:
-- 8-10 total questions. Prioritize technical and experience; skip culture_fit (return empty array).
-- Keep every question under 160 characters — recruiters ask them live on a call.
-- Sound like a senior recruiter speaking naturally. Vary phrasing across questions.
-- No overlapping templates (do not repeat "tell me about a project" across categories).
-- Technical: for missing must-haves, ask conversationally ("The role needs X — how have you used that?") — never use "isn't on your resume".
-- Experience: anchor to candidate's companies/roles from resume; use domain-appropriate language (TA vs engineering vs SAP).
-- Behavioral: max 1 STAR-style question tied to a real JD responsibility; no placeholders or broken grammar.
-- Every question must reference specific skills, gaps, or resume context.
-- No generic questions like "Tell me about yourself".
-- Keep scoring_criteria concise (one sentence per level)."""
+- 3-4 conversation THREADS (ownership, risk gap, judgment). Each thread has 1-3 steps (follow-ups inline).
+- 8-12 total spoken steps across threads. Also populate technical_questions / experience_deep_dive_questions / behavioral_questions as flattened copies of thread steps for legacy UI.
+- Keep every spoken line under 200 characters — recruiters say these live on a call.
+- Sound like a senior recruiter: varied phrasing, no repeated stems, no "walk me through one project" more than once.
+- Risk thread must target top MISSING must-have. Ownership thread anchors to candidate's latest company/role.
+- Behavioral/judgment: max 1 STAR-style question; never inject raw JD text into questions.
+- No placeholders, broken grammar, or "isn't on your resume" phrasing.
+- Skip culture_fit (empty array). Domain-appropriate language (TA vs SAP vs engineering vs general business).
+- Every step needs what_to_listen_for and at least one follow_up for vague answers."""
 
 
 async def _invoke_llm_prompt(prompt: str, *, num_predict: int) -> str:
@@ -270,13 +293,31 @@ def _normalize_interview_kit(data: dict) -> dict:
     if not isinstance(iq, dict):
         iq = {}
 
-    return {
+    normalized = {
+        "kit_version": iq.get("kit_version", 1),
+        "screen_objective": iq.get("screen_objective", ""),
         "candidate_briefing": iq.get("candidate_briefing", {}),
+        "hypotheses": iq.get("hypotheses") if isinstance(iq.get("hypotheses"), list) else [],
+        "open": iq.get("open") if isinstance(iq.get("open"), dict) else {},
+        "threads": iq.get("threads") if isinstance(iq.get("threads"), list) else [],
+        "close": iq.get("close") if isinstance(iq.get("close"), dict) else {},
+        "hm_debrief_template": iq.get("hm_debrief_template") if isinstance(iq.get("hm_debrief_template"), dict) else {},
+        "recruiter_signals": iq.get("recruiter_signals") if isinstance(iq.get("recruiter_signals"), dict) else {},
         "technical_questions": _ensure_question_list(iq.get("technical_questions", [])),
         "behavioral_questions": _ensure_question_list(iq.get("behavioral_questions", [])),
         "culture_fit_questions": _ensure_question_list(iq.get("culture_fit_questions", [])),
         "experience_deep_dive_questions": _ensure_question_list(iq.get("experience_deep_dive_questions", [])),
     }
+
+    # Flatten threads into legacy lists when LLM omitted them
+    if normalized["threads"] and not normalized["technical_questions"] and not normalized["experience_deep_dive_questions"]:
+        from app.backend.services.interview_kit_generator import _playbook_to_legacy
+        legacy = _playbook_to_legacy(normalized["threads"])
+        for key, items in legacy.items():
+            if items and not normalized.get(key):
+                normalized[key] = items
+
+    return normalized
 
 
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
@@ -466,8 +507,15 @@ async def background_voice_strategy(
             ScreeningResult.id == screening_result_id,
             ScreeningResult.tenant_id == tenant_id,
         ).first()
-        if not row or not row.candidate_id or not row.role_template_id:
-            log.info("Skipping voice strategy pre-build: missing candidate or JD on screening_result_id=%s", screening_result_id)
+        if not row or not row.candidate_id:
+            log.info("Skipping voice strategy pre-build: missing candidate on screening_result_id=%s", screening_result_id)
+            return
+        jd_id = row.role_template_id
+        if not jd_id and row.requisition_id:
+            from app.backend.services.requisition_service import resolve_role_picker_id
+            _, _, jd_id, _ = resolve_role_picker_id(db, tenant_id, row.requisition_id)
+        if not jd_id:
+            log.info("Skipping voice strategy pre-build: missing JD on screening_result_id=%s", screening_result_id)
             return
 
         row.voice_strategy_status = "processing"
@@ -479,7 +527,7 @@ async def background_voice_strategy(
             db,
             candidate_id=row.candidate_id,
             screening_result_id=screening_result_id,
-            jd_id=row.role_template_id,
+            jd_id=jd_id,
         )
         config_hash = voice_strategy_config_hash(DEFAULT_VOICE_STRATEGY_CONFIG)
 

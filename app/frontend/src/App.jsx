@@ -11,14 +11,13 @@ import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
 import OnboardingWizard from './components/OnboardingWizard'
+import usePermissions from './hooks/usePermissions'
 
 // New pages
 const DashboardNew = lazy(() => import('./pages/DashboardNew'))
 const AnalyzePage  = lazy(() => import('./pages/AnalyzePage'))
-const JDLibraryPage = lazy(() => import('./pages/JDLibraryPage'))
 const HandoffPackage = lazy(() => import('./components/HandoffPackage'))
 const PublicHandoffPage = lazy(() => import('./pages/PublicHandoffPage'))
-const JDCandidatesPage = lazy(() => import('./pages/JDCandidatesPage'))
 
 // Existing pages
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
@@ -30,8 +29,8 @@ const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 const CheckEmailPage = lazy(() => import('./pages/CheckEmailPage'))
 const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
 const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
-const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
+const RequisitionsPage = lazy(() => import('./pages/RequisitionsPage'))
+const RequisitionDetailPage = lazy(() => import('./pages/RequisitionDetailPage'))
 const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
 const ComparePage  = lazy(() => import('./pages/ComparePage'))
 const TeamPage       = lazy(() => import('./pages/TeamPage'))
@@ -71,6 +70,33 @@ function PageLoader() {
     <div className="h-screen bg-surface flex items-center justify-center">
       <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
     </div>
+  )
+}
+
+function LegacyJdDetailRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/requisitions/${id}`} replace />
+}
+
+function LegacyJdPipelineRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/requisitions/${id}?tab=pipeline`} replace />
+}
+
+function LegacyHandoffRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/requisitions/${id}/handoff`} replace />
+}
+
+function HomePage() {
+  const { isHiringManager } = usePermissions()
+  if (isHiringManager) return <Navigate to="/requisitions" replace />
+  return (
+    <Shell>
+      <OnboardingGate>
+        <DashboardNew />
+      </OnboardingGate>
+    </Shell>
   )
 }
 
@@ -138,19 +164,23 @@ function App() {
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
               
               {/* New routes */}
-              <Route path="/"           element={<Shell><OnboardingGate><DashboardNew /></OnboardingGate></Shell>} />
+              <Route path="/"           element={<HomePage />} />
               <Route path="/analyze"    element={<Shell><OnboardingGate><RequireWriteAccess><AnalyzePage /></RequireWriteAccess></OnboardingGate></Shell>} />
-              <Route path="/jd-library" element={<Shell><OnboardingGate><JDLibraryPage /></OnboardingGate></Shell>} />
-              <Route path="/jd-library/:id/handoff" element={<Shell><OnboardingGate><HandoffPackage /></OnboardingGate></Shell>} />
-              <Route path="/jd-library/:id/candidates" element={<Shell><OnboardingGate><JDCandidatesPage /></OnboardingGate></Shell>} />
+              <Route path="/jd-library" element={<Navigate to="/requisitions" replace />} />
+              <Route path="/jd-library/:id" element={<LegacyJdDetailRedirect />} />
+              <Route path="/requisitions/:id/handoff" element={<Shell><OnboardingGate><HandoffPackage /></OnboardingGate></Shell>} />
+              <Route path="/jd-library/:id/handoff" element={<LegacyHandoffRedirect />} />
+              <Route path="/jd-library/:id/candidates" element={<LegacyJdPipelineRedirect />} />
+              <Route path="/requisitions" element={<Shell><OnboardingGate><RequisitionsPage /></OnboardingGate></Shell>} />
+              <Route path="/requisitions/:id" element={<Shell><OnboardingGate><RequisitionDetailPage /></OnboardingGate></Shell>} />
               
               {/* Existing routes */}
               <Route path="/report"     element={<Shell><OnboardingGate><ReportPage /></OnboardingGate></Shell>} />
               <Route path="/candidates" element={<Shell><OnboardingGate><CandidatesPage /></OnboardingGate></Shell>} />
               <Route path="/candidates/:id" element={<Shell><OnboardingGate><CandidateProfilePage /></OnboardingGate></Shell>} />
               <Route path="/pipeline"    element={<Shell><OnboardingGate><KanbanBoard /></OnboardingGate></Shell>} />
-              <Route path="/projects"    element={<Shell><OnboardingGate><ProjectsPage /></OnboardingGate></Shell>} />
-              <Route path="/projects/:id" element={<Shell><OnboardingGate><ProjectDetailPage /></OnboardingGate></Shell>} />
+              <Route path="/projects"    element={<Navigate to="/requisitions" replace />} />
+              <Route path="/projects/:id" element={<Navigate to="/requisitions" replace />} />
               <Route path="/compare"    element={<Shell><OnboardingGate><ComparePage /></OnboardingGate></Shell>} />
               <Route path="/team"       element={<Shell><OnboardingGate><TeamPage /></OnboardingGate></Shell>} />
               <Route path="/team-skills" element={<Shell><OnboardingGate><TeamSkillsPage /></OnboardingGate></Shell>} />
@@ -189,7 +219,7 @@ function App() {
 
               {/* Legacy redirects for unified AI Interview */}
               <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
-              <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
+              <Route path="/templates"  element={<Navigate to="/requisitions" replace />} />
               <Route path="/dashboard-old" element={<Navigate to="/" replace />} />
               
               {/* Catch all */}

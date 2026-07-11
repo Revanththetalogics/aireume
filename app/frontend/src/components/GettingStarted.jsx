@@ -7,7 +7,7 @@ import {
 import { useOnboarding } from '../contexts/OnboardingContext'
 
 const CHECKLIST_ITEMS = [
-  { key: 'createdJob', label: 'Create your first role', href: '/jd-library', Icon: Briefcase },
+  { key: 'createdJob', label: 'Create your first requisition', href: '/requisitions', Icon: Briefcase },
   { key: 'analyzedResume', label: 'Analyze a resume', href: '/analyze', Icon: FileSearch },
   { key: 'shortlistedCandidate', label: 'Shortlist a candidate', href: '/candidates', Icon: UserCheck },
   { key: 'invitedTeamMember', label: 'Invite a team member', href: '/team', Icon: UserPlus },

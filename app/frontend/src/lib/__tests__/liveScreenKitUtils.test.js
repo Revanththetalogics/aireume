@@ -7,6 +7,7 @@ import {
   hasBriefingContent,
   flattenQuestions,
   shouldWarnRoleMismatch,
+  isPlaybookKit,
 } from '../liveScreenKitUtils'
 
 describe('liveScreenKitUtils', () => {
@@ -20,13 +21,15 @@ describe('liveScreenKitUtils', () => {
     expect(countKitQuestions(kit)).toBe(2)
   })
 
-  it('builds fallback kit from skills', () => {
+  it('builds playbook v2 fallback kit from skills', () => {
     const kit = buildFallbackKit({
       missingSkills: ['Python', 'AWS'],
       matchedSkills: ['SQL'],
       roleTitle: 'Engineer',
     })
+    expect(isPlaybookKit(kit)).toBe(true)
     expect(countKitQuestions(kit)).toBeGreaterThan(0)
+    expect(kit.threads.length).toBeGreaterThan(0)
   })
 
   it('resolves to fallback when AI kit empty', () => {

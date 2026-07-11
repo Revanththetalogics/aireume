@@ -1452,7 +1452,24 @@ async def analyze_existing_candidate(
             ),
         )
 
-    if len(body.job_description.split()) < 80:
+    from app.backend.routes.analyze import (
+        _finalize_analyze_context,
+        _get_or_cache_jd,
+        _link_to_requisition,
+        _populate_denormalized_columns,
+    )
+    from app.backend.services.requisition_service import build_skill_evidence, compute_parse_confidence
+
+    job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
+        db,
+        current_user.tenant_id,
+        body.job_description or "",
+        body.scoring_weights,
+        None,
+        body.requisition_id,
+        None,
+    )
+    if len(job_description.split()) < 80:
         raise HTTPException(
             status_code=400,
             detail="Job description is too brief (under 80 words). Please provide more detail.",
@@ -1500,18 +1517,16 @@ async def analyze_existing_candidate(
         }
     gap_analysis = json.loads(candidate.gap_analysis_json or "{}")
 
-    # Use DB JD cache
-    from app.backend.routes.analyze import _get_or_cache_jd
-    jd_analysis = _get_or_cache_jd(db, body.job_description)
+    jd_analysis = _get_or_cache_jd(db, job_description)
 
     from app.backend.services.hybrid_pipeline import run_hybrid_pipeline
     try:
         result = await run_hybrid_pipeline(
             resume_text=candidate.raw_resume_text,
-            job_description=body.job_description,
+            job_description=job_description,
             parsed_data=parsed_data,
             gap_analysis=gap_analysis,
-            scoring_weights=body.scoring_weights,
+            scoring_weights=weights,
             jd_analysis=jd_analysis,
             db_session=db,
         )
@@ -1554,8 +1569,10 @@ async def analyze_existing_candidate(
     db_result = ScreeningResult(
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
+        role_template_id=template_id,
+        requisition_id=requisition_id,
         resume_text=candidate.raw_resume_text,
-        jd_text=body.job_description,
+        jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result=json.dumps(result, default=_json_default),
         is_active=True,
@@ -1564,17 +1581,26 @@ async def analyze_existing_candidate(
         weight_reasoning=weight_reasoning,
         suggested_weights_json=suggested_weights_json,
     )
-    from app.backend.routes.analyze import _populate_denormalized_columns
     _populate_denormalized_columns(db_result, result)
     db.add(db_result)
     db.commit()
     db.refresh(db_result)
+
+    if requisition_id:
+        _link_to_requisition(
+            db, requisition_id, current_user.tenant_id,
+            candidate_id, db_result.id, current_user.id,
+        )
     
     logger.info(f"Created version {next_version} for candidate {candidate_id} (now active)")
 
     result["result_id"]      = db_result.id
     result["candidate_id"]   = candidate_id
     result["candidate_name"] = candidate.name
+    if requisition_id:
+        result["requisition_id"] = requisition_id
+    result["parse_confidence"] = compute_parse_confidence(parsed_data)
+    result["skill_evidence"] = build_skill_evidence(parsed_data, result.get("matched_skills"))
     return result
 
 

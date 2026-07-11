@@ -266,7 +266,22 @@ function DashboardContent() {
 
   // ─── Derived data ─────────────────────────────────────────────────────────
   const actionItems = summary?.action_items || {}
-  const pipelineByJd = summary?.pipeline_by_jd || []
+  const pipelineByReq = (summary?.pipeline_by_requisition || []).map((r) => ({
+    requisition_id: r.requisition_id,
+    jd_id: r.requisition_id,
+    jd_name: r.title,
+    title: r.title,
+    status: r.status,
+    is_calibrated: r.is_calibrated,
+    total_candidates: r.total_candidates,
+    status_breakdown: r.by_status || {},
+    avg_fit_score: r.avg_fit_score,
+  }))
+  const pipelineByJd = pipelineByReq.length > 0 ? pipelineByReq : (summary?.pipeline_by_jd || []).map((j) => ({
+    ...j,
+    requisition_id: j.jd_id,
+    status_breakdown: j.status_breakdown || j.by_status || {},
+  }))
   const weeklyMetrics = summary?.weekly_metrics || {}
   const activities = activity?.activities || []
 
@@ -320,11 +335,11 @@ function DashboardContent() {
 
           {canWrite && (
           <button
-            onClick={() => navigate('/jd-library')}
+            onClick={() => navigate('/requisitions')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
-            Create New JD
+            Create Requisition
           </button>
           )}
 
@@ -456,7 +471,7 @@ function DashboardContent() {
 
       {/* ── Pipeline Summary (Improvements #1 & #2 — progress bars, urgency, sorting) */}
       <div className="mb-8">
-        <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-4">Pipeline Summary</h2>
+        <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-4">Requisitions</h2>
         {sortedPipelineByJd.length > 0 ? (
           <div className="max-h-[480px] overflow-y-auto scroll-smooth pr-2">
             <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -468,13 +483,13 @@ function DashboardContent() {
               const segments = Object.entries(breakdown).filter(([, c]) => c > 0)
 
               return (
-                <StaggerItem key={jd.jd_id}>
+                <StaggerItem key={jd.requisition_id || jd.jd_id}>
                 <div
                   className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 flex-1 mr-2">
-                      {safeStr(jd.jd_name) || 'Untitled JD'}
+                      {safeStr(jd.title || jd.jd_name) || 'Untitled requisition'}
                     </h3>
                     {avgScore != null && (
                       <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${scoreBadgeClasses(avgScore)}`}>
@@ -515,14 +530,14 @@ function DashboardContent() {
 
                   <div className="flex items-center gap-4 mt-4">
                     <Link
-                      to={`/jd-library/${jd.jd_id}/candidates`}
+                      to={`/requisitions/${jd.requisition_id || jd.jd_id}`}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700"
                     >
-                      View Candidates
+                      Open requisition
                       <ChevronRight className="w-3 h-3" />
                     </Link>
                     <Link
-                      to={`/jd-library/${jd.jd_id}/candidates?view=kanban`}
+                      to={`/requisitions/${jd.requisition_id || jd.jd_id}?tab=pipeline`}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                     >
                       <Columns className="w-3 h-3" />
@@ -541,7 +556,7 @@ function DashboardContent() {
             <p className="text-sm font-medium text-slate-500">No active job descriptions.</p>
             <p className="text-xs text-slate-400 mt-1 mb-4">Create one in JD Library to start screening candidates.</p>
             <Link
-              to="/jd-library"
+              to="/requisitions"
               className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors"
             >
               <LayoutTemplate className="w-4 h-4" />

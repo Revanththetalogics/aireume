@@ -253,6 +253,34 @@ async def pull_from_ats(
     return result
 
 
+@router.post("/connections/{connection_id}/sync-requisitions")
+async def sync_requisitions_from_ats(
+    connection_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pull open requisitions from ATS into local Requisition records (hub sync)."""
+    _require_admin(current_user)
+
+    conn = db.execute(
+        select(ATSConnection).where(
+            ATSConnection.id == connection_id,
+            ATSConnection.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not conn:
+        raise HTTPException(status_code=404, detail="ATS connection not found")
+
+    connector = ATSConnector(db)
+    result = await connector.sync_requisitions(connection=conn, tenant_id=current_user.tenant_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=result.get("error", "ATS requisition sync failed"),
+        )
+    return result
+
+
 # ─── Sync Logs ────────────────────────────────────────────────────────────────
 
 @router.get("/connections/{connection_id}/logs", response_model=List[ATSSyncLogOut])

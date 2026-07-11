@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Allowed SSO roles ────────────────────────────────────────────────────────
 
-ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin"}
+ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin", "hiring_manager"}
 
 # ─── SAML Namespaces ──────────────────────────────────────────────────────────
 
@@ -200,7 +200,7 @@ def resolve_sso_role(db: Session, tenant_id: int, sso_config: SSOConfig, groups:
     """Pick highest-privilege mapped role from IdP groups, else default_role."""
     from app.backend.models.db_models import SSOGroupRoleMapping
 
-    role_rank = {"viewer": 1, "recruiter": 2, "admin": 3}
+    role_rank = {"viewer": 1, "hiring_manager": 2, "recruiter": 3, "admin": 4}
     best_role = sso_config.default_role or "viewer"
     if best_role not in ALLOWED_SSO_ROLES:
         best_role = "viewer"

@@ -35,6 +35,7 @@ import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, ge
 import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
+import RequisitionSettingsPanel from '../components/settings/RequisitionSettingsPanel'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -400,6 +401,7 @@ export default function SettingsPage() {
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
     { id: 'interviews', label: 'Interviews', icon: Mic },
+    { id: 'requisitions', label: 'Requisitions', icon: FileText },
     { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
@@ -962,6 +964,16 @@ export default function SettingsPage() {
               description={INTERVIEW.hubSubtitle}
             >
               <InterviewSettingsPanel />
+            </Section>
+          )}
+
+          {activeTab === 'requisitions' && (
+            <Section
+              title="Requisition workflow"
+              icon={FileText}
+              description="Intake gates and hiring manager permissions"
+            >
+              <RequisitionSettingsPanel />
             </Section>
           )}
 

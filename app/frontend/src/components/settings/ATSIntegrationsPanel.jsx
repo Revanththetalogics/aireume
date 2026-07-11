@@ -9,6 +9,7 @@ import {
   deleteATSConnection,
   getATSSyncLogs,
   pushToATS,
+  syncATSRequisitions,
 } from '../../lib/api'
 import { Button } from '../ui'
 
@@ -125,6 +126,20 @@ export default function ATSIntegrationsPanel() {
       loadLogs(conn.id)
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.detail || 'Push test failed.' })
+    }
+  }
+
+  const handleSyncRequisitions = async (conn) => {
+    setMessage(null)
+    try {
+      const result = await syncATSRequisitions(conn.id)
+      setMessage({
+        type: 'success',
+        text: result.message || `Synced ${result.synced ?? 0} requisition(s) from ATS.`,
+      })
+      await load()
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Requisition sync failed.' })
     }
   }
 
@@ -272,6 +287,10 @@ export default function ATSIntegrationsPanel() {
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => toggleActive(conn)}>
                   {conn.is_active ? 'Pause' : 'Activate'}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => handleSyncRequisitions(conn)}>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Sync requisitions
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => handleTestPush(conn)}>
                   Test push

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 
@@ -21,9 +21,15 @@ class DuplicateCandidateInfo(BaseModel):
 
 class AnalyzeJdRequest(BaseModel):
     """Body for POST /api/candidates/{id}/analyze-jd (no file upload needed)."""
-    job_description: str
+    job_description: Optional[str] = None
+    requisition_id: Optional[int] = None
     scoring_weights: Optional[Dict[str, float]] = None
 
+    @model_validator(mode='after')
+    def require_jd_or_requisition(self):
+        if not self.job_description and not self.requisition_id:
+            raise ValueError('job_description or requisition_id is required')
+        return self
 
 class ProficiencySkill(BaseModel):
     """A skill with an optional proficiency level."""
@@ -172,6 +178,9 @@ class AnalysisResponse(BaseModel):
     result_id:            Optional[int] = None
     candidate_id:         Optional[int] = None
     candidate_name:       Optional[str] = None
+    requisition_id:       Optional[int] = None
+    parse_confidence:     Optional[Dict[str, Any]] = None
+    skill_evidence:       Optional[List[Dict[str, Any]]] = None
     work_experience:      Optional[List[Any]] = []
     contact_info:         Optional[Dict[str, Any]] = None
     certifications:       Optional[List[str]] = []
@@ -366,6 +375,14 @@ class JdUrlResponse(BaseModel):
 class InviteRequest(BaseModel):
     email: str
     role: str = "recruiter"
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v):
+        allowed = {"admin", "recruiter", "viewer", "hiring_manager"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of {allowed}")
+        return v
 
 
 class CommentCreate(BaseModel):
@@ -774,13 +791,20 @@ class ScheduleVoiceCallResponse(BaseModel):
 class InterviewCreateRequest(BaseModel):
     """Body for POST /api/interviews/sessions — create a unified interview."""
     candidate_id: int
-    jd_id: int
+    jd_id: Optional[int] = None
+    requisition_id: Optional[int] = None
     depth: str = "quick"
     screening_result_id: Optional[int] = None
     phone_number: Optional[str] = None
     scheduled_at: Optional[str] = None
     focus_areas: Optional[List[str]] = None
     duration_minutes: Optional[int] = Field(None, ge=5, le=60)
+
+    @model_validator(mode='after')
+    def require_role_context(self):
+        if not self.jd_id and not self.requisition_id:
+            raise ValueError('jd_id or requisition_id is required')
+        return self
 
     @field_validator('depth')
     @classmethod
@@ -1050,6 +1074,232 @@ class ScreeningProjectCandidateOut(BaseModel):
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     fit_score: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Requisitions ─────────────────────────────────────────────────────────────
+
+_REQ_STATUSES = {
+    "draft", "intake_in_progress", "calibrated", "sourcing",
+    "interviewing", "offer", "filled", "cancelled",
+}
+_INTAKE_STATUSES = {"draft", "pending_hm", "approved", "changes_requested"}
+_PIPELINE_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+_SUBMISSION_STATUSES = {"none", "draft", "submitted", "reviewed"}
+_HM_OUTCOMES = {"advance", "hold", "reject", "hire"}
+_INTAKE_GATE_MODES = {"block", "warn", "optional"}
+_HM_PIPELINE_PERMS = {"view_only", "shortlist_reject", "full"}
+
+
+class RequisitionCreate(BaseModel):
+    title: str
+    jd_text: str
+    description: Optional[str] = None
+    client_name: Optional[str] = None
+    headcount: Optional[int] = None
+    location: Optional[str] = None
+    scoring_weights: Optional[Dict[str, float]] = None
+    tags: Optional[str] = None
+    required_skills_override: Optional[List[Any]] = None
+    nice_to_have_skills_override: Optional[List[Any]] = None
+    primary_hiring_manager_id: Optional[int] = None
+    hiring_manager_ids: Optional[List[int]] = None
+    status: str = "draft"
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v not in _REQ_STATUSES:
+            raise ValueError(f"status must be one of {_REQ_STATUSES}")
+        return v
+
+
+class RequisitionUpdate(BaseModel):
+    title: Optional[str] = None
+    jd_text: Optional[str] = None
+    description: Optional[str] = None
+    client_name: Optional[str] = None
+    headcount: Optional[int] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
+    scoring_weights: Optional[Dict[str, float]] = None
+    tags: Optional[str] = None
+    required_skills_override: Optional[List[Any]] = None
+    nice_to_have_skills_override: Optional[List[Any]] = None
+    primary_hiring_manager_id: Optional[int] = None
+    search_brief_json: Optional[Dict[str, Any]] = None
+    must_ask_questions_json: Optional[List[Dict[str, Any]]] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v is None:
+            return v
+        if v not in _REQ_STATUSES:
+            raise ValueError(f"status must be one of {_REQ_STATUSES}")
+        return v
+
+
+class RequisitionIntakeUpdate(BaseModel):
+    intake_json: Dict[str, Any]
+    intake_status: Optional[str] = None
+
+    @field_validator("intake_status")
+    @classmethod
+    def validate_intake_status(cls, v):
+        if v is None:
+            return v
+        if v not in _INTAKE_STATUSES:
+            raise ValueError(f"intake_status must be one of {_INTAKE_STATUSES}")
+        return v
+
+
+class RequisitionCalibrateRequest(BaseModel):
+    criteria_json: Optional[Dict[str, Any]] = None
+    merge_jd_parse: bool = True
+
+
+class RequisitionHmApproval(BaseModel):
+    approved: bool
+    notes: Optional[str] = None
+
+
+class RequisitionCandidateAdd(BaseModel):
+    candidate_ids: List[int]
+    screening_result_ids: Optional[Dict[int, int]] = None
+
+
+class RequisitionCandidateStatusUpdate(BaseModel):
+    pipeline_status: str
+
+    @field_validator("pipeline_status")
+    @classmethod
+    def validate_status(cls, v):
+        if v not in _PIPELINE_STATUSES:
+            raise ValueError(f"pipeline_status must be one of {_PIPELINE_STATUSES}")
+        return v
+
+
+class RequisitionSubmissionCreate(BaseModel):
+    submission_json: Dict[str, Any]
+
+
+class RequisitionOutcomeUpdate(BaseModel):
+    hm_outcome: str
+    outcome_reason_code: Optional[str] = None
+    outcome_notes: Optional[str] = None
+
+    @field_validator("hm_outcome")
+    @classmethod
+    def validate_outcome(cls, v):
+        if v not in _HM_OUTCOMES:
+            raise ValueError(f"hm_outcome must be one of {_HM_OUTCOMES}")
+        return v
+
+
+class TenantRequisitionSettingsUpdate(BaseModel):
+    intake_gate_mode: Optional[str] = None
+    hm_pipeline_permission: Optional[str] = None
+
+    @field_validator("intake_gate_mode")
+    @classmethod
+    def validate_gate(cls, v):
+        if v is None:
+            return v
+        if v not in _INTAKE_GATE_MODES:
+            raise ValueError(f"intake_gate_mode must be one of {_INTAKE_GATE_MODES}")
+        return v
+
+    @field_validator("hm_pipeline_permission")
+    @classmethod
+    def validate_hm_perm(cls, v):
+        if v is None:
+            return v
+        if v not in _HM_PIPELINE_PERMS:
+            raise ValueError(f"hm_pipeline_permission must be one of {_HM_PIPELINE_PERMS}")
+        return v
+
+
+class RequisitionOut(BaseModel):
+    id: int
+    tenant_id: int
+    title: str
+    jd_text: str
+    description: Optional[str] = None
+    client_name: Optional[str] = None
+    headcount: Optional[int] = None
+    location: Optional[str] = None
+    status: str
+    intake_status: str
+    intake_json: Optional[Dict[str, Any]] = None
+    search_brief_json: Optional[Dict[str, Any]] = None
+    calibrated_criteria_json: Optional[Dict[str, Any]] = None
+    current_criteria_version: int = 0
+    scoring_weights: Optional[Dict[str, float]] = None
+    tags: Optional[str] = None
+    required_skills_override: Optional[List[Any]] = None
+    nice_to_have_skills_override: Optional[List[Any]] = None
+    must_ask_questions_json: Optional[List[Dict[str, Any]]] = None
+    primary_hiring_manager_id: Optional[int] = None
+    primary_hiring_manager_email: Optional[str] = None
+    hiring_manager_ids: List[int] = []
+    created_by: Optional[int] = None
+    legacy_role_template_id: Optional[int] = None
+    external_ats_id: Optional[str] = None
+    ats_provider: Optional[str] = None
+    hm_approved_at: Optional[datetime] = None
+    calibrated_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    candidate_count: int = 0
+    intake_gate_warning: Optional[str] = None
+    is_calibrated: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class RequisitionCandidateOut(BaseModel):
+    id: int
+    requisition_id: int
+    candidate_id: int
+    screening_result_id: Optional[int] = None
+    pipeline_status: str
+    submission_status: str
+    hm_outcome: Optional[str] = None
+    outcome_reason_code: Optional[str] = None
+    outcome_notes: Optional[str] = None
+    submission_json: Optional[Dict[str, Any]] = None
+    parse_confidence_json: Optional[Dict[str, Any]] = None
+    added_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    outcome_at: Optional[datetime] = None
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    fit_score: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RequisitionCriteriaVersionOut(BaseModel):
+    id: int
+    requisition_id: int
+    version: int
+    criteria_json: Dict[str, Any]
+    source: str
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TenantRequisitionSettingsOut(BaseModel):
+    tenant_id: int
+    intake_gate_mode: str
+    hm_pipeline_permission: str
+    updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

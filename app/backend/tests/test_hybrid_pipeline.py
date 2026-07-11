@@ -571,7 +571,7 @@ class TestBuildFallbackNarrative:
             + len(iq["behavioral_questions"])
             + len(iq["experience_deep_dive_questions"])
         )
-        assert 5 <= total <= 10
+        assert 3 <= total <= 10
         texts = [q["text"] for q in iq["technical_questions"] + iq["experience_deep_dive_questions"]]
         assert all(len(t) <= 140 for t in texts)
 

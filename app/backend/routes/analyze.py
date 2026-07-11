@@ -33,7 +33,7 @@ from app.backend.middleware.auth import get_current_user
 from app.backend.middleware.rbac import require_active_recruiter
 from app.backend.services.audit_service import log_field_change, log_tenant_event
 from app.backend.services.jd_quality_scorer import score_jd_quality
-from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate, ScreeningProject, ScreeningProjectCandidate
+from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate, ScreeningProject, ScreeningProjectCandidate, Requisition, RequisitionCandidate
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
     BatchFailedItem, BatchStreamEvent,
@@ -299,13 +299,18 @@ def _upsert_screening_result(
     analysis_result: str,
     narrative_status: str | None = None,
     pipeline_result: dict | None = None,
+    requisition_id: int | None = None,
 ) -> ScreeningResult:
     """Insert or update a ScreeningResult, respecting the unique constraint."""
-    existing = db.query(ScreeningResult).filter(
+    q = db.query(ScreeningResult).filter(
         ScreeningResult.tenant_id == tenant_id,
         ScreeningResult.candidate_id == candidate_id,
-        ScreeningResult.role_template_id == role_template_id,
-    ).first()
+    )
+    if requisition_id is not None:
+        q = q.filter(ScreeningResult.requisition_id == requisition_id)
+    else:
+        q = q.filter(ScreeningResult.role_template_id == role_template_id)
+    existing = q.first()
 
     if existing:
         preserve_scores = _should_preserve_analysis_scores(existing, resume_text, jd_text)
@@ -316,6 +321,8 @@ def _upsert_screening_result(
         existing.is_active = True
         existing.version_number = (existing.version_number or 1) + 1
         existing.status_updated_at = datetime.now(timezone.utc)
+        if requisition_id is not None:
+            existing.requisition_id = requisition_id
         if narrative_status is not None:
             existing.narrative_status = narrative_status
         if pipeline_result is not None:
@@ -330,6 +337,7 @@ def _upsert_screening_result(
         tenant_id=tenant_id,
         candidate_id=candidate_id,
         role_template_id=role_template_id,
+        requisition_id=requisition_id,
         resume_text=resume_text,
         jd_text=jd_text,
         parsed_data=parsed_data,
@@ -556,6 +564,111 @@ def _link_to_project(
         db.commit()
     except Exception as e:
         log.warning("Non-critical: Failed to link candidate to project %s: %s", project_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def _resolve_requisition(
+    db: Session,
+    requisition_id: int | None,
+    tenant_id: int,
+    job_description: str,
+    parsed_skill_overrides: dict | None,
+    weights: dict | None,
+) -> tuple[int | None, str, dict | None, dict | None, int | None]:
+    """Load requisition context — JD, skills, intake gate, legacy template id."""
+    if not requisition_id:
+        return None, job_description, parsed_skill_overrides, weights, None
+    from app.backend.services.requisition_service import (
+        get_calibrated_skills_for_matching,
+        get_or_create_tenant_settings,
+        intake_gate_blocks,
+        intake_gate_message,
+        ensure_legacy_role_template,
+    )
+
+    req = db.query(Requisition).filter(
+        Requisition.id == requisition_id,
+        Requisition.tenant_id == tenant_id,
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Requisition not found")
+    ensure_legacy_role_template(db, req)
+    settings = get_or_create_tenant_settings(db, tenant_id)
+    if intake_gate_blocks(settings, req):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": intake_gate_message(settings, req),
+                "error_code": "INTAKE_GATE_BLOCKED",
+                "requisition_id": requisition_id,
+            },
+        )
+    jd = req.jd_text or job_description
+    skills = get_calibrated_skills_for_matching(req)
+    overrides = dict(parsed_skill_overrides or {})
+    overrides.setdefault("required_skills", skills.get("required_skills") or [])
+    overrides.setdefault("nice_to_have_skills", skills.get("nice_to_have_skills") or [])
+    if not weights and req.scoring_weights:
+        try:
+            weights = json.loads(req.scoring_weights)
+        except Exception:
+            pass
+    return requisition_id, jd, overrides, weights, req.legacy_role_template_id
+
+
+def _finalize_analyze_context(
+    db,
+    tenant_id: int,
+    job_description: str,
+    weights: dict | None,
+    parsed_skill_overrides: dict | None,
+    requisition_id: int | None,
+    template_id: int | None,
+) -> tuple[str, dict | None, dict | None, int | None, int | None]:
+    """Apply requisition resolution and legacy template bridge."""
+    req_id, jd, overrides, wts, legacy_tpl = _resolve_requisition(
+        db, requisition_id, tenant_id, job_description, parsed_skill_overrides, weights,
+    )
+    tpl = template_id
+    if legacy_tpl and not tpl:
+        tpl = legacy_tpl
+    return jd, overrides, wts, req_id, tpl
+
+
+def _link_to_requisition(
+    db: Session,
+    requisition_id: int,
+    tenant_id: int,
+    candidate_id: int,
+    screening_result_id: int,
+    added_by: int,
+) -> None:
+    try:
+        req = db.query(Requisition).filter(
+            Requisition.id == requisition_id,
+            Requisition.tenant_id == tenant_id,
+        ).first()
+        if not req:
+            return
+        existing = db.query(RequisitionCandidate).filter(
+            RequisitionCandidate.requisition_id == requisition_id,
+            RequisitionCandidate.candidate_id == candidate_id,
+        ).first()
+        if existing:
+            existing.screening_result_id = screening_result_id
+        else:
+            db.add(RequisitionCandidate(
+                requisition_id=requisition_id,
+                candidate_id=candidate_id,
+                screening_result_id=screening_result_id,
+                added_by=added_by,
+            ))
+        db.commit()
+    except Exception as e:
+        log.warning("Non-critical: Failed to link candidate to requisition %s: %s", requisition_id, e)
         try:
             db.rollback()
         except Exception:
@@ -1617,6 +1730,7 @@ async def analyze_endpoint(
     skill_overrides: str = Form(None),
     action: str = Form(None),   # use_existing | update_profile | create_new | None
     template_id: Optional[int] = Form(None),
+    requisition_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
     project_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_recruiter),
@@ -1731,6 +1845,12 @@ async def analyze_endpoint(
         except Exception as e:
             log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
 
+    job_description, parsed_skill_overrides, weights, requisition_id, legacy_tpl = _finalize_analyze_context(
+        db, current_user.tenant_id, job_description, weights, parsed_skill_overrides,
+        requisition_id, template_id,
+    )
+    template_id = legacy_tpl
+
     file_hash = hashlib.md5(content).hexdigest()
 
     # Handle "use_existing" — skip re-analysis if candidate already in DB
@@ -1779,6 +1899,7 @@ async def analyze_endpoint(
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data, default=_json_default),
                 analysis_result="{}",
+                requisition_id=requisition_id,
             )
 
             result = await run_hybrid_pipeline(
@@ -1806,6 +1927,8 @@ async def analyze_endpoint(
 
             if project_id:
                 _link_to_project(db, project_id, current_user.tenant_id, existing.id, db_result.id, current_user.id)
+            if requisition_id:
+                _link_to_requisition(db, requisition_id, current_user.tenant_id, existing.id, db_result.id, current_user.id)
 
             return result
 
@@ -1868,6 +1991,7 @@ async def analyze_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",
+        requisition_id=requisition_id,
     )
 
     # Run pipeline with background LLM
@@ -1910,8 +2034,19 @@ async def analyze_endpoint(
     result["analysis_id"]  = db_result.id   # Add this line
     result["candidate_id"] = candidate_id
 
+    from app.backend.services.requisition_service import compute_parse_confidence, build_skill_evidence
+    result["parse_confidence"] = compute_parse_confidence(parsed_data)
+    result["skill_evidence"] = build_skill_evidence(
+        parsed_data,
+        result.get("matched_skills") or result.get("skill_analysis", {}).get("matched_skills"),
+    )
+    if requisition_id:
+        result["requisition_id"] = requisition_id
+
     if project_id:
         _link_to_project(db, project_id, current_user.tenant_id, candidate_id, db_result.id, current_user.id)
+    if requisition_id:
+        _link_to_requisition(db, requisition_id, current_user.tenant_id, candidate_id, db_result.id, current_user.id)
 
     # Resolve name: candidate.name (possibly edited) takes priority over parsed/analysis data
     _cand_row = db.get(Candidate, candidate_id)
@@ -1961,6 +2096,7 @@ async def analyze_stream_endpoint(
     skill_overrides: str = Form(None),
     action: str = Form(None),
     template_id: Optional[int] = Form(None),
+    requisition_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
     project_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_recruiter),
@@ -2086,6 +2222,11 @@ async def analyze_stream_endpoint(
     else:
         log.info("No custom weights provided, will use system defaults")
 
+    job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
+        db, current_user.tenant_id, job_description, weights, parsed_skill_overrides,
+        requisition_id, template_id,
+    )
+
     file_hash = hashlib.md5(content).hexdigest()
     tenant_id = current_user.tenant_id
     t_start   = time.time()
@@ -2134,8 +2275,11 @@ async def analyze_stream_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",
+        requisition_id=requisition_id,
     )
     screening_result_id = db_result.id
+    if requisition_id:
+        _link_to_requisition(db, requisition_id, tenant_id, candidate_id, screening_result_id, current_user.id)
 
     # Cancellation token: set when client disconnects so pipeline can break early
     cancel_event = asyncio.Event()
@@ -2362,6 +2506,7 @@ async def batch_analyze_chunked_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
+    requisition_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
@@ -2516,6 +2661,10 @@ async def batch_analyze_chunked_endpoint(
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
+    job_description, _, weights, requisition_id, template_id = _finalize_analyze_context(
+        db, current_user.tenant_id, job_description, weights, None, requisition_id, template_id,
+    )
+
     # Pre-parse JD once
     _get_or_cache_jd(db, job_description)
 
@@ -2617,6 +2766,7 @@ async def batch_analyze_stream_endpoint(
     scoring_weights: str = Form(None),
     skill_overrides: str = Form(None),
     template_id: Optional[int] = Form(None),
+    requisition_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
@@ -2826,12 +2976,18 @@ async def batch_analyze_stream_endpoint(
             log.warning("Non-critical: Invalid skill_overrides JSON, ignoring: %s", e)
             parsed_skill_overrides = None
 
+    job_description, parsed_skill_overrides, parsed_weights, requisition_id, template_id = _finalize_analyze_context(
+        db, current_user.tenant_id, job_description, parsed_weights, parsed_skill_overrides,
+        requisition_id, template_id,
+    )
+
     # Pre-parse JD once
     _get_or_cache_jd(db, job_description)
 
     # Extract tenant_id while session is still active
     tenant_id = current_user.tenant_id
-    _template_id = template_id  # Capture for use inside generator
+    _template_id = template_id
+    _requisition_id = requisition_id
 
     # ── Tagged wrapper for asyncio.as_completed mapping ──────────────────────
     async def _process_and_tag(
@@ -2935,9 +3091,15 @@ async def batch_analyze_stream_endpoint(
                     analysis_result=json.dumps(raw, default=_json_default),
                     narrative_status="pending",
                     pipeline_result=raw,
+                    requisition_id=_requisition_id,
                 )
 
                 screening_result_id = db_result.id
+                if _requisition_id:
+                    _link_to_requisition(
+                        save_db, _requisition_id, tenant_id, candidate_id,
+                        screening_result_id, current_user.id,
+                    )
 
                 # Spawn background LLM narrative generation
                 _spawn_background_narrative(raw, screening_result_id, tenant_id)
@@ -3059,6 +3221,7 @@ async def batch_analyze_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
+    requisition_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_recruiter),
     db: Session = Depends(get_db),
 ):
@@ -3138,6 +3301,10 @@ async def batch_analyze_endpoint(
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
+    job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
+        db, current_user.tenant_id, job_description, weights, None, requisition_id, template_id,
+    )
+
     # Pre-parse JD once for all resumes in this batch
     _get_or_cache_jd(db, job_description)
 
@@ -3186,6 +3353,7 @@ async def batch_analyze_endpoint(
             tenant_id=current_user.tenant_id,
             candidate_id=candidate_id,
             role_template_id=template_id,
+            requisition_id=requisition_id,
             resume_text=parsed_data.get("raw_text", ""),
             jd_text=job_description,
             parsed_data=json.dumps(parsed_data),
@@ -3194,6 +3362,12 @@ async def batch_analyze_endpoint(
             pipeline_result=raw,
         )
         raw["result_id"] = db_result.id
+
+        if requisition_id:
+            _link_to_requisition(
+                db, requisition_id, current_user.tenant_id,
+                candidate_id, db_result.id, current_user.id,
+            )
 
         # Spawn background LLM narrative generation
         _spawn_background_narrative(raw, db_result.id, current_user.tenant_id)

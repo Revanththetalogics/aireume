@@ -29,7 +29,10 @@ export default function AnalyzeJdSheet({ isOpen, onClose, candidateId, onComplet
     if (!candidateId || !jdText.trim()) return
     setLoading(true)
     try {
-      const result = await analyzeCandidateJd(candidateId, { job_description: jdText.trim() })
+      const result = await analyzeCandidateJd(candidateId, {
+        job_description: jdText.trim(),
+        requisition_id: templateId ? Number(templateId) : null,
+      })
       showSuccess('Analysis complete — no re-upload needed')
       onComplete?.(result)
       onClose()
@@ -50,7 +53,7 @@ export default function AnalyzeJdSheet({ isOpen, onClose, candidateId, onComplet
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Saved JD template</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Requisition</label>
             <select
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}

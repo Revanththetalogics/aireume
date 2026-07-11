@@ -15,10 +15,14 @@ import {
   ratingToStars,
   getCategoriesFromKit,
   CATEGORY_META,
+  THREAD_PRIORITY_META,
   sanitizeBriefingForDisplay,
   applyVoiceTone,
   buildGlanceBullets,
   formatHmDebriefText,
+  formatHmDebriefWithTemplate,
+  isPlaybookKit,
+  getThreadsFromKit,
 } from '../../lib/liveScreenKitUtils'
 
 function CopyButton({ text }) {
@@ -116,6 +120,8 @@ export default function LiveScreenKit({
   const matchedSkills = analysisData.matched_skills || []
   const flatQuestions = useMemo(() => flattenQuestions(kit), [kit])
   const categories = useMemo(() => getCategoriesFromKit(kit), [kit])
+  const threads = useMemo(() => getThreadsFromKit(kit), [kit])
+  const isPlaybook = useMemo(() => isPlaybookKit(kit), [kit])
   const totalQ = flatQuestions.length
   const current = flatQuestions[questionIndex]
   const briefing = useMemo(
@@ -123,8 +129,8 @@ export default function LiveScreenKit({
     [kit],
   )
   const glanceBullets = useMemo(
-    () => buildGlanceBullets(briefing, flatQuestions),
-    [briefing, flatQuestions],
+    () => buildGlanceBullets(briefing, flatQuestions, kit),
+    [briefing, flatQuestions, kit],
   )
   const ratedCount = useMemo(
     () => Object.values(evaluations).filter((e) => e?.stars > 0).length,
@@ -201,7 +207,13 @@ export default function LiveScreenKit({
   }
 
   const copyHmSummary = (debriefData) => {
-    const text = formatHmDebriefText({
+    const text = formatHmDebriefWithTemplate({
+      candidateName,
+      roleTitle,
+      kit,
+      recommendation,
+      summary: conversationSummary,
+    }) || formatHmDebriefText({
       candidateName,
       roleTitle,
       fitScore,
@@ -307,10 +319,21 @@ export default function LiveScreenKit({
             </div>
           </div>
 
+          {kit?.hm_debrief_template?.hm_focus_if_proceed?.length > 0 && (
+            <Card className="p-3 bg-brand-50 ring-brand-100">
+              <p className="text-xs font-bold text-brand-800 mb-2">HM focus areas (from screen kit)</p>
+              <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
+                {kit.hm_debrief_template.hm_focus_if_proceed.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <textarea
             value={conversationSummary}
             onChange={(e) => setConversationSummary(e.target.value)}
-            placeholder="Brief summary of the call — key strengths, gaps, and your hiring lean."
+            placeholder={kit?.hm_debrief_template?.fit_summary_prompt || 'Brief summary of the call — key strengths, gaps, and your hiring lean.'}
             rows={6}
             className="w-full text-sm text-slate-700 bg-white ring-1 ring-brand-100 rounded-xl px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-brand-300"
           />
@@ -364,6 +387,7 @@ export default function LiveScreenKit({
           <SegmentedControl
             options={[
               { label: LIVE_SCREEN.teleprompter, value: 'teleprompter' },
+              { label: 'Guided', value: 'guided' },
               { label: 'Glance', value: 'glance' },
               { label: LIVE_SCREEN.checklist, value: 'list' },
             ]}
@@ -389,8 +413,23 @@ export default function LiveScreenKit({
               <User className="w-3.5 h-3.5 text-brand-600" />
               <span className="font-bold text-brand-800 text-xs">{LIVE_SCREEN.briefing}</span>
             </div>
+            {kit?.screen_objective && (
+              <p className="text-xs font-semibold text-brand-800 mb-2 leading-relaxed">
+                Goal: {kit.screen_objective}
+              </p>
+            )}
             {briefing.profile_snapshot && (
               <p className="text-xs text-slate-600 mb-2 leading-relaxed">{briefing.profile_snapshot}</p>
+            )}
+            {isPlaybook && kit?.hypotheses?.length > 0 && (
+              <ul className="text-xs text-slate-600 mb-2 space-y-0.5">
+                {kit.hypotheses.slice(0, 4).map((h) => (
+                  <li key={h.id} className="flex gap-1">
+                    <span className="font-mono text-brand-500 shrink-0">{h.id}</span>
+                    <span>{h.label}</span>
+                  </li>
+                ))}
+              </ul>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               {briefing.strengths_to_confirm?.length > 0 && (
@@ -414,6 +453,51 @@ export default function LiveScreenKit({
 
       {/* Call body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {viewMode === 'guided' && isPlaybook && (
+          <div className="p-5 max-w-2xl mx-auto space-y-4">
+            {kit?.open?.script && (
+              <Card className="p-4 ring-brand-100">
+                <p className="text-xs font-bold text-brand-700 uppercase mb-2">Open (2 min)</p>
+                <p className="text-sm text-slate-700 leading-relaxed">{applyVoiceTone(kit.open.script, voiceTone)}</p>
+              </Card>
+            )}
+            {threads.map((thread) => {
+              const meta = THREAD_PRIORITY_META[thread.priority] || THREAD_PRIORITY_META.must_have
+              return (
+                <Card key={thread.id} className={`p-4 ring-1 ${meta.ring} ${meta.bg}`}>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <p className={`text-sm font-bold ${meta.color}`}>{thread.title}</p>
+                    <span className="text-xs text-slate-500">~{thread.time_minutes || 5} min</span>
+                  </div>
+                  <ol className="space-y-3">
+                    {(thread.steps || []).map((step, idx) => (
+                      <li key={idx} className="text-sm text-slate-700">
+                        <p className="font-medium leading-snug">{applyVoiceTone(step.text, voiceTone)}</p>
+                        {step.follow_ups?.length > 0 && (
+                          <p className="text-xs text-slate-500 mt-1 italic">
+                            If vague: {step.follow_ups[0]}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </Card>
+              )
+            })}
+            {kit?.close?.script && (
+              <Card className="p-4 ring-brand-100">
+                <p className="text-xs font-bold text-brand-700 uppercase mb-2">Close</p>
+                <p className="text-sm text-slate-700">{applyVoiceTone(kit.close.script, voiceTone)}</p>
+                {kit.close.logistics?.length > 0 && (
+                  <ul className="mt-2 text-xs text-slate-500 list-disc pl-4">
+                    {kit.close.logistics.map((l) => <li key={l}>{l}</li>)}
+                  </ul>
+                )}
+              </Card>
+            )}
+          </div>
+        )}
+
         {viewMode === 'glance' && (
           <div className="p-5 max-w-lg mx-auto space-y-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide">

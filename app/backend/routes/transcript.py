@@ -45,6 +45,7 @@ async def analyze_transcript_endpoint(
     transcript_text: Optional[str]       = Form(None),
     candidate_id:    Optional[int]       = Form(None),
     role_template_id: Optional[int]      = Form(None),
+    requisition_id: Optional[int]        = Form(None),
     source_platform: Optional[str]       = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session        = Depends(get_db),
@@ -74,17 +75,18 @@ async def analyze_transcript_endpoint(
         )
 
     # ── Resolve job description ───────────────────────────────────────────────
+    from app.backend.services.requisition_service import resolve_role_picker_id
+
     jd_text = ""
     template_name = None
-    if role_template_id:
-        template = db.query(RoleTemplate).filter(
-            RoleTemplate.id == role_template_id,
-            RoleTemplate.tenant_id == current_user.tenant_id
-        ).first()
-        if not template:
-            raise HTTPException(status_code=404, detail="Job description template not found")
-        jd_text = template.jd_text
-        template_name = template.name
+    resolved_tpl_id = role_template_id
+    picker_id = requisition_id or role_template_id
+    if picker_id:
+        jd_text, template_name, resolved_tpl_id, _req_id = resolve_role_picker_id(
+            db, current_user.tenant_id, picker_id,
+        )
+        if not jd_text:
+            raise HTTPException(status_code=404, detail="Job description / requisition not found")
 
     if not jd_text:
         raise HTTPException(
@@ -111,7 +113,7 @@ async def analyze_transcript_endpoint(
     record = TranscriptAnalysis(
         tenant_id        = current_user.tenant_id,
         candidate_id     = candidate_id,
-        role_template_id = role_template_id,
+        role_template_id = resolved_tpl_id,
         transcript_text  = clean_text,
         source_platform  = source_platform or "manual",
         analysis_result  = json.dumps(result, default=_json_default),

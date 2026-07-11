@@ -168,6 +168,7 @@ def get_public_handoff(token: str, db: Session = Depends(get_db)):
         db,
         tenant_id=link.tenant_id,
         jd_id=link.role_template_id,
+        requisition_id=link.requisition_id,
         public_view=True,
         generated_by_email="ARIA Recruiting",
     )

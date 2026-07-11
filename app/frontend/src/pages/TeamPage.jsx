@@ -4,7 +4,7 @@ import EmptyState from '../components/EmptyState'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus, getTenantAuditLogs } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
-const ROLES = ['admin', 'recruiter', 'viewer']
+const ROLES = ['admin', 'recruiter', 'viewer', 'hiring_manager']
 
 function InviteModal({ onSave, onClose }) {
   const [email, setEmail]     = useState('')

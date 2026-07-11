@@ -196,6 +196,7 @@ class ScreeningResult(Base):
     tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     candidate_id       = Column(Integer, ForeignKey("candidates.id"), nullable=True, index=True)
     role_template_id   = Column(Integer, ForeignKey("role_templates.id"), nullable=True)
+    requisition_id     = Column(Integer, ForeignKey("requisitions.id"), nullable=True, index=True)
     resume_text        = Column(Text, nullable=False)
     jd_text            = Column(Text, nullable=False)
     parsed_data        = Column(Text, nullable=False)   # JSON string
@@ -233,6 +234,7 @@ class ScreeningResult(Base):
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
     role_template = relationship("RoleTemplate", back_populates="results")
+    requisition   = relationship("Requisition", back_populates="screening_results")
     comments      = relationship("Comment", back_populates="result")
     evaluations = relationship("InterviewEvaluation", back_populates="result", cascade="all, delete-orphan")
     overall_assessment = relationship("OverallAssessment", back_populates="result", cascade="all, delete-orphan", uselist=True)
@@ -259,6 +261,137 @@ class RoleTemplate(Base):
     results              = relationship("ScreeningResult", back_populates="role_template")
     transcript_analyses  = relationship("TranscriptAnalysis", back_populates="role_template")
     created_by_user      = relationship("User", foreign_keys=[created_by])
+
+
+# ─── Requisitions (replaces role templates + screening projects) ─────────────
+
+class Requisition(Base):
+    """Calibrated hiring opening — intake, criteria, pipeline, HM sign-off."""
+    __tablename__ = "requisitions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    jd_text = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    client_name = Column(String(200), nullable=True)
+    headcount = Column(Integer, nullable=True)
+    location = Column(String(200), nullable=True)
+    status = Column(String(30), nullable=False, default="draft", server_default="draft")
+    intake_status = Column(String(30), nullable=False, default="draft", server_default="draft")
+    intake_json = Column(Text, nullable=True)
+    search_brief_json = Column(Text, nullable=True)
+    calibrated_criteria_json = Column(Text, nullable=True)
+    current_criteria_version = Column(Integer, nullable=False, default=0, server_default="0")
+    scoring_weights = Column(Text, nullable=True)
+    tags = Column(String(500), nullable=True)
+    required_skills_override = Column(Text, nullable=True)
+    nice_to_have_skills_override = Column(Text, nullable=True)
+    must_ask_questions_json = Column(Text, nullable=True)
+    primary_hiring_manager_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    legacy_role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="SET NULL"), nullable=True)
+    legacy_project_id = Column(Integer, nullable=True)
+    external_ats_id = Column(String(100), nullable=True)
+    ats_provider = Column(String(30), nullable=True)
+    hm_approved_at = Column(DateTime(timezone=True), nullable=True)
+    hm_approved_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    calibrated_at = Column(DateTime(timezone=True), nullable=True)
+    calibrated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+    tenant = relationship("Tenant", backref="requisitions")
+    primary_hiring_manager = relationship("User", foreign_keys=[primary_hiring_manager_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    legacy_role_template = relationship("RoleTemplate", foreign_keys=[legacy_role_template_id])
+    criteria_versions = relationship("RequisitionCriteriaVersion", back_populates="requisition", cascade="all, delete-orphan")
+    hiring_managers = relationship("RequisitionHiringManager", back_populates="requisition", cascade="all, delete-orphan")
+    req_candidates = relationship("RequisitionCandidate", back_populates="requisition", cascade="all, delete-orphan")
+    screening_results = relationship("ScreeningResult", back_populates="requisition")
+
+    __table_args__ = (
+        Index("ix_requisitions_tenant_status", "tenant_id", "status"),
+    )
+
+
+class RequisitionCriteriaVersion(Base):
+    __tablename__ = "requisition_criteria_versions"
+
+    id = Column(Integer, primary_key=True)
+    requisition_id = Column(Integer, ForeignKey("requisitions.id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    criteria_json = Column(Text, nullable=False)
+    source = Column(String(30), nullable=False, default="calibration", server_default="calibration")
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    requisition = relationship("Requisition", back_populates="criteria_versions")
+    author = relationship("User", foreign_keys=[created_by])
+
+    __table_args__ = (
+        UniqueConstraint("requisition_id", "version", name="uq_req_criteria_version"),
+    )
+
+
+class RequisitionHiringManager(Base):
+    __tablename__ = "requisition_hiring_managers"
+
+    id = Column(Integer, primary_key=True)
+    requisition_id = Column(Integer, ForeignKey("requisitions.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    requisition = relationship("Requisition", back_populates="hiring_managers")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("requisition_id", "user_id", name="uq_req_hm_user"),
+    )
+
+
+class RequisitionCandidate(Base):
+    __tablename__ = "requisition_candidates"
+
+    id = Column(Integer, primary_key=True)
+    requisition_id = Column(Integer, ForeignKey("requisitions.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    screening_result_id = Column(Integer, ForeignKey("screening_results.id", ondelete="SET NULL"), nullable=True)
+    pipeline_status = Column(String(50), nullable=False, default="pending", server_default="pending")
+    submission_status = Column(String(30), nullable=False, default="none", server_default="none")
+    hm_outcome = Column(String(30), nullable=True)
+    outcome_reason_code = Column(String(50), nullable=True)
+    outcome_notes = Column(Text, nullable=True)
+    submission_json = Column(Text, nullable=True)
+    parse_confidence_json = Column(Text, nullable=True)
+    added_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    outcome_at = Column(DateTime(timezone=True), nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    requisition = relationship("Requisition", back_populates="req_candidates")
+    candidate = relationship("Candidate", backref="requisition_memberships")
+    screening_result = relationship("ScreeningResult", backref="requisition_memberships")
+    adder = relationship("User", foreign_keys=[added_by])
+
+    __table_args__ = (
+        UniqueConstraint("requisition_id", "candidate_id", name="uq_requisition_candidate"),
+        Index("ix_req_candidates_requisition_status", "requisition_id", "pipeline_status"),
+    )
+
+
+class TenantRequisitionSettings(Base):
+    __tablename__ = "tenant_requisition_settings"
+
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    intake_gate_mode = Column(String(20), nullable=False, default="warn", server_default="warn")
+    hm_pipeline_permission = Column(String(30), nullable=False, default="view_only", server_default="view_only")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", backref="requisition_settings", uselist=False)
 
 
 class SkillClassificationTemplate(Base):
@@ -776,7 +909,8 @@ class HandoffShareLink(Base):
     id = Column(Integer, primary_key=True, index=True)
     token = Column(String(64), unique=True, nullable=False, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=True, index=True)
+    requisition_id = Column(Integer, ForeignKey("requisitions.id", ondelete="CASCADE"), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     label = Column(String(200), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -785,6 +919,7 @@ class HandoffShareLink(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     role_template = relationship("RoleTemplate")
+    requisition = relationship("Requisition")
     created_by_user = relationship("User")
 
 
@@ -1212,7 +1347,7 @@ class ScreeningProject(Base):
 
     id              = Column(Integer, primary_key=True, index=True)
     tenant_id       = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=True, index=True)
     name            = Column(String(200), nullable=False)
     description     = Column(Text, nullable=True)
     status          = Column(String(20), nullable=False, default="draft", server_default="draft")  # draft/active/paused/closed

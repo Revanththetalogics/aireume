@@ -1065,6 +1065,35 @@ export default function ReportPage() {
 
         <AnalysisStageTracker result={result} className="mb-1" />
 
+        {result?.parse_confidence && (
+          <div className={`rounded-2xl ring-1 px-4 py-3 text-sm ${
+            result.parse_confidence.level === 'high'
+              ? 'bg-emerald-50 ring-emerald-200 text-emerald-800'
+              : result.parse_confidence.level === 'medium'
+                ? 'bg-amber-50 ring-amber-200 text-amber-800'
+                : 'bg-red-50 ring-red-200 text-red-800'
+          }`}>
+            <p className="font-semibold">
+              Parse confidence: {result.parse_confidence.level} ({Math.round((result.parse_confidence.overall || 0) * 100)}%)
+            </p>
+            <p className="text-xs mt-1 opacity-90">{result.parse_confidence.evidence_hint}</p>
+          </div>
+        )}
+
+        {(result?.skill_evidence || result?.analysis_result?.skill_evidence)?.length > 0 && (
+          <div className="rounded-2xl ring-1 ring-brand-100 bg-white/90 px-4 py-3">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-wider mb-2">Skill evidence</p>
+            <ul className="space-y-2 text-sm">
+              {(result.skill_evidence || result.analysis_result?.skill_evidence || []).slice(0, 8).map((item) => (
+                <li key={item.skill} className="border-l-2 border-brand-300 pl-3">
+                  <span className="font-semibold text-brand-900">{item.skill}</span>
+                  <p className="text-slate-600 text-xs mt-0.5">{item.snippet}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Score gauge */}
         {hasDeterministicData && (
           <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex flex-col items-center">

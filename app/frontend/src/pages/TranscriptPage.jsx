@@ -332,7 +332,7 @@ export default function TranscriptPage() {
               )}
               {!loadingMeta && templates.length === 0 && (
                 <p className="text-xs text-slate-400 mt-1">
-                  No roles yet — create one on the <a href="/jd-library" className="text-blue-600 hover:underline">Roles</a> page.
+                  No roles yet — create one on the <a href="/requisitions" className="text-blue-600 hover:underline">Requisitions</a> page.
                 </p>
               )}
             </div>

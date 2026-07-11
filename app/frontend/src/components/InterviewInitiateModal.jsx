@@ -284,13 +284,15 @@ function CreateWizard({
     if (cand?.latest_result_id && !initialJdId) {
       try {
         const result = await getScreeningResult(cand.latest_result_id)
-        if (result?.role_template_id) {
+        if (result?.requisition_id) {
+          setJdId(String(result.requisition_id))
+        } else if (result?.role_template_id) {
           setJdId(String(result.role_template_id))
-          setContextHint({
-            jdName: result.jd_name,
-            fitScore: result.fit_score,
-          })
         }
+        setContextHint({
+          jdName: result.jd_name,
+          fitScore: result.fit_score,
+        })
       } catch { /* ignore */ }
     }
   }, [candidates, initialJdId, phoneNumber])
@@ -342,7 +344,8 @@ function CreateWizard({
     try {
       await createInterviewSession({
         candidate_id: parseInt(candidateId, 10),
-        jd_id: parseInt(jdId, 10),
+        requisition_id: jdId ? parseInt(jdId, 10) : undefined,
+        jd_id: jdId ? parseInt(jdId, 10) : undefined,
         depth,
         screening_result_id: screeningResultId || undefined,
         phone_number: phoneNumber.trim() || selectedCandidate?.phone || '',

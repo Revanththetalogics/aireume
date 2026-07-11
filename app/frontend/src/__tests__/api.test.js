@@ -238,17 +238,25 @@ describe('api.js', () => {
 
   // ─── Templates ────────────────────────────────────────────────────────
 
-  describe('templates', () => {
-    it('getTemplates calls GET /templates', async () => {
+  describe('templates (requisition shim)', () => {
+    it('getTemplates calls GET /requisitions', async () => {
       api.get.mockResolvedValue({ data: [] })
       await getTemplates()
-      expect(api.get).toHaveBeenCalledWith('/templates')
+      expect(api.get).toHaveBeenCalledWith('/requisitions', { params: {} })
     })
 
-    it('createTemplate calls POST /templates', async () => {
-      api.post.mockResolvedValue({ data: { id: 1 } })
+    it('createTemplate calls POST /requisitions', async () => {
+      api.post.mockResolvedValue({ data: { id: 1, title: 'Test' } })
       await createTemplate({ name: 'Test', jd_text: 'JD', tags: '' })
-      expect(api.post).toHaveBeenCalledWith('/templates', { name: 'Test', jd_text: 'JD', tags: '' })
+      expect(api.post).toHaveBeenCalledWith('/requisitions', {
+        title: 'Test',
+        jd_text: 'JD',
+        tags: '',
+        scoring_weights: undefined,
+        required_skills_override: undefined,
+        nice_to_have_skills_override: undefined,
+        status: 'draft',
+      })
     })
   })
 

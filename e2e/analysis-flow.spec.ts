@@ -1,20 +1,16 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Analysis Flow', () => {
-  test('Screen Resumes should start at Step 1 (JD & Skills)', async ({ page }) => {
+  test('Screen Resumes should start at Step 1 (Role & Skills)', async ({ page }) => {
     // Navigate directly to /analyze (simulating "Screen Resumes" button)
     await page.goto('/analyze');
     await page.waitForLoadState('networkidle');
 
-    // Should be on Step 1 - JD & Skills
-    // Look for JD input area (textarea or file upload for JD)
-    const step1Indicator = page.getByText(/step 1|jd.*skills|paste.*job|job description/i).first();
+    // Should be on Step 1 - Role & Skills
+    const step1Indicator = page.getByText(/step 1|role.*skills|paste.*job|job description/i).first();
     await expect(step1Indicator).toBeVisible({ timeout: 10000 });
 
-    // Step 2 should NOT be active (upload area should not be primary)
-    // The stepper should show step 1 as current
-    const currentStep = page.locator('[class*="bg-brand"], [class*="text-brand"]').filter({ hasText: /1|jd/i });
-    await expect(currentStep).toBeVisible();
+    await expect(page.getByRole('button', { name: /load from requisitions/i })).toBeVisible();
   });
 
   test('Full analysis flow: JD paste → Skills → Upload', async ({ page }) => {

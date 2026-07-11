@@ -143,7 +143,22 @@ async def create_interview_session(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Phone number is required — add one to the candidate profile or enter it below.",
         )
-    body = body.model_copy(update={"phone_number": phone})
+
+    from app.backend.services.requisition_service import resolve_role_picker_id
+    picker_id = body.requisition_id or body.jd_id
+    jd_text, _name, role_tpl_id, req_id = resolve_role_picker_id(
+        db, current_user.tenant_id, picker_id,
+    )
+    if not role_tpl_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role or requisition not found",
+        )
+    body = body.model_copy(update={
+        "phone_number": phone,
+        "jd_id": role_tpl_id,
+        "requisition_id": req_id,
+    })
 
     if depth == "quick":
         return await _create_quick_session(db, current_user, candidate, body, scheduled_at)
@@ -212,17 +227,24 @@ async def _create_recruiter_session(
     """Create a standard/deep recruiter interview session."""
     # Find latest active screening result for (candidate, jd) to seed context
     screening_result_id = body.screening_result_id
-    if not screening_result_id and body.jd_id:
-        sr = db.execute(
+    if not screening_result_id and (body.jd_id or body.requisition_id):
+        base = (
             select(ScreeningResult)
             .where(
                 ScreeningResult.tenant_id == current_user.tenant_id,
                 ScreeningResult.candidate_id == body.candidate_id,
-                ScreeningResult.role_template_id == body.jd_id,
                 ScreeningResult.is_active == True,
             )
             .order_by(ScreeningResult.timestamp.desc())
-        ).scalar_one_or_none()
+        )
+        if body.requisition_id:
+            sr = db.execute(
+                base.where(ScreeningResult.requisition_id == body.requisition_id)
+            ).scalar_one_or_none()
+        else:
+            sr = db.execute(
+                base.where(ScreeningResult.role_template_id == body.jd_id)
+            ).scalar_one_or_none()
         if sr:
             screening_result_id = sr.id
 
