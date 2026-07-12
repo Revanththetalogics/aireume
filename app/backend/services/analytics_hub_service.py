@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.backend.models.db_models import (
     ATSSyncLog,
     ATSConnection,
+    Candidate,
     Requisition,
     RequisitionCandidate,
     ScreeningResult,
@@ -43,6 +44,79 @@ def _parse_json(raw: Optional[str]) -> dict:
         return {}
 
 
+def _extract_recommendation(analysis: dict) -> Optional[str]:
+    """Normalize recommendation from analysis JSON (pipeline uses final_recommendation)."""
+    raw = (
+        analysis.get("final_recommendation")
+        or analysis.get("recommendation")
+        or analysis.get("consolidated_recommendation")
+    )
+    if raw is None:
+        return None
+    label = str(raw).strip()
+    if not label or label.lower() in ("unknown", "pending", "none"):
+        return None
+    return label
+
+
+def _candidate_label(candidate: Optional[Candidate], candidate_id: Optional[int]) -> str:
+    if candidate and candidate.name and str(candidate.name).strip():
+        return str(candidate.name).strip()
+    if candidate_id:
+        return f"Candidate #{candidate_id}"
+    return "Unknown candidate"
+
+
+def _load_candidates(
+    db: Session, tenant_id: int, candidate_ids: set[int]
+) -> dict[int, Candidate]:
+    if not candidate_ids:
+        return {}
+    rows = (
+        db.query(Candidate)
+        .filter(Candidate.tenant_id == tenant_id, Candidate.id.in_(candidate_ids))
+        .all()
+    )
+    return {c.id: c for c in rows}
+
+
+def _load_requisitions(
+    db: Session, tenant_id: int, requisition_ids: set[int]
+) -> dict[int, Requisition]:
+    if not requisition_ids:
+        return {}
+    rows = (
+        db.query(Requisition)
+        .filter(Requisition.tenant_id == tenant_id, Requisition.id.in_(requisition_ids))
+        .all()
+    )
+    return {r.id: r for r in rows}
+
+
+def _filter_options(db: Session, tenant_id: int) -> dict[str, list[dict]]:
+    reqs = (
+        db.query(Requisition)
+        .filter(Requisition.tenant_id == tenant_id)
+        .order_by(Requisition.title.asc())
+        .limit(200)
+        .all()
+    )
+    recruiters = (
+        db.query(User)
+        .filter(
+            User.tenant_id == tenant_id,
+            User.is_active == True,  # noqa: E712
+            User.role.in_(("admin", "recruiter")),
+        )
+        .order_by(User.email.asc())
+        .all()
+    )
+    return {
+        "requisitions": [{"id": r.id, "title": r.title} for r in reqs],
+        "recruiters": [{"id": u.id, "email": u.email} for u in recruiters],
+    }
+
+
 def build_analytics_hub(
     db: Session,
     tenant_id: int,
@@ -68,6 +142,12 @@ def build_analytics_hub(
         "filters": {
             "requisition_id": requisition_id,
             "recruiter_id": recruiter_id,
+        },
+        "filter_options": _filter_options(db, tenant_id),
+        "attention": {
+            "stale_candidates": funnel.get("stale_candidates", [])[:10],
+            "zero_pipeline_requisitions": leadership.get("risk_flags", {}).get("zero_pipeline", [])[:10],
+            "pending_hm_review": hm.get("pending_hm_review", 0),
         },
         "slices": {
             "screening": screening,
@@ -103,9 +183,14 @@ def _screening_slice(
     score_buckets: Counter[str] = Counter()
     drill_down: list[dict] = []
 
+    candidate_ids = {r.candidate_id for r in rows if r.candidate_id}
+    requisition_ids = {r.requisition_id for r in rows if r.requisition_id}
+    candidates = _load_candidates(db, tenant_id, candidate_ids)
+    requisitions = _load_requisitions(db, tenant_id, requisition_ids)
+
     for r in rows:
         analysis = _parse_json(r.analysis_result)
-        score = r.deterministic_score or analysis.get("fit_score")
+        score = r.deterministic_score if r.deterministic_score is not None else analysis.get("fit_score")
         if score is not None:
             try:
                 s = float(score)
@@ -114,23 +199,36 @@ def _screening_slice(
                 score_buckets[bucket] += 1
             except (TypeError, ValueError):
                 pass
-        rec = str(analysis.get("recommendation") or "unknown").lower()
-        recs[rec] += 1
-        for gap in analysis.get("skill_gaps") or analysis.get("gaps") or []:
+        rec_label = _extract_recommendation(analysis)
+        rec_key = (rec_label or "unscored").lower()
+        recs[rec_key] += 1
+        for gap in analysis.get("skill_gaps") or analysis.get("gaps") or analysis.get("missing_skills") or []:
             name = gap if isinstance(gap, str) else gap.get("skill") or gap.get("name")
             if name:
                 skill_gaps[str(name).lower()] += 1
+        cand = candidates.get(r.candidate_id) if r.candidate_id else None
+        req = requisitions.get(r.requisition_id) if r.requisition_id else None
         drill_down.append({
             "id": r.id,
+            "result_id": r.id,
             "candidate_id": r.candidate_id,
+            "candidate_name": _candidate_label(cand, r.candidate_id),
+            "candidate_email": cand.email if cand else None,
             "requisition_id": r.requisition_id,
-            "fit_score": r.deterministic_score,
-            "recommendation": analysis.get("recommendation"),
+            "requisition_title": req.title if req else None,
+            "role_title": (req.title if req else None) or analysis.get("job_role"),
+            "fit_score": score,
+            "recommendation": rec_label,
             "timestamp": r.timestamp.isoformat() if r.timestamp else None,
         })
 
+    drill_down.sort(
+        key=lambda row: row.get("timestamp") or "",
+        reverse=True,
+    )
+
     avg_score = round(sum(scores) / len(scores), 1) if scores else 0
-    shortlist_n = sum(v for k, v in recs.items() if "shortlist" in k)
+    shortlist_n = sum(v for k, v in recs.items() if "shortlist" in k.lower())
     shortlist_rate = round(100 * shortlist_n / total, 1) if total else 0
 
     return {
@@ -168,6 +266,7 @@ def _funnel_slice(
     by_req: dict[int, dict] = {}
     stale: list[dict] = []
     stale_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    stale_candidate_ids: set[int] = set()
 
     for rc, req in rows:
         stage = rc.pipeline_status or "pending"
@@ -182,6 +281,7 @@ def _funnel_slice(
         by_req[req.id]["stages"][stage] += 1
         by_req[req.id]["total"] += 1
         if rc.updated_at and rc.updated_at < stale_cutoff and stage in ("pending", "in-review"):
+            stale_candidate_ids.add(rc.candidate_id)
             stale.append({
                 "candidate_id": rc.candidate_id,
                 "requisition_id": req.id,
@@ -189,6 +289,12 @@ def _funnel_slice(
                 "pipeline_status": stage,
                 "updated_at": rc.updated_at.isoformat(),
             })
+
+    stale_candidates = _load_candidates(db, tenant_id, stale_candidate_ids)
+    for item in stale:
+        cand = stale_candidates.get(item["candidate_id"])
+        item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
+        item["candidate_email"] = cand.email if cand else None
 
     req_funnels = []
     for rid, data in by_req.items():
@@ -235,6 +341,7 @@ def _interviews_slice(
     completed = 0
     durations: list[int] = []
     resume_vs_call: list[dict] = []
+    interview_candidate_ids: set[int] = set()
 
     for s in rows:
         status_counts[s.status or "unknown"] += 1
@@ -257,6 +364,7 @@ def _interviews_slice(
                         .first()
                     )
                     if sr and sr.deterministic_score is not None:
+                        interview_candidate_ids.add(s.candidate_id)
                         resume_vs_call.append({
                             "candidate_id": s.candidate_id,
                             "resume_score": sr.deterministic_score,
@@ -265,6 +373,12 @@ def _interviews_slice(
                         })
             except (json.JSONDecodeError, TypeError):
                 pass
+
+    interview_candidates = _load_candidates(db, tenant_id, interview_candidate_ids)
+    for item in resume_vs_call:
+        cand = interview_candidates.get(item["candidate_id"])
+        item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
+        item["candidate_email"] = cand.email if cand else None
 
     total = len(rows)
     return {

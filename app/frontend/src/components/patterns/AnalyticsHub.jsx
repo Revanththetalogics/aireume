@@ -18,6 +18,47 @@ const SLICES = [
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
 ]
 
+const REC_COLORS = {
+  shortlist: 'green',
+  consider: 'amber',
+  reject: 'red',
+  hold: 'brand',
+  unscored: 'slate',
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) return '—'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return '—'
+  const diffMs = Date.now() - then
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 14) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+function recommendationColor(label) {
+  if (!label) return REC_COLORS.unscored
+  const key = String(label).toLowerCase()
+  if (key.includes('shortlist') || key.includes('hire') || key.includes('proceed')) return REC_COLORS.shortlist
+  if (key.includes('consider') || key.includes('review')) return REC_COLORS.consider
+  if (key.includes('reject') || key.includes('pass')) return REC_COLORS.reject
+  return REC_COLORS.hold
+}
+
+function scoreColorClass(score) {
+  if (score == null || score === '') return 'text-slate-500'
+  const n = Number(score)
+  if (Number.isNaN(n)) return 'text-slate-500'
+  if (n >= 70) return 'text-green-700 font-semibold'
+  if (n >= 40) return 'text-amber-700 font-semibold'
+  return 'text-red-700 font-semibold'
+}
+
 function KpiTile({ label, value, suffix = '' }) {
   return (
     <Card className="p-4">
@@ -27,8 +68,8 @@ function KpiTile({ label, value, suffix = '' }) {
   )
 }
 
-function DrillTable({ rows, columns, onRowClick }) {
-  if (!rows?.length) return <p className="text-sm text-slate-500 py-4">No rows to display.</p>
+function DrillTable({ rows, columns, onRowClick, emptyMessage = 'No rows to display.' }) {
+  if (!rows?.length) return <p className="text-sm text-slate-500 py-4">{emptyMessage}</p>
   return (
     <div className="overflow-x-auto rounded-xl ring-1 ring-brand-100">
       <table className="w-full text-sm">
@@ -42,12 +83,14 @@ function DrillTable({ rows, columns, onRowClick }) {
         <tbody>
           {rows.map((row, i) => (
             <tr
-              key={row.id || row.candidate_id || i}
+              key={row.id || row.result_id || `${row.candidate_id}-${row.requisition_id}-${i}`}
               className={onRowClick ? 'cursor-pointer hover:bg-brand-50/50 border-t border-brand-50' : 'border-t border-brand-50'}
               onClick={() => onRowClick?.(row)}
             >
               {columns.map((c) => (
-                <td key={c.key} className="px-3 py-2 text-slate-700">{row[c.key] ?? '—'}</td>
+                <td key={c.key} className="px-3 py-2 text-slate-700 align-top">
+                  {c.render ? c.render(row) : (row[c.key] ?? '—')}
+                </td>
               ))}
             </tr>
           ))}
@@ -56,6 +99,172 @@ function DrillTable({ rows, columns, onRowClick }) {
     </div>
   )
 }
+
+function AttentionPanels({ attention, onDrill }) {
+  const stale = attention?.stale_candidates || []
+  const zeroPipeline = attention?.zero_pipeline_requisitions || []
+  const pendingHm = attention?.pending_hm_review ?? 0
+  const hasItems = stale.length > 0 || zeroPipeline.length > 0 || pendingHm > 0
+  if (!hasItems) return null
+
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {stale.length > 0 && (
+        <Card className="p-4 border-amber-100 bg-amber-50/40">
+          <p className="text-xs font-bold text-amber-800 uppercase mb-2">Stale pipeline</p>
+          <p className="text-sm text-amber-900 mb-2">{stale.length} candidate{stale.length !== 1 ? 's' : ''} idle 7+ days</p>
+          <ul className="space-y-1">
+            {stale.slice(0, 3).map((row) => (
+              <li key={`${row.candidate_id}-${row.requisition_id}`}>
+                <button
+                  type="button"
+                  className="text-sm text-amber-900 hover:underline text-left"
+                  onClick={() => onDrill?.('candidate', row)}
+                >
+                  {row.candidate_name || `Candidate #${row.candidate_id}`}
+                  {row.requisition_title ? ` · ${row.requisition_title}` : ''}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {zeroPipeline.length > 0 && (
+        <Card className="p-4 border-red-100 bg-red-50/30">
+          <p className="text-xs font-bold text-red-800 uppercase mb-2">Open reqs at risk</p>
+          <p className="text-sm text-red-900 mb-2">{zeroPipeline.length} requisition{zeroPipeline.length !== 1 ? 's' : ''} with no candidates</p>
+          <ul className="space-y-1">
+            {zeroPipeline.slice(0, 3).map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className="text-sm text-red-900 hover:underline text-left"
+                  onClick={() => onDrill?.('requisition', row)}
+                >
+                  {row.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {pendingHm > 0 && (
+        <Card className="p-4 border-brand-100 bg-brand-50/50">
+          <p className="text-xs font-bold text-brand-800 uppercase mb-2">HM review</p>
+          <p className="text-2xl font-black text-brand-900 tabular-nums">{pendingHm}</p>
+          <p className="text-sm text-slate-600 mt-1">submissions awaiting hiring manager outcome</p>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function HubFilters({ options, requisitionId, recruiterId, onRequisitionChange, onRecruiterChange }) {
+  const reqs = options?.requisitions || []
+  const recruiters = options?.recruiters || []
+  if (!reqs.length && !recruiters.length) return null
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      {reqs.length > 0 && (
+        <select
+          value={requisitionId ?? ''}
+          onChange={(e) => onRequisitionChange(e.target.value ? Number(e.target.value) : null)}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          aria-label="Filter by requisition"
+        >
+          <option value="">All requisitions</option>
+          {reqs.map((r) => (
+            <option key={r.id} value={r.id}>{r.title}</option>
+          ))}
+        </select>
+      )}
+      {recruiters.length > 0 && (
+        <select
+          value={recruiterId ?? ''}
+          onChange={(e) => onRecruiterChange(e.target.value ? Number(e.target.value) : null)}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          aria-label="Filter by recruiter"
+        >
+          <option value="">All recruiters</option>
+          {recruiters.map((u) => (
+            <option key={u.id} value={u.id}>{u.email}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
+const SCREENING_COLUMNS = [
+  {
+    key: 'candidate_name',
+    label: 'Candidate',
+    render: (row) => (
+      <div>
+        <p className="font-semibold text-slate-900">{row.candidate_name || '—'}</p>
+        {row.candidate_email && (
+          <p className="text-xs text-slate-500 truncate max-w-[200px]">{row.candidate_email}</p>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: 'role_title',
+    label: 'Role',
+    render: (row) => (
+      <span className="text-slate-700">{row.requisition_title || row.role_title || '—'}</span>
+    ),
+  },
+  {
+    key: 'fit_score',
+    label: 'Score',
+    render: (row) => (
+      <span className={scoreColorClass(row.fit_score)}>
+        {row.fit_score != null && row.fit_score !== '' ? row.fit_score : 'Unscored'}
+      </span>
+    ),
+  },
+  {
+    key: 'recommendation',
+    label: 'Recommendation',
+    render: (row) => (
+      row.recommendation
+        ? <Badge color={recommendationColor(row.recommendation)} className="capitalize">{row.recommendation}</Badge>
+        : <span className="text-slate-400 text-xs">No recommendation</span>
+    ),
+  },
+  {
+    key: 'timestamp',
+    label: 'Screened',
+    render: (row) => <span className="text-slate-500 text-xs whitespace-nowrap">{formatRelativeTime(row.timestamp)}</span>,
+  },
+]
+
+const INTERVIEW_COLUMNS = [
+  {
+    key: 'candidate_name',
+    label: 'Candidate',
+    render: (row) => (
+      <div>
+        <p className="font-semibold text-slate-900">{row.candidate_name || `Candidate #${row.candidate_id}`}</p>
+        {row.candidate_email && <p className="text-xs text-slate-500">{row.candidate_email}</p>}
+      </div>
+    ),
+  },
+  { key: 'resume_score', label: 'Resume' },
+  { key: 'call_score', label: 'Call' },
+  {
+    key: 'delta',
+    label: 'Delta',
+    render: (row) => {
+      const d = row.delta
+      if (d == null) return '—'
+      const cls = d > 0 ? 'text-green-700' : d < 0 ? 'text-red-700' : 'text-slate-600'
+      return <span className={`font-semibold tabular-nums ${cls}`}>{d > 0 ? `+${d}` : d}</span>
+    },
+  },
+]
 
 function ScreeningSlice({ data, onDrill }) {
   const kpis = data?.kpis || {}
@@ -72,18 +281,18 @@ function ScreeningSlice({ data, onDrill }) {
           {(data?.top_skill_gaps || []).map((g) => (
             <Badge key={g.skill} color="amber">{g.skill} ({g.count})</Badge>
           ))}
+          {!(data?.top_skill_gaps || []).length && (
+            <p className="text-sm text-slate-500">No skill gaps recorded for this period.</p>
+          )}
         </div>
       </Card>
       <Card className="p-4">
-        <p className="text-xs font-bold text-slate-500 uppercase mb-3">Drill-down — click row to open report</p>
+        <p className="text-xs font-bold text-slate-500 uppercase mb-3">Recent screenings — click row to open report</p>
         <DrillTable
           rows={data?.drill_down || []}
-          columns={[
-            { key: 'candidate_id', label: 'Candidate' },
-            { key: 'fit_score', label: 'Score' },
-            { key: 'recommendation', label: 'Rec' },
-          ]}
-          onRowClick={(row) => onDrill?.('candidate', row)}
+          columns={SCREENING_COLUMNS}
+          onRowClick={(row) => onDrill?.('screening', row)}
+          emptyMessage="No screenings in this period. Run an analysis to populate this table."
         />
       </Card>
     </div>
@@ -98,6 +307,29 @@ function FunnelSlice({ data, onDrill }) {
           <Badge key={stage} color="brand" className="capitalize">{stage}: {count}</Badge>
         ))}
       </div>
+      {(data?.stale_candidates || []).length > 0 && (
+        <Card className="p-4">
+          <p className="text-xs font-bold text-slate-500 uppercase mb-3">Stale candidates (7+ days)</p>
+          <DrillTable
+            rows={data.stale_candidates}
+            columns={[
+              {
+                key: 'candidate_name',
+                label: 'Candidate',
+                render: (row) => row.candidate_name || `Candidate #${row.candidate_id}`,
+              },
+              { key: 'requisition_title', label: 'Requisition' },
+              { key: 'pipeline_status', label: 'Status' },
+              {
+                key: 'updated_at',
+                label: 'Last update',
+                render: (row) => formatRelativeTime(row.updated_at),
+              },
+            ]}
+            onRowClick={(row) => onDrill?.('candidate', row)}
+          />
+        </Card>
+      )}
       <Card className="p-4">
         <p className="text-xs font-bold text-slate-500 uppercase mb-3">By requisition</p>
         <DrillTable
@@ -196,18 +428,23 @@ export default function AnalyticsHub({ period = 'last_30_days', initialSlice = '
   const [slice, setSlice] = useState(initialSlice)
   const [hub, setHub] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [requisitionId, setRequisitionId] = useState(null)
+  const [recruiterId, setRecruiterId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getAnalyticsHub({ period })
+      const params = { period }
+      if (requisitionId) params.requisition_id = requisitionId
+      if (recruiterId) params.recruiter_id = recruiterId
+      const data = await getAnalyticsHub(params)
       setHub(data)
     } catch {
       setHub(null)
     } finally {
       setLoading(false)
     }
-  }, [period])
+  }, [period, requisitionId, recruiterId])
 
   useEffect(() => {
     load()
@@ -220,8 +457,13 @@ export default function AnalyticsHub({ period = 'last_30_days', initialSlice = '
   }, [initialSlice])
 
   const onDrill = (type, row) => {
+    if (type === 'screening' && (row.result_id || row.id)) {
+      navigate(`/report?id=${row.result_id || row.id}`)
+      return
+    }
     if (type === 'candidate' && row.candidate_id) {
       navigate(`/candidates/${row.candidate_id}`)
+      return
     }
     if (type === 'requisition' && row.requisition_id) {
       navigate(`/requisitions/${row.requisition_id}?tab=pipeline`)
@@ -244,76 +486,83 @@ export default function AnalyticsHub({ period = 'last_30_days', initialSlice = '
         </div>
       ) : !hub ? (
         <EmptyState title="Analytics unavailable" description="Could not load hub data." />
-      ) : slice === 'screening' ? (
-        <ScreeningSlice data={slices.screening} onDrill={onDrill} />
-      ) : slice === 'funnel' ? (
-        <FunnelSlice data={slices.funnel} onDrill={onDrill} />
-      ) : slice === 'interviews' ? (
-        <div className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-3">
-            <KpiTile label="Sessions" value={slices.interviews?.kpis?.total_sessions ?? 0} />
-            <KpiTile label="Completion" value={slices.interviews?.kpis?.completion_rate ?? 0} suffix="%" />
-            <KpiTile label="Avg duration" value={slices.interviews?.kpis?.avg_duration_min ?? 0} suffix="m" />
-          </div>
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 uppercase mb-3">Resume vs call score delta</p>
-            <DrillTable
-              rows={slices.interviews?.resume_vs_call_delta || []}
-              columns={[
-                { key: 'candidate_id', label: 'Candidate' },
-                { key: 'resume_score', label: 'Resume' },
-                { key: 'call_score', label: 'Call' },
-                { key: 'delta', label: 'Delta' },
-              ]}
-              onRowClick={(row) => onDrill('candidate', row)}
-            />
-          </Card>
-        </div>
-      ) : slice === 'team' ? (
-        <DrillTable
-          rows={slices.team?.recruiter_activity || []}
-          columns={[
-            { key: 'name', label: 'Recruiter' },
-            { key: 'analyses', label: 'Analyses' },
-          ]}
-        />
-      ) : slice === 'hm' ? (
-        <div className="grid sm:grid-cols-3 gap-3">
-          <KpiTile label="Submissions" value={slices.hm?.submissions_sent ?? 0} />
-          <KpiTile label="Pending HM" value={slices.hm?.pending_hm_review ?? 0} />
-          <KpiTile label="Avg turnaround" value={slices.hm?.avg_turnaround_hours ?? '—'} suffix="h" />
-        </div>
-      ) : slice === 'leadership' ? (
-        <Card className="p-4 space-y-2">
-          <p className="text-sm font-semibold">Open requisitions: {slices.leadership?.open_requisitions ?? 0}</p>
-          {(slices.leadership?.risk_flags?.zero_pipeline || []).map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="block text-sm text-amber-700 hover:underline"
-              onClick={() => navigate(`/requisitions/${r.id}`)}
-            >
-              {r.title} — zero pipeline
-            </button>
-          ))}
-        </Card>
-      ) : slice === 'ats' ? (
-        <div className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-3">
-            <KpiTile label="Sync success" value={slices.ats?.sync_success_rate ?? 0} suffix="%" />
-            <KpiTile label="Failed syncs" value={slices.ats?.sync_failed ?? 0} />
-            <KpiTile label="Connections" value={slices.ats?.active_connections ?? 0} />
-          </div>
-          <DrillTable
-            rows={slices.ats?.recent_failures || []}
-            columns={[
-              { key: 'entity_type', label: 'Entity' },
-              { key: 'error_message', label: 'Error' },
-            ]}
-          />
-        </div>
       ) : (
-        <ReportsSlice period={period} />
+        <>
+          <HubFilters
+            options={hub.filter_options}
+            requisitionId={requisitionId}
+            recruiterId={recruiterId}
+            onRequisitionChange={setRequisitionId}
+            onRecruiterChange={setRecruiterId}
+          />
+          <AttentionPanels attention={hub.attention} onDrill={onDrill} />
+          {slice === 'screening' ? (
+            <ScreeningSlice data={slices.screening} onDrill={onDrill} />
+          ) : slice === 'funnel' ? (
+            <FunnelSlice data={slices.funnel} onDrill={onDrill} />
+          ) : slice === 'interviews' ? (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-3 gap-3">
+                <KpiTile label="Sessions" value={slices.interviews?.kpis?.total_sessions ?? 0} />
+                <KpiTile label="Completion" value={slices.interviews?.kpis?.completion_rate ?? 0} suffix="%" />
+                <KpiTile label="Avg duration" value={slices.interviews?.kpis?.avg_duration_min ?? 0} suffix="m" />
+              </div>
+              <Card className="p-4">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Resume vs call score delta</p>
+                <DrillTable
+                  rows={slices.interviews?.resume_vs_call_delta || []}
+                  columns={INTERVIEW_COLUMNS}
+                  onRowClick={(row) => onDrill('candidate', row)}
+                />
+              </Card>
+            </div>
+          ) : slice === 'team' ? (
+            <DrillTable
+              rows={slices.team?.recruiter_activity || []}
+              columns={[
+                { key: 'email', label: 'Recruiter' },
+                { key: 'analyses', label: 'Analyses' },
+              ]}
+            />
+          ) : slice === 'hm' ? (
+            <div className="grid sm:grid-cols-3 gap-3">
+              <KpiTile label="Submissions" value={slices.hm?.submissions_sent ?? 0} />
+              <KpiTile label="Pending HM" value={slices.hm?.pending_hm_review ?? 0} />
+              <KpiTile label="Avg turnaround" value={slices.hm?.avg_turnaround_hours ?? '—'} suffix="h" />
+            </div>
+          ) : slice === 'leadership' ? (
+            <Card className="p-4 space-y-2">
+              <p className="text-sm font-semibold">Open requisitions: {slices.leadership?.open_requisitions ?? 0}</p>
+              {(slices.leadership?.risk_flags?.zero_pipeline || []).map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="block text-sm text-amber-700 hover:underline"
+                  onClick={() => navigate(`/requisitions/${r.id}`)}
+                >
+                  {r.title} — zero pipeline
+                </button>
+              ))}
+            </Card>
+          ) : slice === 'ats' ? (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-3 gap-3">
+                <KpiTile label="Sync success" value={slices.ats?.sync_success_rate ?? 0} suffix="%" />
+                <KpiTile label="Failed syncs" value={slices.ats?.sync_failed ?? 0} />
+                <KpiTile label="Connections" value={slices.ats?.active_connections ?? 0} />
+              </div>
+              <DrillTable
+                rows={slices.ats?.recent_failures || []}
+                columns={[
+                  { key: 'entity_type', label: 'Entity' },
+                  { key: 'error_message', label: 'Error' },
+                ]}
+              />
+            </div>
+          ) : (
+            <ReportsSlice period={period} />
+          )}
+        </>
       )}
     </div>
   )
