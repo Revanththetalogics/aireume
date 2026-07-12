@@ -11,6 +11,7 @@ vi.mock('../contexts/AuthContext', () => ({
 
 vi.mock('../lib/api', () => ({
   getSSOConfig: vi.fn().mockResolvedValue(null),
+  getOAuthProviders: vi.fn().mockResolvedValue({ providers: [] }),
 }))
 
 vi.mock('react-router-dom', async () => {
