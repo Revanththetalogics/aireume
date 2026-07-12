@@ -1176,6 +1176,15 @@ class RequisitionHmApproval(BaseModel):
     notes: Optional[str] = None
 
 
+class RequisitionHmRequestCreate(BaseModel):
+    email: str
+    notes: Optional[str] = None
+
+
+class RequisitionHmRequestDecision(BaseModel):
+    notes: Optional[str] = None
+
+
 class RequisitionCandidateAdd(BaseModel):
     candidate_ids: List[int]
     screening_result_ids: Optional[Dict[int, int]] = None
@@ -1268,6 +1277,12 @@ class RequisitionOut(BaseModel):
     candidate_count: int = 0
     intake_gate_warning: Optional[str] = None
     is_calibrated: bool = False
+    hm_request_email: Optional[str] = None
+    hm_request_status: Optional[str] = None
+    hm_requested_by: Optional[int] = None
+    hm_requested_by_email: Optional[str] = None
+    hm_requested_at: Optional[datetime] = None
+    hm_request_notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

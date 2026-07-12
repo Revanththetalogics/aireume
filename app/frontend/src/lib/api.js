@@ -1233,6 +1233,26 @@ export async function checkRequisitionIntakeGate(reqId) {
   return response.data
 }
 
+export async function requestRequisitionHm(reqId, { email, notes = null }) {
+  const response = await api.post(`/requisitions/${reqId}/hm-request`, { email, notes })
+  return response.data
+}
+
+export async function approveRequisitionHmRequest(reqId) {
+  const response = await api.post(`/requisitions/${reqId}/hm-request/approve`)
+  return response.data
+}
+
+export async function rejectRequisitionHmRequest(reqId, notes = null) {
+  const response = await api.post(`/requisitions/${reqId}/hm-request/reject`, { notes })
+  return response.data
+}
+
+export async function listPendingHmRequests() {
+  const response = await api.get('/requisitions/hm-requests')
+  return response.data
+}
+
 export async function getRequisitionCriteriaVersions(reqId) {
   const response = await api.get(`/requisitions/${reqId}/criteria-versions`)
   return response.data

@@ -415,6 +415,105 @@ class TestRequisitionApi:
         assert rc is not None
 
 
+class TestHmRequestGovernance:
+    def _recruiter_client(self, client, db):
+        admin = _admin_user(db)
+        user = User(
+            tenant_id=admin.tenant_id,
+            email="recruiter-hm-req@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            role="recruiter",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        login = client.post("/api/auth/login", json={"email": user.email, "password": "pass"})
+        assert login.status_code == 200, login.text
+        token = login.json()["access_token"]
+        client.headers.update({"Authorization": f"Bearer {token}"})
+        return user
+
+    def test_recruiter_submits_hm_request(self, client, db, auth_client):
+        from app.backend.tests.test_workflows_e2e import _JD
+
+        self._recruiter_client(client, db)
+        admin = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=admin.id,
+            title="HM Request Test",
+            jd_text=_JD,
+        )
+        db.commit()
+
+        resp = client.post(
+            f"/api/requisitions/{req.id}/hm-request",
+            json={"email": "new.hm@testcorp.com", "notes": "Finance director"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["hm_request_email"] == "new.hm@testcorp.com"
+        assert data["hm_request_status"] == "pending"
+
+    def test_admin_approves_hm_request(self, db, auth_client):
+        from app.backend.tests.test_workflows_e2e import _JD
+        from app.backend.services.requisition_service import request_hm_for_requisition
+
+        admin = _admin_user(db)
+        recruiter = User(
+            tenant_id=admin.tenant_id,
+            email="recruiter-approve-hm@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            role="recruiter",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(recruiter)
+        db.commit()
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=recruiter.id,
+            title="HM Approve Test",
+            jd_text=_JD,
+        )
+        request_hm_for_requisition(
+            db, req, email="approve.hm@testcorp.com", requested_by=recruiter.id,
+        )
+        db.commit()
+
+        resp = auth_client.post(f"/api/requisitions/{req.id}/hm-request/approve")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["primary_hiring_manager_email"] == "approve.hm@testcorp.com"
+        assert data["hm_request_status"] == "approved"
+
+        hm = db.query(User).filter(User.email == "approve.hm@testcorp.com").first()
+        assert hm is not None
+        assert hm.role == "hiring_manager"
+
+    def test_admin_cannot_use_request_endpoint(self, auth_client, db):
+        from app.backend.tests.test_workflows_e2e import _JD
+
+        admin = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=admin.id,
+            title="Admin Request Blocked",
+            jd_text=_JD,
+        )
+        db.commit()
+
+        resp = auth_client.post(
+            f"/api/requisitions/{req.id}/hm-request",
+            json={"email": "blocked@testcorp.com"},
+        )
+        assert resp.status_code == 400
+
+
 class TestPipelineBackfill:
     def test_backfill_from_legacy_screening(self, db, auth_client):
         from app.backend.tests.test_workflows_e2e import _JD

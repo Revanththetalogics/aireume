@@ -324,28 +324,53 @@ def suggest_intake_from_jd(req: Requisition) -> dict[str, Any]:
     return intake
 
 
+def _admin_intake_gate_override(user: Any | None) -> bool:
+    """Tenant admins may screen once intake is saved, even without HM or HM approval."""
+    if user is None:
+        return False
+    from app.backend.middleware.rbac import is_tenant_admin
+    return is_tenant_admin(user)
+
+
 def intake_gate_message(
     settings: TenantRequisitionSettings,
     req: Requisition,
     db: Session | None = None,
+    user: Any | None = None,
 ) -> str | None:
     mode = settings.intake_gate_mode or "warn"
     if mode == "optional":
         return None
+    admin_override = _admin_intake_gate_override(user)
     if intake_screening_ready(req, db):
         if mode == "block" and req.intake_status != "approved":
+            if admin_override:
+                return (
+                    "HM approval pending (tenant policy) — admin override allows screening. "
+                    "Assign an HM when ready."
+                )
             return (
                 "HM must approve intake before screening (tenant policy). "
                 "Save intake and request HM approval."
             )
         return None
-    if not requisition_has_hiring_manager(req, db):
-        return "Assign a hiring manager on this requisition before screening candidates."
     if not intake_has_minimum_content(req):
         return (
             "Save HM intake first — add screen-focus topics or must-haves, then screen candidates. "
             "Calibrate later when HM feedback changes the bar."
         )
+    if not requisition_has_hiring_manager(req, db):
+        if getattr(req, "hm_request_status", None) == "pending" and getattr(req, "hm_request_email", None):
+            return (
+                f"Hiring manager access requested for {req.hm_request_email} — "
+                "waiting for tenant admin approval."
+            )
+        if admin_override:
+            return (
+                "No hiring manager assigned — assign one in Overview. "
+                "Admin override allows screening once intake is saved."
+            )
+        return "Assign a hiring manager on this requisition before screening candidates."
     return None
 
 
@@ -353,12 +378,15 @@ def intake_gate_blocks(
     settings: TenantRequisitionSettings,
     req: Requisition,
     db: Session | None = None,
+    user: Any | None = None,
 ) -> bool:
     mode = settings.intake_gate_mode or "warn"
     if mode == "optional":
         return False
     if not intake_has_minimum_content(req):
         return True
+    if _admin_intake_gate_override(user):
+        return False
     if not requisition_has_hiring_manager(req, db):
         return True
     if mode == "block" and req.intake_status != "approved":
@@ -392,6 +420,113 @@ def assign_hiring_managers(
         ))
 
 
+HM_REQUEST_STATUSES = {"pending", "approved", "rejected"}
+
+
+def request_hm_for_requisition(
+    db: Session,
+    req: Requisition,
+    *,
+    email: str,
+    requested_by: int,
+    notes: str | None = None,
+) -> Requisition:
+    """Recruiter submits HM email for tenant admin to approve and provision."""
+    normalized = (email or "").strip().lower()
+    if not normalized or "@" not in normalized:
+        raise ValueError("A valid hiring manager email is required")
+
+    if requisition_has_hiring_manager(req, db):
+        raise ValueError("A hiring manager is already assigned on this requisition")
+
+    existing = db.query(User).filter(User.email == normalized).first()
+    if existing and existing.tenant_id != req.tenant_id:
+        raise ValueError("This email belongs to another organization")
+
+    req.hm_request_email = normalized
+    req.hm_request_status = "pending"
+    req.hm_requested_by = requested_by
+    req.hm_requested_at = datetime.now(timezone.utc)
+    req.hm_request_notes = (notes or "").strip() or None
+    if req.status == "draft":
+        req.status = "intake_in_progress"
+    db.flush()
+    return req
+
+
+def approve_hm_request(
+    db: Session,
+    req: Requisition,
+    *,
+    approved_by: int,
+) -> tuple[Requisition, User]:
+    """Admin approves pending HM request — create or link user and assign to requisition."""
+    import secrets
+    from app.backend.routes.auth import _hash_password
+    from app.backend.middleware.rbac import TENANT_ROLE_HIRING_MANAGER
+
+    if req.hm_request_status != "pending" or not req.hm_request_email:
+        raise ValueError("No pending hiring manager request on this requisition")
+
+    email = req.hm_request_email
+    user = (
+        db.query(User)
+        .filter(User.email == email, User.tenant_id == req.tenant_id)
+        .first()
+    )
+    if user:
+        if not user.is_active:
+            user.is_active = True
+    else:
+        global_existing = db.query(User).filter(User.email == email).first()
+        if global_existing:
+            raise ValueError("This email is already registered in another organization")
+        user = User(
+            tenant_id=req.tenant_id,
+            email=email,
+            hashed_password=_hash_password(secrets.token_urlsafe(12)),
+            role=TENANT_ROLE_HIRING_MANAGER,
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+
+    assign_hiring_managers(db, req, user.id, None)
+    if req.intake_status == "draft":
+        req.intake_status = "pending_hm"
+    req.hm_request_status = "approved"
+    db.flush()
+    return req, user
+
+
+def reject_hm_request(
+    db: Session,
+    req: Requisition,
+    *,
+    rejected_by: int,
+    notes: str | None = None,
+) -> Requisition:
+    if req.hm_request_status != "pending":
+        raise ValueError("No pending hiring manager request on this requisition")
+    req.hm_request_status = "rejected"
+    if notes:
+        req.hm_request_notes = notes.strip()
+    db.flush()
+    return req
+
+
+def list_pending_hm_requests(db: Session, tenant_id: int) -> list[Requisition]:
+    return (
+        db.query(Requisition)
+        .filter(
+            Requisition.tenant_id == tenant_id,
+            Requisition.hm_request_status == "pending",
+        )
+        .order_by(Requisition.hm_requested_at.desc())
+        .all()
+    )
+
+
 def requisition_to_dict(
     db: Session,
     req: Requisition,
@@ -409,6 +544,11 @@ def requisition_to_dict(
     if req.primary_hiring_manager_id:
         u = db.get(User, req.primary_hiring_manager_id)
         primary_email = u.email if u else None
+
+    requester_email = None
+    if req.hm_requested_by:
+        requester = db.get(User, req.hm_requested_by)
+        requester_email = requester.email if requester else None
 
     return {
         "id": req.id,
@@ -433,6 +573,12 @@ def requisition_to_dict(
         "primary_hiring_manager_id": req.primary_hiring_manager_id,
         "primary_hiring_manager_email": primary_email,
         "hiring_manager_ids": hm_ids,
+        "hm_request_email": req.hm_request_email,
+        "hm_request_status": req.hm_request_status,
+        "hm_requested_by": req.hm_requested_by,
+        "hm_requested_by_email": requester_email,
+        "hm_requested_at": req.hm_requested_at,
+        "hm_request_notes": req.hm_request_notes,
         "created_by": req.created_by,
         "legacy_role_template_id": req.legacy_role_template_id,
         "external_ats_id": req.external_ats_id,

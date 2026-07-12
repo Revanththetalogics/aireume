@@ -80,10 +80,29 @@ class TestTeamManagement:
         # The current admin user should appear in the list
         assert len(resp.json()) >= 1
 
-    def test_invite_requires_admin(self, auth_client):
+    def test_invite_allows_admin_any_role(self, auth_client):
         resp = auth_client.post("/api/invites", json={"email": "new@example.com", "role": "recruiter"})
         # Admin fixture has role=admin, so this should succeed
         assert resp.status_code in (200, 201)
+
+    def test_recruiter_can_invite_hiring_manager(self, client, auth_headers):
+        resp = client.post(
+            "/api/invites",
+            json={"email": "hm-invite@testcorp.com", "role": "hiring_manager"},
+            headers=auth_headers,
+        )
+        assert resp.status_code in (200, 201)
+        data = resp.json()
+        assert data.get("role") == "hiring_manager"
+        assert data.get("user_id")
+
+    def test_recruiter_cannot_invite_non_hm_role(self, client, auth_headers):
+        resp = client.post(
+            "/api/invites",
+            json={"email": "recruiter-invite@testcorp.com", "role": "recruiter"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 403
 
     def test_invite_creates_user_with_temp_password(self, auth_client):
         resp = auth_client.post("/api/invites", json={"email": "recruiter@testcorp.com", "role": "recruiter"})

@@ -162,7 +162,7 @@ export default function RequisitionsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, primary_hiring_manager_id: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm bg-white"
               >
-                <option value="">Assign later in intake</option>
+                <option value="">Assign later on requisition Overview</option>
                 {hmCandidates.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.email} ({m.role.replace(/_/g, ' ')})

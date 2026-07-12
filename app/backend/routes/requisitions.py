@@ -38,6 +38,8 @@ from app.backend.models.schemas import (
     RequisitionCandidateStatusUpdate,
     RequisitionCreate,
     RequisitionHmApproval,
+    RequisitionHmRequestCreate,
+    RequisitionHmRequestDecision,
     RequisitionIntakeUpdate,
     RequisitionOutcomeUpdate,
     RequisitionOut,
@@ -48,6 +50,7 @@ from app.backend.models.schemas import (
 )
 from app.backend.services.audit_service import log_tenant_event
 from app.backend.services.requisition_service import (
+    approve_hm_request,
     assign_hiring_managers,
     backfill_pipeline_from_screenings,
     build_submission_packet,
@@ -60,7 +63,10 @@ from app.backend.services.requisition_service import (
     intake_has_minimum_content,
     intake_screening_ready,
     is_requisition_calibrated,
+    list_pending_hm_requests,
     migrate_legacy_data,
+    reject_hm_request,
+    request_hm_for_requisition,
     requisition_has_hiring_manager,
     requisition_to_dict,
     req_candidate_to_dict,
@@ -97,13 +103,18 @@ def _count_candidates(db: Session, req_id: int) -> int:
     )
 
 
-def _to_out(db: Session, req: Requisition, tenant_id: int) -> RequisitionOut:
+def _to_out(
+    db: Session,
+    req: Requisition,
+    tenant_id: int,
+    current_user: User | None = None,
+) -> RequisitionOut:
     settings = get_or_create_tenant_settings(db, tenant_id)
     data = requisition_to_dict(
         db,
         req,
         candidate_count=_count_candidates(db, req.id),
-        gate_warning=intake_gate_message(settings, req, db),
+        gate_warning=intake_gate_message(settings, req, db, user=current_user),
     )
     return RequisitionOut(**data)
 
@@ -224,7 +235,7 @@ def create_req(
         details={"title": req.title},
     )
     db.commit()
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.get("", response_model=list[RequisitionOut])
@@ -253,7 +264,18 @@ def list_reqs(
         q = q.filter(Requisition.status == status_filter)
     q = q.order_by(Requisition.updated_at.desc())
     rows = q.all()
-    return [_to_out(db, r, current_user.tenant_id) for r in rows]
+    return [_to_out(db, r, current_user.tenant_id, current_user=current_user) for r in rows]
+
+
+@router.get("/hm-requests", response_model=list[RequisitionOut])
+def list_hm_requests(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Tenant admins — pending hiring manager access requests across requisitions."""
+    _ensure_migrated(db, current_user.tenant_id)
+    rows = list_pending_hm_requests(db, current_user.tenant_id)
+    return [_to_out(db, r, current_user.tenant_id, current_user=current_user) for r in rows]
 
 
 @router.get("/{req_id}", response_model=RequisitionOut)
@@ -264,7 +286,7 @@ def get_req(
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
     require_requisition_access(current_user, req, db)
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.put("/{req_id}", response_model=RequisitionOut)
@@ -306,9 +328,13 @@ def update_req(
         req.must_ask_questions_json = json.dumps(body.must_ask_questions_json)
     if body.primary_hiring_manager_id is not None:
         assign_hiring_managers(db, req, body.primary_hiring_manager_id, None)
+        if req.intake_status == "draft":
+            req.intake_status = "pending_hm"
+        if req.status == "draft":
+            req.status = "intake_in_progress"
     db.commit()
     db.refresh(req)
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -346,7 +372,7 @@ def update_intake(
     sync_working_criteria_v0(db, req)
     db.commit()
     db.refresh(req)
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.post("/{req_id}/intake/suggest")
@@ -389,7 +415,7 @@ def calibrate(
         details={"version": req.current_criteria_version},
     )
     db.commit()
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.put("/{req_id}/criteria", response_model=RequisitionOut)
@@ -421,7 +447,7 @@ def update_criteria(
         details={"version": req.current_criteria_version},
     )
     db.commit()
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.post("/{req_id}/hm-approval", response_model=RequisitionOut)
@@ -444,7 +470,97 @@ def hm_approval(
         req.intake_status = "changes_requested"
     db.commit()
     db.refresh(req)
-    return _to_out(db, req, current_user.tenant_id)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.post("/{req_id}/hm-request", response_model=RequisitionOut)
+def submit_hm_request(
+    req_id: int,
+    body: RequisitionHmRequestCreate,
+    current_user: User = Depends(require_recruiter_or_admin),
+    db: Session = Depends(get_db),
+):
+    """Recruiter requests HM access — tenant admin must approve before account is created."""
+    req = _load_req(db, req_id, current_user.tenant_id)
+    require_requisition_access(current_user, req, db)
+    if is_tenant_admin(current_user):
+        raise HTTPException(
+            status_code=400,
+            detail="Admins can assign hiring managers directly — use the dropdown or Invite HM.",
+        )
+    try:
+        request_hm_for_requisition(
+            db,
+            req,
+            email=body.email,
+            requested_by=current_user.id,
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(req)
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="requisition.hm_request",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"email": req.hm_request_email, "notes": body.notes},
+    )
+    db.commit()
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.post("/{req_id}/hm-request/approve", response_model=RequisitionOut)
+def approve_hm_request_route(
+    req_id: int,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    req = _load_req(db, req_id, current_user.tenant_id)
+    try:
+        req, hm_user = approve_hm_request(db, req, approved_by=current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(req)
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="requisition.hm_request_approved",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"email": hm_user.email, "user_id": hm_user.id},
+    )
+    db.commit()
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.post("/{req_id}/hm-request/reject", response_model=RequisitionOut)
+def reject_hm_request_route(
+    req_id: int,
+    body: RequisitionHmRequestDecision,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    req = _load_req(db, req_id, current_user.tenant_id)
+    try:
+        reject_hm_request(db, req, rejected_by=current_user.id, notes=body.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(req)
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="requisition.hm_request_rejected",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"email": req.hm_request_email, "notes": body.notes},
+    )
+    db.commit()
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
 @router.get("/{req_id}/criteria-versions")
@@ -695,8 +811,9 @@ def check_intake_gate(
     req = _load_req(db, req_id, current_user.tenant_id)
     settings = get_or_create_tenant_settings(db, current_user.tenant_id)
     return {
-        "blocks": intake_gate_blocks(settings, req, db),
-        "warning": intake_gate_message(settings, req, db),
+        "blocks": intake_gate_blocks(settings, req, db, user=current_user),
+        "warning": intake_gate_message(settings, req, db, user=current_user),
+        "admin_override": is_tenant_admin(current_user),
         "is_calibrated": is_requisition_calibrated(req),
         "intake_has_minimum_content": intake_has_minimum_content(req),
         "hm_assigned": requisition_has_hiring_manager(req, db),

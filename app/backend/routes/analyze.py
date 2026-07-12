@@ -21,7 +21,7 @@ import concurrent.futures
 from collections import defaultdict
 from datetime import datetime, date, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -577,6 +577,7 @@ def _resolve_requisition(
     job_description: str,
     parsed_skill_overrides: dict | None,
     weights: dict | None,
+    current_user: Any | None = None,
 ) -> tuple[int | None, str, dict | None, dict | None, int | None]:
     """Load requisition context — JD, skills, intake gate, legacy template id."""
     if not requisition_id:
@@ -597,11 +598,11 @@ def _resolve_requisition(
         raise HTTPException(status_code=404, detail="Requisition not found")
     ensure_legacy_role_template(db, req)
     settings = get_or_create_tenant_settings(db, tenant_id)
-    if intake_gate_blocks(settings, req, db):
+    if intake_gate_blocks(settings, req, db, user=current_user):
         raise HTTPException(
             status_code=400,
             detail={
-                "message": intake_gate_message(settings, req, db),
+                "message": intake_gate_message(settings, req, db, user=current_user),
                 "error_code": "INTAKE_GATE_BLOCKED",
                 "requisition_id": requisition_id,
             },
@@ -627,10 +628,12 @@ def _finalize_analyze_context(
     parsed_skill_overrides: dict | None,
     requisition_id: int | None,
     template_id: int | None,
+    current_user: Any | None = None,
 ) -> tuple[str, dict | None, dict | None, int | None, int | None]:
     """Apply requisition resolution and legacy template bridge."""
     req_id, jd, overrides, wts, legacy_tpl = _resolve_requisition(
         db, requisition_id, tenant_id, job_description, parsed_skill_overrides, weights,
+        current_user=current_user,
     )
     tpl = template_id
     if legacy_tpl and not tpl:
@@ -1847,7 +1850,7 @@ async def analyze_endpoint(
 
     job_description, parsed_skill_overrides, weights, requisition_id, legacy_tpl = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, weights, parsed_skill_overrides,
-        requisition_id, template_id,
+        requisition_id, template_id, current_user=current_user,
     )
     template_id = legacy_tpl
 
@@ -2224,7 +2227,7 @@ async def analyze_stream_endpoint(
 
     job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, weights, parsed_skill_overrides,
-        requisition_id, template_id,
+        requisition_id, template_id, current_user=current_user,
     )
 
     file_hash = hashlib.md5(content).hexdigest()
@@ -2663,6 +2666,7 @@ async def batch_analyze_chunked_endpoint(
 
     job_description, _, weights, requisition_id, template_id = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, weights, None, requisition_id, template_id,
+        current_user=current_user,
     )
 
     # Pre-parse JD once
@@ -2978,7 +2982,7 @@ async def batch_analyze_stream_endpoint(
 
     job_description, parsed_skill_overrides, parsed_weights, requisition_id, template_id = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, parsed_weights, parsed_skill_overrides,
-        requisition_id, template_id,
+        requisition_id, template_id, current_user=current_user,
     )
 
     # Pre-parse JD once
@@ -3303,6 +3307,7 @@ async def batch_analyze_endpoint(
 
     job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, weights, None, requisition_id, template_id,
+        current_user=current_user,
     )
 
     # Pre-parse JD once for all resumes in this batch

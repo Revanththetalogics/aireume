@@ -102,7 +102,10 @@ def invite_member(
                 new_user.email, new_user.role)
 
     return {
-        "message": "Team member invited successfully. The temporary password has been logged securely."
+        "message": "Team member invited successfully. The temporary password has been logged securely.",
+        "user_id": new_user.id,
+        "email": new_user.email,
+        "role": new_user.role,
     }
 
 

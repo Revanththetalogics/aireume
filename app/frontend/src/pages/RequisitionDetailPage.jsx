@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Briefcase, Loader2, Users, CheckCircle2, Sparkles,
-  ListChecks, Columns3, Wand2,
+  ListChecks, Columns3, Wand2, UserPlus, X,
 } from 'lucide-react'
 import {
   getRequisition,
@@ -21,6 +21,11 @@ import {
   updateRequisitionCriteria,
   updateRequisition,
   checkRequisitionIntakeGate,
+  getTeamMembers,
+  inviteTeamMember,
+  requestRequisitionHm,
+  approveRequisitionHmRequest,
+  rejectRequisitionHmRequest,
 } from '../lib/api'
 import { PIPELINE_STAGES } from '../lib/constants'
 import { Button, Card } from '../components/ui'
@@ -29,6 +34,7 @@ import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { REQUISITIONS } from '../lib/uxLabels'
 import { showSuccess, showError } from '../lib/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 const TABS = [
   { id: 'overview', label: REQUISITIONS.overviewTab, icon: Briefcase },
@@ -43,6 +49,119 @@ const COLUMN_STYLES = {
   shortlisted: { header: 'bg-green-50 text-green-800 border-green-200', badge: 'bg-green-100 text-green-700' },
   rejected: { header: 'bg-red-50 text-red-800 border-red-200', badge: 'bg-red-100 text-red-700' },
   hired: { header: 'bg-indigo-50 text-indigo-800 border-indigo-200', badge: 'bg-indigo-100 text-indigo-700' },
+}
+
+function HmRequestModal({ onClose, onSubmitted }) {
+  const [email, setEmail] = useState('')
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    if (!email.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      await onSubmitted({ email: email.trim(), notes: notes.trim() || null })
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Request failed')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-brand-900">{REQUISITIONS.hmRequestTitle}</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 hover:bg-brand-50 rounded-lg">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">{REQUISITIONS.hmRequestHint}</p>
+        <label className="block text-sm mb-3">
+          <span className="font-semibold text-slate-700">HM email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="hiring.manager@company.com"
+            className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
+            autoFocus
+          />
+        </label>
+        <label className="block text-sm mb-4">
+          <span className="font-semibold text-slate-700">Notes for admin (optional)</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="e.g. Finance director for this FP&A opening"
+            className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm resize-none"
+          />
+        </label>
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={loading || !email.trim()}>
+            {loading ? 'Submitting…' : REQUISITIONS.hmRequestCta}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HmInviteModal({ onClose, onInvited }) {
+  const [email, setEmail] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleInvite = async () => {
+    if (!email.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await inviteTeamMember(email.trim(), 'hiring_manager')
+      await onInvited(data)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Invitation failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-brand-900">{REQUISITIONS.hmInviteTitle}</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 hover:bg-brand-50 rounded-lg">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">{REQUISITIONS.hmInviteHint}</p>
+        <label className="block text-sm mb-4">
+          <span className="font-semibold text-slate-700">Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="hiring.manager@company.com"
+            className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
+            autoFocus
+          />
+        </label>
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleInvite} disabled={loading || !email.trim()}>
+            {loading ? 'Inviting…' : REQUISITIONS.hmInviteCta}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function CriteriaVersionDiff({ versions }) {
@@ -321,7 +440,8 @@ export default function RequisitionDetailPage() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { canWrite, isHiringManager } = usePermissions()
+  const { user } = useAuth()
+  const { canWrite, isHiringManager, isAdmin } = usePermissions()
   const [req, setReq] = useState(null)
   const [intake, setIntake] = useState({})
   const [pipeline, setPipeline] = useState({})
@@ -342,6 +462,15 @@ export default function RequisitionDetailPage() {
   const [savedIntakeSnapshot, setSavedIntakeSnapshot] = useState('')
   const [intakeSavedAt, setIntakeSavedAt] = useState(null)
   const [suggestingIntake, setSuggestingIntake] = useState(false)
+  const [teamMembers, setTeamMembers] = useState([])
+  const [hmSelectId, setHmSelectId] = useState('')
+  const [savingHm, setSavingHm] = useState(false)
+  const [showHmInvite, setShowHmInvite] = useState(false)
+  const [showHmRequest, setShowHmRequest] = useState(false)
+
+  const hmCandidates = teamMembers.filter(
+    (m) => m.role === 'hiring_manager' || m.role === 'admin' || m.role === 'recruiter',
+  )
 
   const intakeDirty = savedIntakeSnapshot !== JSON.stringify(intake || {})
 
@@ -357,6 +486,7 @@ export default function RequisitionDetailPage() {
       ])
       setReq(r)
       setIntakeGate(gate)
+      setHmSelectId(r.primary_hiring_manager_id ? String(r.primary_hiring_manager_id) : '')
       const loadedIntake = r.intake_json || {}
       setIntake(loadedIntake)
       setSavedIntakeSnapshot(JSON.stringify(loadedIntake))
@@ -377,6 +507,108 @@ export default function RequisitionDetailPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const refreshTeamMembers = async () => {
+    try {
+      const data = await getTeamMembers()
+      setTeamMembers(Array.isArray(data) ? data : [])
+      return Array.isArray(data) ? data : []
+    } catch {
+      setTeamMembers([])
+      return []
+    }
+  }
+
+  useEffect(() => {
+    if (!canWrite) return
+    refreshTeamMembers()
+  }, [canWrite])
+
+  const saveHiringManager = async (managerId) => {
+    const selectedId = managerId ?? (hmSelectId ? Number(hmSelectId) : null)
+    if (!selectedId) return
+    setSavingHm(true)
+    try {
+      const updated = await updateRequisition(id, { primary_hiring_manager_id: selectedId })
+      setReq(updated)
+      setHmSelectId(String(selectedId))
+      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+      setIntakeGate(gate)
+      showSuccess('Hiring manager assigned')
+    } catch {
+      showError('Failed to assign hiring manager')
+    } finally {
+      setSavingHm(false)
+    }
+  }
+
+  const assignSelfAsHm = () => {
+    if (!user?.id) return
+    setHmSelectId(String(user.id))
+    saveHiringManager(user.id)
+  }
+
+  const handleHmInvited = async (inviteResult) => {
+    const members = await refreshTeamMembers()
+    const invitedId = inviteResult?.user_id
+      || members.find((m) => m.email === inviteResult?.email)?.id
+    setShowHmInvite(false)
+    if (invitedId) {
+      await saveHiringManager(invitedId)
+      showSuccess(REQUISITIONS.hmInviteSuccess)
+    } else {
+      showSuccess('Hiring manager invited — select them from the dropdown and save.')
+    }
+  }
+
+  const handleHmRequested = async ({ email, notes }) => {
+    const updated = await requestRequisitionHm(id, { email, notes })
+    setReq(updated)
+    const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+    setIntakeGate(gate)
+    setShowHmRequest(false)
+    showSuccess(REQUISITIONS.hmRequestSuccess)
+  }
+
+  const handleApproveHmRequest = async () => {
+    setSavingHm(true)
+    try {
+      const updated = await approveRequisitionHmRequest(id)
+      setReq(updated)
+      setHmSelectId(updated.primary_hiring_manager_id ? String(updated.primary_hiring_manager_id) : '')
+      await refreshTeamMembers()
+      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+      setIntakeGate(gate)
+      showSuccess('Hiring manager approved and assigned')
+    } catch {
+      showError('Failed to approve HM request')
+    } finally {
+      setSavingHm(false)
+    }
+  }
+
+  const handleRejectHmRequest = async () => {
+    const notes = window.prompt('Optional reason for rejection:') || null
+    setSavingHm(true)
+    try {
+      const updated = await rejectRequisitionHmRequest(id, notes)
+      setReq(updated)
+      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+      setIntakeGate(gate)
+      showSuccess('HM request rejected')
+    } catch {
+      showError('Failed to reject HM request')
+    } finally {
+      setSavingHm(false)
+    }
+  }
+
+  const focusHmAssignment = () => {
+    setTab('overview')
+    requestAnimationFrame(() => {
+      document.getElementById('hm-assignment')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
 
   const saveHiringWeights = async () => {
     setSavingWeights(true)
@@ -577,12 +809,21 @@ export default function RequisitionDetailPage() {
             {req.location ? ` · ${req.location}` : ''}
           </p>
           {req.intake_gate_warning && (
-            <p className="mt-2 text-sm text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-xl px-3 py-2">
-              {req.intake_gate_warning}
-            </p>
+            <div className="mt-2 text-sm text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-xl px-3 py-2 flex flex-wrap items-center gap-2">
+              <span className="flex-1 min-w-[12rem]">{req.intake_gate_warning}</span>
+              {canWrite && !intakeGate?.hm_assigned && (
+                <button
+                  type="button"
+                  onClick={focusHmAssignment}
+                  className="shrink-0 text-xs font-semibold text-amber-900 underline hover:no-underline"
+                >
+                  Assign hiring manager
+                </button>
+              )}
+            </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto max-w-full pb-1 shrink-0">
           {canWrite && tab === 'intake' && (
             <Button onClick={saveIntake} disabled={saving || !intakeDirty}>
               {saving ? (
@@ -604,7 +845,7 @@ export default function RequisitionDetailPage() {
             <span className="text-xs font-semibold text-amber-700 self-center">{REQUISITIONS.intakeUnsaved}</span>
           )}
           {canWrite && (
-            <Button variant="secondary" onClick={handleCalibrate} disabled={saving}>
+            <Button variant="secondary" onClick={handleCalibrate} disabled={saving} className="shrink-0 whitespace-nowrap">
               <Sparkles className="w-4 h-4" />
               {REQUISITIONS.calibrateCta}
             </Button>
@@ -625,12 +866,13 @@ export default function RequisitionDetailPage() {
               variant="ghost"
               onClick={() => navigate(`/requisitions/${id}/handoff`)}
               title={REQUISITIONS.hmReviewPackHint}
+              className="shrink-0 whitespace-nowrap"
             >
               {REQUISITIONS.hmReviewPackCta}
             </Button>
           )}
           {canWrite && (
-            <Button variant="ghost" onClick={openAddCandidates}>
+            <Button variant="ghost" onClick={openAddCandidates} className="shrink-0 whitespace-nowrap">
               Add candidates
             </Button>
           )}
@@ -638,7 +880,8 @@ export default function RequisitionDetailPage() {
             <Button
               variant="ghost"
               disabled={intakeGate?.blocks}
-              title={intakeGate?.blocks ? (intakeGate.warning || 'Save intake and calibrate before screening') : undefined}
+              title={intakeGate?.blocks ? (intakeGate.warning || 'Save intake before screening') : undefined}
+              className="shrink-0 whitespace-nowrap"
               onClick={() => {
                 if (intakeGate?.blocks) {
                   window.alert(intakeGate.warning || 'Save HM intake and calibrate before screening candidates.')
@@ -671,6 +914,108 @@ export default function RequisitionDetailPage() {
 
       {tab === 'overview' && (
         <Card className="p-6 space-y-4">
+          {canWrite && (
+            <div id="hm-assignment" className="pb-4 border-b border-brand-50">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                {REQUISITIONS.hmAssignOverview}
+              </p>
+              <p className="text-xs text-slate-500 mb-3">{REQUISITIONS.hmAssignHint}</p>
+              {req.hm_request_status === 'pending' && req.hm_request_email && (
+                <div className="mb-3 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-sm text-amber-900">
+                  <p className="font-semibold">{REQUISITIONS.hmRequestPending}</p>
+                  <p className="mt-1">
+                    <span className="font-medium">{req.hm_request_email}</span>
+                    {req.hm_requested_by_email ? ` · requested by ${req.hm_requested_by_email}` : ''}
+                  </p>
+                  {req.hm_request_notes && (
+                    <p className="mt-1 text-xs text-amber-800">{req.hm_request_notes}</p>
+                  )}
+                  {isAdmin && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Button size="sm" onClick={handleApproveHmRequest} disabled={savingHm}>
+                        {REQUISITIONS.hmRequestApproveCta}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={handleRejectHmRequest} disabled={savingHm}>
+                        {REQUISITIONS.hmRequestRejectCta}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-sm flex-1 min-w-[14rem]">
+                  <span className="font-semibold text-slate-700">Primary hiring manager</span>
+                  <select
+                    value={hmSelectId}
+                    onChange={(e) => setHmSelectId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">Select hiring manager…</option>
+                    {hmCandidates.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.email} ({m.role.replace(/_/g, ' ')})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  onClick={() => saveHiringManager()}
+                  disabled={savingHm || !hmSelectId}
+                  size="sm"
+                  className="shrink-0"
+                >
+                  {savingHm ? 'Saving…' : REQUISITIONS.hmAssignCta}
+                </Button>
+                {canWrite && !isAdmin && req.hm_request_status !== 'pending' && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowHmRequest(true)}
+                    disabled={savingHm}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {REQUISITIONS.hmRequestCta}
+                  </Button>
+                )}
+                {isAdmin && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowHmInvite(true)}
+                    disabled={savingHm}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {REQUISITIONS.hmInviteCta}
+                  </Button>
+                )}
+                {isAdmin && (
+                  <Button
+                    variant="secondary"
+                    onClick={assignSelfAsHm}
+                    disabled={savingHm}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    {REQUISITIONS.hmAssignSelfCta}
+                  </Button>
+                )}
+              </div>
+              {canWrite && hmCandidates.length === 0 && req.hm_request_status !== 'pending' && (
+                <p className="text-xs text-amber-700 mt-2">
+                  {isAdmin
+                    ? 'No hiring managers on your team yet — invite one or approve a recruiter request.'
+                    : 'No hiring managers on your team yet — request HM access and an admin will approve.'}
+                </p>
+              )}
+              {req.primary_hiring_manager_email && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Current: <span className="font-semibold text-slate-700">{req.primary_hiring_manager_email}</span>
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid sm:grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-slate-500 font-medium">Candidates</p>
@@ -854,6 +1199,20 @@ export default function RequisitionDetailPage() {
           })}
         </div>
         </>
+      )}
+
+      {showHmRequest && (
+        <HmRequestModal
+          onClose={() => setShowHmRequest(false)}
+          onSubmitted={handleHmRequested}
+        />
+      )}
+
+      {showHmInvite && (
+        <HmInviteModal
+          onClose={() => setShowHmInvite(false)}
+          onInvited={handleHmInvited}
+        />
       )}
 
       {showAddCandidates && (
