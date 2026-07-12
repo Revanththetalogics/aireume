@@ -79,9 +79,7 @@ export function AuthProvider({ children }) {
     authGenRef.current++   // invalidate any in-flight loadUser
     try {
       const res = await api.post('/auth/register', { company_name: companyName, email, password })
-      // Tokens are set as httpOnly cookies by the server
-      setUser(res.data.user)
-      setTenant(res.data.tenant)
+      // Registration does not issue session cookies until email is verified
       return res.data
     } finally {
       setLoading(false)

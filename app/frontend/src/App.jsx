@@ -2,10 +2,12 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AnimatePresence, motion, MotionConfig } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { BrandingProvider } from './contexts/BrandingContext'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
+import VerifyEmailGate from './components/VerifyEmailGate'
 import RequireWriteAccess from './components/RequireWriteAccess'
 import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
@@ -64,6 +66,7 @@ const DunningPage        = lazy(() => import('./pages/admin/DunningPage'))
 const BillingSettingsPage = lazy(() => import('./pages/admin/BillingSettingsPage'))
 const ErasurePage        = lazy(() => import('./pages/admin/ErasurePage'))
 const ImpersonationPage  = lazy(() => import('./pages/admin/ImpersonationPage'))
+const CrmPage            = lazy(() => import('./pages/admin/CrmPage'))
 
 function PageLoader() {
   return (
@@ -104,15 +107,15 @@ function Shell({ children }) {
   const location = useLocation()
   return (
     <ProtectedRoute>
+      <VerifyEmailGate>
       <SubscriptionProvider>
         <AppShell>
-          {/* Per-route boundary: a crash in one page keeps the NavBar and
-              other app chrome mounted, and resets when the route changes. */}
           <ErrorBoundary key={location.pathname}>
             {children}
           </ErrorBoundary>
         </AppShell>
       </SubscriptionProvider>
+      </VerifyEmailGate>
     </ProtectedRoute>
   )
 }
@@ -144,6 +147,7 @@ function App() {
   return (
     <MotionConfig reducedMotion="user">
     <AuthProvider>
+        <BrandingProvider>
         <NotificationProvider>
           <OnboardingProvider>
             <ErrorBoundary>
@@ -213,6 +217,7 @@ function App() {
                 <Route path="billing-settings" element={<BillingSettingsPage />} />
                 <Route path="invoices" element={<InvoicesPage />} />
                 <Route path="dunning" element={<DunningPage />} />
+                <Route path="crm" element={<CrmPage />} />
                 <Route path="erasure" element={<ErasurePage />} />
                 <Route path="impersonation" element={<ImpersonationPage />} />
               </Route>
@@ -238,6 +243,7 @@ function App() {
             </ErrorBoundary>
           </OnboardingProvider>
         </NotificationProvider>
+        </BrandingProvider>
     </AuthProvider>
     </MotionConfig>
   )

@@ -24,6 +24,8 @@ import {
   selectOnboardingPlan,
   getAvailablePlans,
   seedSampleData,
+  inviteTeamDuringOnboarding,
+  createBillingCheckout,
 } from '../lib/api'
 import { INDUSTRIES, COMPANY_SIZES } from '../lib/constants'
 import { TRUST, sanitizePlanFeatures } from '../lib/uxLabels'
@@ -202,6 +204,20 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
     setSubmitting(true)
     setError(null)
     try {
+      const plan = plans.find((p) => p.id === selectedPlan)
+      const isPaid = plan && plan.name !== 'free' && (plan.price_monthly || 0) > 0
+      if (isPaid) {
+        const origin = window.location.origin
+        const checkout = await createBillingCheckout(
+          plan.name,
+          `${origin}/?onboarding=checkout_success`,
+          `${origin}/onboarding`,
+        )
+        if (checkout?.url) {
+          window.location.href = checkout.url
+          return
+        }
+      }
       await selectOnboardingPlan(selectedPlan)
       onNext()
     } catch (err) {
@@ -332,6 +348,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
 function StepInviteTeam({ onNext, onBack, onSkip }) {
   const [emails, setEmails] = useState([''])
   const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
 
   const addEmailField = () => setEmails([...emails, ''])
 
@@ -346,18 +363,26 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
     setEmails(updated)
   }
 
-  // This step just collects emails for later — actual invites are sent after completion
-  // We store them in localStorage for now
-  const handleNext = () => {
+  const handleNext = async () => {
     const validEmails = emails.filter(e => e.trim() && e.includes('@'))
-    if (validEmails.length > 0) {
-      try {
-        localStorage.setItem('aria_pending_invites', JSON.stringify(validEmails))
-      } catch {
-        // Ignore storage errors
-      }
+    if (validEmails.length === 0) {
+      onNext()
+      return
     }
-    onNext()
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await inviteTeamDuringOnboarding(validEmails)
+      if (result.invited_count === 0 && result.results?.every(r => r.status === 'already_exists')) {
+        setError('All entered emails are already registered.')
+        return
+      }
+      onNext()
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to send invitations.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -426,9 +451,10 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
       <div className="mt-8 flex flex-col items-center">
         <button
           onClick={handleNext}
-          className="w-full max-w-xs flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700 transition-colors shadow-brand"
+          disabled={loading}
+          className="w-full max-w-xs flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700 transition-colors shadow-brand disabled:opacity-60"
         >
-          Next <ArrowRight className="w-4 h-4" />
+          {loading ? 'Sending invites…' : <>Next <ArrowRight className="w-4 h-4" /></>}
         </button>
 
         <button
@@ -527,13 +553,29 @@ export default function OnboardingWizard() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [sampleSeeded, setSampleSeeded] = useState(false)
+  const [error, setError] = useState(null)
 
   // If onboarding is already complete, don't render
   if (isOnboardingComplete) return null
 
+  const handleSkip = async () => {
+    setError(null)
+    try {
+      await skipOnboarding()
+      navigate('/')
+    } catch {
+      setError('Could not skip onboarding. Please try again.')
+    }
+  }
+
   const handleComplete = async () => {
-    await markOnboardingComplete()
-    navigate('/')
+    setError(null)
+    try {
+      await markOnboardingComplete()
+      navigate('/')
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not complete onboarding.')
+    }
   }
 
   const handleExploreSample = async () => {
@@ -545,18 +587,17 @@ export default function OnboardingWizard() {
         // Continue anyway
       }
     }
-    await markOnboardingComplete()
-    navigate('/')
-  }
-
-  const handleSkip = async () => {
-    await markOnboardingComplete()
-    navigate('/')
+    await handleComplete()
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-white via-slate-50 to-brand-50/30">
       <div className="w-full max-w-lg px-6 py-10">
+        {error && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
+            {error}
+          </div>
+        )}
         <ProgressBar current={step} total={TOTAL_STEPS} />
 
         <AnimatePresence mode="wait">

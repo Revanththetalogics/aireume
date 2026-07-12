@@ -38,6 +38,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "15"))
 REFRESH_TOKEN_EXPIRE_DAYS    = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",    "30"))
+EMAIL_VERIFICATION_EXPIRE_HOURS = int(os.getenv("EMAIL_VERIFICATION_EXPIRE_HOURS", "24"))
 
 
 # ─── Per-IP Rate Limiter ─────────────────────────────────────────────────────
@@ -96,7 +97,21 @@ def _make_slug(name: str) -> str:
 
 
 def _tenant_dict(tenant: Tenant) -> dict:
-    return {"id": tenant.id, "name": tenant.name, "slug": tenant.slug, "onboarding_completed": tenant.onboarding_completed}
+    from app.backend.services.trial_service import trial_days_remaining, is_trial_active
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "onboarding_completed": tenant.onboarding_completed,
+        "subscription_status": tenant.subscription_status,
+        "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
+        "trial_days_remaining": trial_days_remaining(tenant),
+        "is_trial_active": is_trial_active(tenant),
+        "brand_name": tenant.brand_name,
+        "brand_logo_url": tenant.brand_logo_url,
+        "brand_primary_color": tenant.brand_primary_color,
+        "custom_domain": tenant.custom_domain,
+    }
 
 
 def _user_dict(user: User) -> dict:
@@ -105,9 +120,43 @@ def _user_dict(user: User) -> dict:
         "email": user.email,
         "role": user.role,
         "tenant_id": user.tenant_id,
+        "email_verified": user.email_verified,
         "is_platform_admin": user.is_platform_admin or (user.platform_role is not None),
         "platform_role": user.platform_role,
     }
+
+
+def _verification_expired(user: User) -> bool:
+    if not user.email_verification_sent_at:
+        return False
+    sent_at = user.email_verification_sent_at
+    if sent_at.tzinfo is None:
+        sent_at = sent_at.replace(tzinfo=timezone.utc)
+    expires_at = sent_at + timedelta(hours=EMAIL_VERIFICATION_EXPIRE_HOURS)
+    return datetime.now(timezone.utc) > expires_at
+
+
+def _send_verification_email(email: str, token: str, tenant: Tenant) -> bool:
+    try:
+        from app.backend.services.email_service import email_service
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        verify_url = f"{frontend_url}/verify-email/{token}"
+        login_url = f"{frontend_url}/login?workspace={tenant.slug}"
+        html_body = (
+            f"<h2>Welcome to ARIA — Verify Your Email</h2>"
+            f"<p>Please verify your email address to activate your workspace "
+            f"<strong>{tenant.name}</strong>.</p>"
+            f'<p><a href="{verify_url}">Verify Email Address</a></p>'
+            f"<p>Your workspace slug is <strong>{tenant.slug}</strong>. "
+            f"You'll need it to sign in: <a href=\"{login_url}\">{login_url}</a></p>"
+            f"<p>If you didn't create this account, you can safely ignore this email.</p>"
+            f"<hr><p style='color:gray;font-size:12px;'>"
+            f"This is an automated message from ARIA Resume Intelligence.</p>"
+        )
+        return email_service.send_email(email, "Verify Your Email — ARIA Platform", html_body)
+    except Exception as e:
+        logger.error("Failed to send verification email: %s", e)
+        return False
 
 
 def _get_client_ip(request: Request) -> str:
@@ -197,7 +246,7 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
         slug = f"{base_slug}-{counter}"
         counter += 1
 
-    tenant = Tenant(name=body.company_name, slug=slug)
+    tenant = Tenant(name=body.company_name, slug=slug, contact_email=body.email)
     db.add(tenant)
     db.flush()  # get tenant.id
 
@@ -216,37 +265,18 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(user)
 
-    # Send verification email
-    try:
-        from app.backend.services.email_service import email_service, get_tenant_email_service
-        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
-        verify_url = f"{frontend_url}/verify-email/{verification_token}"
-        html_body = (
-            f"<h2>Welcome to ARIA — Verify Your Email</h2>"
-            f"<p>Please verify your email address to activate your account.</p>"
-            f'<p><a href="{verify_url}">Verify Email Address</a></p>'
-            f"<p>If you didn't create this account, you can safely ignore this email.</p>"
-            f"<hr><p style='color:gray;font-size:12px;'>"
-            f"This is an automated message from ARIA Resume Intelligence.</p>"
-        )
-        email_service.send_email(body.email, "Verify Your Email — ARIA Platform", html_body)
-    except Exception as e:
-        logger.error("Failed to send verification email: %s", e)
+    _send_verification_email(body.email, verification_token, tenant)
 
-    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
-
-    response = _create_auth_response(user, tenant, access_token, refresh_token)
-    # Overlay message so frontend knows to prompt for verification
-    import json as _json
-    body_data = _json.loads(response.body)
-    body_data["message"] = "Registration successful. Please check your email to verify your account."
-    from fastapi.responses import JSONResponse as _JSONResponse
-    new_response = _JSONResponse(content=body_data)
-    for header_name, header_value in response.headers.items():
-        if header_name.lower() == "set-cookie":
-            new_response.raw_headers.append((b"set-cookie", header_value.encode()))
-    return new_response
+    return {
+        "requires_verification": True,
+        "message": "Registration successful. Please check your email to verify your account.",
+        "email": body.email,
+        "tenant": {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+        },
+    }
 
 
 @router.get("/verify-email/{token}")
@@ -255,10 +285,55 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email_verification_token == token).first()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+    if _verification_expired(user):
+        raise HTTPException(
+            status_code=400,
+            detail="Verification link has expired. Please request a new verification email.",
+        )
     user.email_verified = True
     user.email_verification_token = None
     db.commit()
-    return {"message": "Email verified successfully"}
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    return {
+        "message": "Email verified successfully",
+        "tenant": {
+            "slug": tenant.slug if tenant else None,
+            "name": tenant.name if tenant else None,
+        },
+    }
+
+
+@router.post("/resend-verification")
+def resend_verification(request: Request, request_data: dict, db: Session = Depends(get_db)):
+    """Resend verification email by address (no auth — user cannot log in until verified)."""
+    client_ip = _get_client_ip(request)
+    is_limited, retry_after = auth_rate_limiter.is_rate_limited(
+        f"resend-verify:{client_ip}", max_attempts=3, window_seconds=300
+    )
+    if is_limited:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many resend attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    email = request_data.get("email", "").strip().lower()
+    user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    if not user or user.email_verified:
+        return {"message": "If an unverified account exists for that email, a verification link was sent."}
+
+    verification_token = str(uuid.uuid4())
+    user.email_verification_token = verification_token
+    user.email_verification_sent_at = datetime.now(timezone.utc)
+    db.commit()
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    sent = _send_verification_email(user.email, verification_token, tenant) if tenant else False
+    return {
+        "message": "If an unverified account exists for that email, a verification link was sent.",
+        "email_sent": sent,
+    }
 
 
 @router.post("/login")
@@ -357,6 +432,12 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
                 db.add(revoked_entry)
                 db.commit()
         raise HTTPException(status_code=401, detail="User account has been deactivated")
+
+    if not user.email_verified and not (user.is_platform_admin or user.platform_role):
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before accessing the application.",
+        )
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
@@ -532,3 +613,23 @@ def reset_password(request_data: dict, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Password has been reset successfully"}
+
+
+# ─── E2E / test helpers (disabled in production) ─────────────────────────────
+
+@router.post("/test/verify-email")
+def test_verify_email_by_address(request_data: dict, db: Session = Depends(get_db)):
+    """E2E only: verify a user by email when E2E_TEST_MODE=1 or TESTING=1."""
+    import os
+    if os.environ.get("E2E_TEST_MODE", "").lower() not in ("1", "true") and \
+       os.environ.get("TESTING", "").lower() not in ("1", "true"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    email = request_data.get("email", "").strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.email_verified = True
+    user.email_verification_token = None
+    db.commit()
+    return {"message": "Email verified for testing", "email": email}

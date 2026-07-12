@@ -22,9 +22,11 @@ class TestRegister:
         resp = client.post("/api/auth/register", json=REGISTER_PAYLOAD)
         assert resp.status_code in (200, 201)
         data = resp.json()
-        assert "access_token" in data
+        assert data.get("requires_verification") is True
         assert "tenant" in data
         assert data["tenant"]["name"] == "Acme Corp"
+        assert data["tenant"]["slug"]
+        assert "access_token" not in data
 
     def test_register_duplicate_email_returns_4xx(self, client):
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
@@ -218,35 +220,34 @@ class TestTokenRevocation:
 
     def test_tokens_contain_jti(self, client):
         """Both access and refresh tokens should contain a JTI claim."""
-        # Register
-        resp = client.post("/api/auth/register", json=REGISTER_PAYLOAD)
-        assert resp.status_code in (200, 201)
-        data = resp.json()
+        client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
+        login = client.post("/api/auth/login", json={
+            "email": REGISTER_PAYLOAD["email"],
+            "password": REGISTER_PAYLOAD["password"],
+        }).json()
         
-        # Decode access token
-        access_payload = jwt.decode(data["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        access_payload = jwt.decode(login["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
         assert "jti" in access_payload, "Access token should have JTI"
         
-        # Decode refresh token
-        refresh_payload = jwt.decode(data["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        refresh_payload = jwt.decode(login["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
         assert "jti" in refresh_payload, "Refresh token should have JTI"
         
-        # JTIs should be different
         assert access_payload["jti"] != refresh_payload["jti"]
 
     def test_tokens_contain_tenant_id(self, client):
         """Both access and refresh tokens should contain tenant_id."""
-        # Register
-        resp = client.post("/api/auth/register", json=REGISTER_PAYLOAD)
-        assert resp.status_code in (200, 201)
-        data = resp.json()
+        client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
+        login = client.post("/api/auth/login", json={
+            "email": REGISTER_PAYLOAD["email"],
+            "password": REGISTER_PAYLOAD["password"],
+        }).json()
         
-        # Decode access token
-        access_payload = jwt.decode(data["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        access_payload = jwt.decode(login["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
         assert "tenant_id" in access_payload, "Access token should have tenant_id"
         
-        # Decode refresh token
-        refresh_payload = jwt.decode(data["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        refresh_payload = jwt.decode(login["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
         assert "tenant_id" in refresh_payload, "Refresh token should have tenant_id"
 
 

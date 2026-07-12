@@ -292,7 +292,7 @@ def auth_client(client):
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
 
-    # Mark user as verified for testing
+    # Register no longer returns tokens — verify then login
     _verify_user_via_api("admin@testcorp.com")
 
     login_resp = client.post("/api/auth/login", json={

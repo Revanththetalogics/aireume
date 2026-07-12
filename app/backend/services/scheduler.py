@@ -75,6 +75,20 @@ def recover_stale_jobs():
         db.close()
 
 
+def expire_trials_job():
+    """Mark expired self-serve trials as past_due."""
+    from app.backend.services.trial_service import expire_trials
+    db = SessionLocal()
+    try:
+        count = expire_trials(db)
+        if count:
+            logger.info("Expired %d trials", count)
+    except Exception as exc:
+        logger.error("Trial expiry job failed: %s", exc, exc_info=True)
+    finally:
+        db.close()
+
+
 def start_scheduler():
     """Start the background scheduler with all periodic jobs."""
     if scheduler.running:
@@ -96,10 +110,18 @@ def start_scheduler():
         misfire_grace_time=60,
     )
 
+    scheduler.add_job(
+        expire_trials_job,
+        trigger=IntervalTrigger(hours=1),
+        id="trial_expiry",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
     logger.info(
         "Background scheduler started "
-        "(dunning retries: every 1 h, stale job recovery: every 5 min)"
+        "(dunning retries: every 1 h, stale job recovery: every 5 min, trial expiry: every 1 h)"
     )
 
 

@@ -278,3 +278,26 @@ class TestOnboardingFlow:
         assert data["completed"] is True
         assert data["steps"]["organization"] is True
         assert data["steps"]["plan_selected"] is True
+
+
+class TestSkipOnboarding:
+    def test_skip_auto_selects_free_plan_and_completes(self, auth_client, seed_subscription_plans, db):
+        response = auth_client.post("/api/onboarding/skip")
+        assert response.status_code == 200
+        assert response.json()["completed"] is True
+
+        tenant = db.query(Tenant).first()
+        assert tenant.onboarding_completed is True
+        assert tenant.plan_id is not None
+
+
+class TestInviteTeamOnboarding:
+    def test_invite_team_sends_invites(self, auth_client, db):
+        response = auth_client.post("/api/onboarding/invite-team", json={
+            "emails": ["newhire@example.com"],
+            "role": "recruiter",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["invited_count"] >= 0
+        assert len(data["results"]) == 1

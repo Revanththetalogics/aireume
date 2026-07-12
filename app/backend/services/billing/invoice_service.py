@@ -4,13 +4,13 @@ Generates sequential invoice numbers and creates invoice records
 when a payment succeeds via any provider (Stripe, Razorpay, Manual).
 """
 import logging
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional, Dict, Any
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.backend.models.db_models import Invoice
+from app.backend.models.db_models import Invoice, Tenant
 
 log = logging.getLogger(__name__)
 
@@ -131,3 +131,82 @@ def get_invoice_by_id(db: Session, invoice_id: int, tenant_id: int) -> Optional[
         .filter(Invoice.id == invoice_id, Invoice.tenant_id == tenant_id)
         .first()
     )
+
+
+def _serialize_invoice(inv: Invoice, tenant_name: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "id": inv.id,
+        "tenant_id": inv.tenant_id,
+        "tenant_name": tenant_name,
+        "invoice_number": inv.invoice_number,
+        "status": inv.status,
+        "amount": inv.amount,
+        "currency": inv.currency,
+        "description": inv.description,
+        "line_items": inv.line_items or [],
+        "payment_provider": inv.payment_provider,
+        "provider_invoice_id": inv.provider_invoice_id,
+        "period_start": inv.period_start.isoformat() if inv.period_start else None,
+        "period_end": inv.period_end.isoformat() if inv.period_end else None,
+        "issued_at": inv.issued_at.isoformat() if inv.issued_at else None,
+        "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+    }
+
+
+def get_all_invoices(
+    db: Session,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    status: Optional[str] = None,
+    tenant_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Platform-admin view of invoices across all tenants."""
+    q = (
+        db.query(Invoice, Tenant.name.label("tenant_name"))
+        .join(Tenant, Tenant.id == Invoice.tenant_id)
+        .order_by(Invoice.issued_at.desc())
+    )
+    if status:
+        q = q.filter(Invoice.status == status)
+    if tenant_id:
+        q = q.filter(Invoice.tenant_id == tenant_id)
+    rows = q.offset(offset).limit(limit).all()
+    return [_serialize_invoice(inv, tenant_name) for inv, tenant_name in rows]
+
+
+def get_revenue_metrics(db: Session) -> Dict[str, Any]:
+    """Compute MRR/ARR from paid invoices in the last 30 days (actual collected revenue)."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    thirty_days_ago = now - timedelta(days=30)
+
+    collected_this_month = (
+        db.query(func.coalesce(func.sum(Invoice.amount), 0))
+        .filter(Invoice.status == "paid", Invoice.paid_at >= month_start)
+        .scalar()
+        or 0
+    )
+
+    collected_last_30_days = (
+        db.query(func.coalesce(func.sum(Invoice.amount), 0))
+        .filter(Invoice.status == "paid", Invoice.paid_at >= thirty_days_ago)
+        .scalar()
+        or 0
+    )
+
+    outstanding = (
+        db.query(func.coalesce(func.sum(Invoice.amount), 0))
+        .filter(Invoice.status.in_(["pending", "overdue"]))
+        .scalar()
+        or 0
+    )
+
+    return {
+        "mrr_cents": int(collected_last_30_days),
+        "arr_estimate_cents": int(collected_last_30_days) * 12,
+        "collected_this_month_cents": int(collected_this_month),
+        "outstanding_cents": int(outstanding),
+        "mrr": round(collected_last_30_days / 100, 2),
+        "collected_this_month": round(collected_this_month / 100, 2),
+    }

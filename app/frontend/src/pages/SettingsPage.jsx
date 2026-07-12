@@ -28,10 +28,11 @@ import {
   ExternalLink,
   Plug,
   Mic,
+  Palette,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
-import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice } from '../lib/api'
+import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice, getTenantBranding, updateTenantBranding } from '../lib/api'
 import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
@@ -303,6 +304,19 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState(initialTab)
   const [saving, setSaving] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
+  const isAdmin = user?.role === 'admin'
+
+  // White-label branding
+  const [brandingForm, setBrandingForm] = useState({
+    brand_name: '',
+    brand_logo_url: '',
+    brand_primary_color: '#7C3AED',
+    brand_favicon_url: '',
+    custom_domain: '',
+  })
+  const [brandingLoading, setBrandingLoading] = useState(false)
+  const [brandingSaving, setBrandingSaving] = useState(false)
+  const [brandingMessage, setBrandingMessage] = useState('')
 
   // Billing history state
   const [invoices, setInvoices] = useState([])
@@ -350,6 +364,37 @@ export default function SettingsPage() {
       fetchInvoices(0)
     }
   }, [activeTab, fetchInvoices])
+
+  useEffect(() => {
+    if (activeTab !== 'branding' || !isAdmin) return
+    setBrandingLoading(true)
+    getTenantBranding()
+      .then((data) => {
+        const b = data.branding || {}
+        setBrandingForm({
+          brand_name: b.brand_name || tenant?.name || '',
+          brand_logo_url: b.brand_logo_url || '',
+          brand_primary_color: b.brand_primary_color || '#7C3AED',
+          brand_favicon_url: b.brand_favicon_url || '',
+          custom_domain: b.custom_domain || '',
+        })
+      })
+      .catch(() => setBrandingMessage('Could not load branding settings'))
+      .finally(() => setBrandingLoading(false))
+  }, [activeTab, isAdmin, tenant?.name])
+
+  const handleSaveBranding = async () => {
+    setBrandingSaving(true)
+    setBrandingMessage('')
+    try {
+      await updateTenantBranding(brandingForm)
+      setBrandingMessage('Branding saved. Changes appear after refresh.')
+    } catch (err) {
+      setBrandingMessage(getUserFriendlyError(err))
+    } finally {
+      setBrandingSaving(false)
+    }
+  }
 
   // Profile form state
   const [profile, setProfile] = useState({
@@ -400,6 +445,7 @@ export default function SettingsPage() {
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
+    ...(isAdmin ? [{ id: 'branding', label: 'White-label', icon: Palette }] : []),
     { id: 'interviews', label: 'Interviews', icon: Mic },
     { id: 'requisitions', label: 'Requisitions', icon: FileText },
     { id: 'integrations', label: 'Integrations', icon: Plug },
@@ -1041,6 +1087,88 @@ export default function SettingsPage() {
           )}
 
           {/* Security Tab */}
+          {activeTab === 'branding' && isAdmin && (
+            <Section
+              title="White-label & Custom Domain"
+              icon={Palette}
+              description="Customize how ARIA appears to your team. Point a custom domain at this workspace for a fully branded experience."
+            >
+              {brandingLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {brandingMessage && (
+                    <p className="text-sm text-slate-600 bg-brand-50 rounded-xl px-4 py-3 ring-1 ring-brand-100">{brandingMessage}</p>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Brand name</label>
+                      <input
+                        type="text"
+                        value={brandingForm.brand_name}
+                        onChange={(e) => setBrandingForm((f) => ({ ...f, brand_name: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 text-sm"
+                        placeholder={tenant?.name || 'Your company'}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Primary color</label>
+                      <input
+                        type="color"
+                        value={brandingForm.brand_primary_color}
+                        onChange={(e) => setBrandingForm((f) => ({ ...f, brand_primary_color: e.target.value }))}
+                        className="w-full h-11 rounded-xl ring-1 ring-brand-200 cursor-pointer"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Logo URL</label>
+                      <input
+                        type="url"
+                        value={brandingForm.brand_logo_url}
+                        onChange={(e) => setBrandingForm((f) => ({ ...f, brand_logo_url: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 text-sm"
+                        placeholder="https://cdn.example.com/logo.png"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Favicon URL</label>
+                      <input
+                        type="url"
+                        value={brandingForm.brand_favicon_url}
+                        onChange={(e) => setBrandingForm((f) => ({ ...f, brand_favicon_url: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 text-sm"
+                        placeholder="https://cdn.example.com/favicon.ico"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Custom domain</label>
+                      <input
+                        type="text"
+                        value={brandingForm.custom_domain}
+                        onChange={(e) => setBrandingForm((f) => ({ ...f, custom_domain: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 text-sm font-mono"
+                        placeholder="hiring.yourcompany.com"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        CNAME this hostname to your ARIA deployment, then enter it here. Branding resolves automatically via the Host header.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveBranding}
+                    disabled={brandingSaving}
+                    className="px-5 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {brandingSaving ? 'Saving…' : 'Save branding'}
+                  </button>
+                </div>
+              )}
+            </Section>
+          )}
+
           {activeTab === 'security' && (
             <>
               <Section

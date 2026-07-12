@@ -3,10 +3,12 @@ import { Users2, UserPlus, Shield, AlertCircle, Check, X } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus, getTenantAuditLogs } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useOnboarding } from '../contexts/OnboardingContext'
 
 const ROLES = ['admin', 'recruiter', 'viewer', 'hiring_manager']
 
 function InviteModal({ onSave, onClose }) {
+  const { completeChecklistItem } = useOnboarding()
   const [email, setEmail]     = useState('')
   const [role, setRole]       = useState('recruiter')
   const [result, setResult]   = useState(null)
@@ -20,6 +22,9 @@ function InviteModal({ onSave, onClose }) {
     try {
       const data = await inviteTeamMember(email, role)
       setResult(data)
+      if (data.invite_email_sent !== false) {
+        completeChecklistItem('invitedTeamMember')
+      }
       onSave()
     } catch (err) {
       setError(err.response?.data?.detail || 'Invitation failed')
@@ -86,7 +91,7 @@ function InviteModal({ onSave, onClose }) {
             <div className="p-3.5 bg-green-50 ring-1 ring-green-200 rounded-2xl">
               <p className="text-sm text-green-700 font-bold">Account created successfully!</p>
             </div>
-            <p className="text-sm text-slate-600">{result.message || "Team member invited. Check server logs for the temporary password."}</p>
+            <p className="text-sm text-slate-600">{result.message || 'Team member invited successfully.'}</p>
             <button
               onClick={onClose}
               className="w-full py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"

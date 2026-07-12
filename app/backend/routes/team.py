@@ -83,10 +83,22 @@ def invite_member(
         email=body.email,
         hashed_password=_hash_password(temp_password),
         role=body.role,
+        email_verified=False,
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    from app.backend.services.invite_service import send_team_invite_email
+    email_sent = send_team_invite_email(
+        db,
+        invitee=new_user,
+        inviter_name=current_user.email,
+        tenant_name=tenant.name if tenant else "your workspace",
+        tenant_slug=tenant.slug if tenant else "",
+    )
+    db.commit()
 
     log_tenant_event(
         db,
@@ -94,18 +106,21 @@ def invite_member(
         action="team.invite",
         resource_type="user",
         resource_id=new_user.id,
-        details={"email": new_user.email, "role": new_user.role},
+        details={"email": new_user.email, "role": new_user.role, "email_sent": email_sent},
     )
     db.commit()
 
-    logger.info("Team member invited: %s (role=%s). Temporary password generated (not logged for security).",
-                new_user.email, new_user.role)
-
     return {
-        "message": "Team member invited successfully. The temporary password has been logged securely.",
+        "message": (
+            "Invitation sent. The user will receive an email to set their password."
+            if email_sent else
+            "User created, but the invitation email could not be sent. "
+            "Ask them to use 'Forgot password' to set their password."
+        ),
         "user_id": new_user.id,
         "email": new_user.email,
         "role": new_user.role,
+        "invite_email_sent": email_sent,
     }
 
 

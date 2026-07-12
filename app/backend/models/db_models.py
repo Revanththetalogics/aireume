@@ -37,9 +37,10 @@ class Tenant(Base):
     __tablename__ = "tenants"
 
     id         = Column(Integer, primary_key=True, index=True)
-    name       = Column(String(200), nullable=False)
-    slug       = Column(String(100), unique=True, nullable=False)
-    plan_id    = Column(Integer, ForeignKey("subscription_plans.id"), nullable=True)
+    name          = Column(String(200), nullable=False)
+    slug          = Column(String(100), unique=True, nullable=False)
+    contact_email = Column(String(255), nullable=True)
+    plan_id       = Column(Integer, ForeignKey("subscription_plans.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # ── Subscription & Usage Tracking ─────────────────────────────────────────
@@ -65,6 +66,20 @@ class Tenant(Base):
     # Onboarding tracking
     onboarding_completed    = Column(Boolean, nullable=False, default=False)
     onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Self-serve trial
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+
+    # CRM health signals (updated by crm_service)
+    health_score = Column(Integer, nullable=True)   # 0-100
+    churn_risk   = Column(String(20), nullable=True)  # low | medium | high
+
+    # White-label branding
+    custom_domain       = Column(String(255), nullable=True, unique=True, index=True)
+    brand_name          = Column(String(200), nullable=True)
+    brand_logo_url      = Column(String(500), nullable=True)
+    brand_primary_color = Column(String(20), nullable=True)
+    brand_favicon_url   = Column(String(500), nullable=True)
 
     plan         = relationship("SubscriptionPlan", back_populates="tenants")
     users        = relationship("User", back_populates="tenant")
@@ -95,6 +110,9 @@ class User(Base):
     email_verification_token   = Column(String(255), nullable=True)
     email_verification_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Per-user getting-started checklist (JSON object of step -> bool)
+    getting_started_progress = Column(Text, nullable=False, default="{}")
+
     tenant       = relationship("Tenant", back_populates="users")
     team_member  = relationship("TeamMember", back_populates="user", uselist=False)
     comments     = relationship("Comment", back_populates="author")
@@ -104,10 +122,60 @@ class User(Base):
         UniqueConstraint('tenant_id', 'email', name='uq_users_tenant_email'),
     )
 
+    oauth_identities = relationship("UserOAuthIdentity", back_populates="user", cascade="all, delete-orphan")
+
     @property
     def is_platform_admin_compat(self) -> bool:
         """Backward compatibility: any non-null platform_role counts as platform admin."""
         return self.is_platform_admin or (self.platform_role is not None)
+
+
+class UserOAuthIdentity(Base):
+    """Links a user to a Google/Microsoft OAuth account."""
+    __tablename__ = "user_oauth_identities"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider         = Column(String(30), nullable=False)  # google | microsoft
+    provider_user_id = Column(String(255), nullable=False)
+    email_at_link    = Column(String(255), nullable=True)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="oauth_identities")
+
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id", name="uq_oauth_provider_user"),
+    )
+
+
+class TenantAccountNote(Base):
+    """Internal CRM notes for a tenant (platform admin only)."""
+    __tablename__ = "tenant_account_notes"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    author_id  = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    note_type  = Column(String(30), nullable=False, default="general")  # general | support | sales | churn
+    body       = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant", backref="account_notes")
+    author = relationship("User")
+
+
+class TenantNpsResponse(Base):
+    """Net Promoter Score survey response per tenant user."""
+    __tablename__ = "tenant_nps_responses"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    score      = Column(Integer, nullable=False)  # 0-10
+    comment    = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant", backref="nps_responses")
+    user   = relationship("User")
 
 
 class UsageLog(Base):

@@ -19,6 +19,7 @@ function isPrimaryNavActive(pathname, itemPath) {
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
+import { useBranding } from '../contexts/BrandingContext'
 import usePermissions from '../hooks/usePermissions'
 import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
@@ -271,6 +272,7 @@ function MobileMoreSheet({ onNavigate }) {
 
 export default function NavBar() {
   const { user, tenant, logout } = useAuth()
+  const { branding } = useBranding()
   const { canWrite, isHiringManager } = usePermissions()
   const primaryNav = isHiringManager ? PRIMARY_NAV_HM : PRIMARY_NAV_RECRUITER
   const location = useLocation()
@@ -278,6 +280,9 @@ export default function NavBar() {
   const userMenuRef = useRef(null)
   const initials = user?.email ? user.email[0].toUpperCase() : '?'
   const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
+  const brandName = branding?.brand_name || 'ARIA'
+  const brandLogo = branding?.brand_logo_url
+  const brandColor = branding?.brand_primary_color
 
   // Close user menu on outside click
   useEffect(() => {
@@ -297,10 +302,17 @@ export default function NavBar() {
 
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-600 to-brand-500 flex items-center justify-center shadow-brand-sm group-hover:shadow-brand transition-shadow">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-lg font-bold text-brand-900 tracking-tight">ARIA</span>
+            {brandLogo ? (
+              <img src={brandLogo} alt="" className="w-8 h-8 rounded-xl object-contain" />
+            ) : (
+              <div
+                className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-600 to-brand-500 flex items-center justify-center shadow-brand-sm group-hover:shadow-brand transition-shadow"
+                style={brandColor ? { background: brandColor } : undefined}
+              >
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+            )}
+            <span className="text-lg font-bold text-brand-900 tracking-tight">{brandName}</span>
             {tenant && (
               <span className="hidden sm:inline text-xs text-brand-600 border border-brand-200 bg-brand-50 rounded-full px-2.5 py-0.5 ml-1 font-medium">
                 {tenant.name}

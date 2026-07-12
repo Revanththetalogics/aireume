@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight, Building2 } from 'lucide-react'
 import { TRUST } from '../lib/uxLabels'
 import { useAuth } from '../contexts/AuthContext'
+import OAuthButtons from '../components/OAuthButtons'
 import { getSSOConfig } from '../lib/api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const oauthError = searchParams.get('oauth_error')
   const { login } = useAuth()
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [tenantSlug, setTenantSlug] = useState('')
+  const [tenantSlug, setTenantSlug] = useState(searchParams.get('workspace') || '')
   const [showPw, setShowPw]     = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
@@ -93,10 +96,10 @@ export default function LoginPage() {
           <h2 className="text-2xl font-bold text-brand-900 mb-1 tracking-tight">Welcome back</h2>
           <p className="text-slate-500 text-sm mb-6">Sign in to your workspace</p>
 
-          {error && (
+          {(error || oauthError) && (
             <div className="mb-5 p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-              <p className="text-sm text-red-700">{error}</p>
+              <p className="text-sm text-red-700">{error || oauthError}</p>
             </div>
           )}
 
@@ -204,6 +207,10 @@ export default function LoginPage() {
               </button>
             )}
           </form>
+
+          <div className="mt-6">
+            <OAuthButtons mode="login" />
+          </div>
 
           <p className="text-center text-sm text-slate-500 mt-6">
             Don't have an account?{' '}

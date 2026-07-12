@@ -49,6 +49,12 @@ const NAV_GROUPS = [
     ],
   },
   {
+    label: 'CUSTOMER SUCCESS',
+    items: [
+      { label: 'CRM', path: '/admin/crm', icon: '⬡' },
+    ],
+  },
+  {
     label: 'COMPLIANCE',
     items: [
       { label: 'Data Erasure',   path: '/admin/erasure',       icon: '⬡' },
@@ -56,6 +62,25 @@ const NAV_GROUPS = [
     ],
   },
 ]
+
+const RESTRICTED_PATHS_BY_ROLE = {
+  readonly: new Set(['/admin/billing-settings', '/admin/erasure', '/admin/impersonation']),
+  product_owner: new Set(['/admin/erasure', '/admin/impersonation', '/admin/billing-settings']),
+  billing_admin: new Set(['/admin/erasure', '/admin/impersonation', '/admin/crm']),
+  support: new Set(['/admin/billing-settings', '/admin/erasure']),
+  security_admin: new Set(['/admin/billing-settings', '/admin/plans', '/admin/crm']),
+}
+
+function filterNavForRole(groups, platformRole) {
+  if (!platformRole || platformRole === 'super_admin') return groups
+  const blocked = RESTRICTED_PATHS_BY_ROLE[platformRole] || new Set()
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !blocked.has(item.path)),
+    }))
+    .filter((group) => group.items.length > 0)
+}
 
 /* ── Icon map (SVG) ──────────────────────────────────── */
 const ICONS = {
@@ -77,6 +102,7 @@ const ICONS = {
   Settings:        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd"/></svg>,
   'Data Erasure':  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>,
   Impersonation:   <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd"/></svg>,
+  CRM:             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd"/></svg>,
 }
 
 /* ── Sidebar Nav Item ─────────────────────────────────── */
@@ -124,6 +150,9 @@ function SidebarItem({ item, onClick }) {
 
 /* ── Sidebar ─────────────────────────────────────────── */
 function Sidebar({ open, onClose }) {
+  const { user } = useAuth()
+  const navGroups = filterNavForRole(NAV_GROUPS, user?.platform_role)
+
   return (
     <>
       {/* Mobile overlay */}
@@ -171,7 +200,7 @@ function Sidebar({ open, onClose }) {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-          {NAV_GROUPS.map(group => (
+          {navGroups.map(group => (
             <div key={group.label}>
               <p className="text-xs font-semibold uppercase text-slate-500 tracking-wider px-3 mb-1.5">
                 {group.label}

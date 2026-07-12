@@ -18,6 +18,8 @@ import {
   Shield,
   Check,
   UserPlus,
+  HeartPulse,
+  MessageSquare,
 } from 'lucide-react'
 import {
   getAdminTenantDetail,
@@ -34,6 +36,10 @@ import {
   deleteTenantFeatureOverride,
   getTenantRateLimit,
   updateTenantRateLimit,
+  getTenantCrmHealth,
+  getTenantCrmNotes,
+  addTenantCrmNote,
+  getTenantCrmNps,
 } from '../../lib/api'
 
 /* ── Constants ────────────────────────────────────────── */
@@ -41,6 +47,7 @@ const DETAIL_TABS = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'usage', label: 'Usage', icon: Activity },
+  { id: 'crm', label: 'CRM', icon: HeartPulse },
   { id: 'config', label: 'Config', icon: Settings },
 ]
 
@@ -409,6 +416,14 @@ export default function TenantDetailPage() {
   const [rateLimitForm, setRateLimitForm] = useState({ requests_per_minute: 60, llm_concurrent_max: 2 })
   const [rateLimitSaving, setRateLimitSaving] = useState(false)
 
+  // CRM tab
+  const [crmHealth, setCrmHealth] = useState(null)
+  const [crmNotes, setCrmNotes] = useState([])
+  const [crmNps, setCrmNps] = useState(null)
+  const [crmLoading, setCrmLoading] = useState(false)
+  const [noteBody, setNoteBody] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
+
   /* ── Fetch detail ───────────────────────────────────── */
   const fetchDetail = useCallback(async () => {
     setLoading(true)
@@ -456,6 +471,26 @@ export default function TenantDetailPage() {
     }
   }, [tenantId])
 
+  const fetchCrmData = useCallback(async () => {
+    setCrmLoading(true)
+    try {
+      const [health, notes, nps] = await Promise.all([
+        getTenantCrmHealth(tenantId),
+        getTenantCrmNotes(tenantId),
+        getTenantCrmNps(tenantId),
+      ])
+      setCrmHealth(health)
+      setCrmNotes(notes.notes || [])
+      setCrmNps(nps)
+    } catch {
+      setCrmHealth(null)
+      setCrmNotes([])
+      setCrmNps(null)
+    } finally {
+      setCrmLoading(false)
+    }
+  }, [tenantId])
+
   const fetchPlans = useCallback(async () => {
     try {
       const data = await getAvailablePlans()
@@ -480,9 +515,9 @@ export default function TenantDetailPage() {
       fetchFeatureOverrides()
       fetchRateLimit()
     }
-  }, [activeTab, fetchUsageHistory, fetchFeatureOverrides, fetchRateLimit])
+    if (activeTab === 'crm') fetchCrmData()
+  }, [activeTab, fetchUsageHistory, fetchFeatureOverrides, fetchRateLimit, fetchCrmData])
 
-  /* ── Handlers ───────────────────────────────────────── */
   const handleReactivate = async () => {
     try {
       await reactivateTenant(tenantId)
@@ -813,6 +848,114 @@ export default function TenantDetailPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── CRM Tab ───────────────────────────────────── */}
+      {activeTab === 'crm' && (
+        <div className="space-y-6">
+          {crmLoading ? (
+            <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-teal-600" /></div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Health Score</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{crmHealth?.health_score ?? '—'}</p>
+                  <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        (crmHealth?.health_score ?? 0) >= 70 ? 'bg-green-500' :
+                        (crmHealth?.health_score ?? 0) >= 40 ? 'bg-amber-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${crmHealth?.health_score ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Churn Risk</p>
+                  <p className={`text-xl font-bold mt-1 capitalize ${
+                    crmHealth?.churn_risk === 'high' ? 'text-red-700' :
+                    crmHealth?.churn_risk === 'medium' ? 'text-amber-700' : 'text-green-700'
+                  }`}>{crmHealth?.churn_risk || '—'}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-medium text-gray-500 uppercase">NPS</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">
+                    {crmNps?.nps != null ? crmNps.nps : '—'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {crmNps?.count ? `${crmNps.count} responses · avg ${crmNps.average}` : 'No responses yet'}
+                  </p>
+                </div>
+              </div>
+
+              {crmHealth?.signals && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">Health Signals</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    {Object.entries(crmHealth.signals).map(([key, val]) => (
+                      <div key={key} className="bg-gray-50 rounded-lg px-3 py-2">
+                        <p className="text-xs text-gray-500">{key.replace(/_/g, ' ')}</p>
+                        <p className="font-semibold text-gray-800">{String(val)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-gray-400" />
+                  <h3 className="text-sm font-bold text-gray-900">Account Notes</h3>
+                </div>
+                <div className="p-4 border-b border-gray-100">
+                  <textarea
+                    value={noteBody}
+                    onChange={(e) => setNoteBody(e.target.value)}
+                    placeholder="Add a note about this account…"
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-teal-500"
+                  />
+                  <div className="flex justify-end mt-2">
+                    <button
+                      type="button"
+                      disabled={noteSaving || !noteBody.trim()}
+                      onClick={async () => {
+                        setNoteSaving(true)
+                        try {
+                          await addTenantCrmNote(tenantId, noteBody.trim())
+                          setNoteBody('')
+                          fetchCrmData()
+                        } catch {
+                          // ignore
+                        } finally {
+                          setNoteSaving(false)
+                        }
+                      }}
+                      className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-lg disabled:opacity-50"
+                    >
+                      {noteSaving ? 'Saving…' : 'Add Note'}
+                    </button>
+                  </div>
+                </div>
+                {crmNotes.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-gray-500">No notes yet.</div>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {crmNotes.map((note) => (
+                      <li key={note.id} className="px-4 py-3">
+                        <p className="text-sm text-gray-800">{note.body}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {note.author_email || 'System'} · {note.created_at ? new Date(note.created_at).toLocaleString() : ''}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 

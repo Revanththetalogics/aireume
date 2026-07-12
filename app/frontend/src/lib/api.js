@@ -31,8 +31,11 @@ const CSRF_EXEMPT_PATHS = [
   '/auth/logout',
   '/auth/forgot-password',
   '/auth/reset-password',
+  '/auth/resend-verification',
+  '/auth/test/verify-email',
   '/billing/webhook',
   '/sso/callback',
+  '/auth/oauth',
 ]
 
 function isCsrfExempt(url) {
@@ -1355,6 +1358,20 @@ export async function verifyEmail(token) {
   return response.data
 }
 
+export async function resendVerificationEmail(email) {
+  const response = await api.post('/auth/resend-verification', { email })
+  return response.data
+}
+
+export async function createBillingCheckout(plan, successUrl, cancelUrl) {
+  const response = await api.post('/billing/checkout', {
+    plan,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  })
+  return response.data
+}
+
 export async function downloadAdverseAction(resultId) {
   const response = await api.get(`/export/${resultId}/adverse-action`, { responseType: 'blob' })
   return response
@@ -1720,6 +1737,71 @@ export async function selectOnboardingPlan(planId) {
 
 export async function completeOnboarding() {
   const response = await api.post('/onboarding/complete')
+  return response.data
+}
+
+export async function skipOnboarding() {
+  const response = await api.post('/onboarding/skip')
+  return response.data
+}
+
+export async function inviteTeamDuringOnboarding(emails, role = 'recruiter') {
+  const response = await api.post('/onboarding/invite-team', { emails, role })
+  return response.data
+}
+
+export async function getOnboardingChecklist() {
+  const response = await api.get('/onboarding/checklist')
+  return response.data
+}
+
+export async function updateOnboardingChecklistItem(key, completed = true) {
+  const response = await api.patch('/onboarding/checklist', { key, completed })
+  return response.data
+}
+
+export async function getOAuthProviders() {
+  const response = await api.get('/auth/oauth/providers')
+  return response.data
+}
+
+export async function getCrmHealthOverview() {
+  const response = await api.get('/admin/crm/health-overview')
+  return response.data
+}
+
+export async function getTenantCrmHealth(tenantId) {
+  const response = await api.get(`/admin/crm/tenants/${tenantId}/health`)
+  return response.data
+}
+
+export async function getTenantCrmNotes(tenantId) {
+  const response = await api.get(`/admin/crm/tenants/${tenantId}/notes`)
+  return response.data
+}
+
+export async function addTenantCrmNote(tenantId, body, noteType = 'general') {
+  const response = await api.post(`/admin/crm/tenants/${tenantId}/notes`, { body, note_type: noteType })
+  return response.data
+}
+
+export async function getTenantCrmNps(tenantId) {
+  const response = await api.get(`/admin/crm/tenants/${tenantId}/nps`)
+  return response.data
+}
+
+export async function getTenantBranding() {
+  const response = await api.get('/branding/me')
+  return response.data
+}
+
+export async function updateTenantBranding(data) {
+  const response = await api.put('/branding/me', data)
+  return response.data
+}
+
+export async function submitNps(score, comment) {
+  const response = await api.post('/nps', { score, comment })
   return response.data
 }
 

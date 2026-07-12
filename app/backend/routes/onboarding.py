@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan
+from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan, User
 from app.backend.services.metadata_utils import safe_parse_metadata
 
 VALID_INDUSTRIES = [
@@ -27,6 +27,53 @@ class OrganizationRequest(BaseModel):
 
 class SelectPlanRequest(BaseModel):
     plan_id: int
+
+
+class InviteTeamRequest(BaseModel):
+    emails: list[str]
+    role: str = "recruiter"
+
+
+class ChecklistUpdateRequest(BaseModel):
+    key: str
+    completed: bool = True
+
+
+DEFAULT_CHECKLIST = {
+    "createdJob": False,
+    "analyzedResume": False,
+    "shortlistedCandidate": False,
+    "invitedTeamMember": False,
+    "sharedWithHM": False,
+}
+
+
+def _load_checklist(user) -> dict:
+    raw = getattr(user, "getting_started_progress", None) or "{}"
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception:
+        data = {}
+    merged = {**DEFAULT_CHECKLIST, **data}
+    return merged
+
+
+def _save_checklist(user, checklist: dict, db: Session):
+    user.getting_started_progress = json.dumps(checklist)
+    db.commit()
+
+
+def _ensure_free_plan(db: Session, tenant: Tenant) -> None:
+    if tenant.plan_id:
+        return
+    free_plan = db.query(SubscriptionPlan).filter(
+        SubscriptionPlan.name == "free",
+        SubscriptionPlan.is_active == True,
+    ).first()
+    if not free_plan:
+        raise HTTPException(status_code=400, detail="No default plan available. Please select a plan.")
+    tenant.plan_id = free_plan.id
+    db.flush()
 
 
 # ─── Onboarding status & flow endpoints ─────────────────────────────────────────
@@ -52,10 +99,14 @@ async def get_onboarding_status(
     return {
         "completed": tenant.onboarding_completed,
         "completed_at": completed_at,
+        "checklist": _load_checklist(current_user),
         "steps": {
             "organization": bool(metadata.get("industry") or metadata.get("company_size")),
             "plan_selected": tenant.plan_id is not None,
-            "first_jd": False,  # Will be True once they create their first JD
+            "first_jd": db.query(RoleTemplate).filter(
+                RoleTemplate.tenant_id == tenant.id,
+                ~RoleTemplate.name.like("%[Sample]%"),
+            ).count() > 0,
         },
     }
 
@@ -134,6 +185,12 @@ async def select_onboarding_plan(
         raise HTTPException(status_code=400, detail="Invalid or inactive plan")
 
     tenant.plan_id = plan.id
+
+    # Start self-serve trial for paid plans (no immediate payment required)
+    if plan.price_monthly and plan.price_monthly > 0 and plan.name != "enterprise":
+        from app.backend.services.trial_service import start_trial
+        start_trial(db, tenant, plan_name=plan.name)
+
     db.commit()
     db.refresh(tenant)
 
@@ -189,7 +246,114 @@ async def complete_onboarding(
     }
 
 
-# ─── Sample data seeding (existing endpoint) ───────────────────────────────────
+@router.post("/skip")
+async def skip_onboarding(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Skip onboarding wizard — auto-selects free plan and marks complete."""
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if tenant.onboarding_completed:
+        return {"completed": True, "already_completed": True}
+
+    _ensure_free_plan(db, tenant)
+
+    tenant.onboarding_completed = True
+    tenant.onboarding_completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"completed": True, "skipped": True}
+
+
+@router.post("/invite-team")
+async def invite_team_during_onboarding(
+    body: InviteTeamRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send team invites during onboarding wizard."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    from app.backend.routes.auth import _hash_password
+    from app.backend.services.invite_service import send_team_invite_email
+    import secrets
+
+    results = []
+    valid_roles = {"admin", "recruiter", "viewer", "hiring_manager"}
+    role = body.role if body.role in valid_roles else "recruiter"
+
+    for raw_email in body.emails:
+        email = raw_email.strip().lower()
+        if not email or "@" not in email:
+            continue
+        if db.query(User).filter(User.email == email).first():
+            results.append({"email": email, "status": "already_exists"})
+            continue
+
+        temp_password = secrets.token_urlsafe(12)
+        new_user = User(
+            tenant_id=tenant.id,
+            email=email,
+            hashed_password=_hash_password(temp_password),
+            role=role,
+            email_verified=False,
+        )
+        db.add(new_user)
+        db.flush()
+
+        email_sent = send_team_invite_email(
+            db,
+            invitee=new_user,
+            inviter_name=current_user.email,
+            tenant_name=tenant.name,
+            tenant_slug=tenant.slug,
+        )
+        results.append({
+            "email": email,
+            "status": "invited" if email_sent else "created_no_email",
+            "user_id": new_user.id,
+            "invite_email_sent": email_sent,
+        })
+
+    if results:
+        checklist = _load_checklist(current_user)
+        if any(r.get("status") in ("invited", "created_no_email") for r in results):
+            checklist["invitedTeamMember"] = True
+            _save_checklist(current_user, checklist, db)
+
+    db.commit()
+    return {"results": results, "invited_count": sum(1 for r in results if r.get("status") == "invited")}
+
+
+@router.get("/checklist")
+async def get_checklist(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.refresh(current_user)
+    return {"checklist": _load_checklist(current_user)}
+
+
+@router.patch("/checklist")
+async def update_checklist_item(
+    body: ChecklistUpdateRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if body.key not in DEFAULT_CHECKLIST:
+        raise HTTPException(status_code=400, detail=f"Invalid checklist key: {body.key}")
+    checklist = _load_checklist(current_user)
+    checklist[body.key] = body.completed
+    _save_checklist(current_user, checklist, db)
+    return {"checklist": checklist}
+
 
 def _build_parsed_data(name: str, email: str, skills: list, work_exp: list, education: list) -> str:
     return json.dumps({

@@ -103,9 +103,9 @@ export default function AdminOverviewPage() {
           }
         />
         <StatCard
-          label="MRR"
+          label="MRR (Collected)"
           value={loading ? null : (metrics?.mrr ? `$${metrics.mrr.toLocaleString()}` : '—')}
-          sub="Monthly recurring revenue"
+          sub="Paid invoices — last 30 days"
           color="amber"
           icon={
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -115,6 +115,42 @@ export default function AdminOverviewPage() {
           }
         />
       </div>
+
+      {metrics?.onboarding_funnel && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Self-Onboarding Funnel</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <StatCard
+              label="Registered Tenants"
+              value={metrics.onboarding_funnel.registered_tenants}
+              sub="All-time signups"
+              color="teal"
+              icon={<span className="text-lg">🏢</span>}
+            />
+            <StatCard
+              label="Email Verified"
+              value={metrics.onboarding_funnel.verified_users}
+              sub="Active verified users"
+              color="blue"
+              icon={<span className="text-lg">✉️</span>}
+            />
+            <StatCard
+              label="Onboarding Complete"
+              value={metrics.onboarding_funnel.onboarding_completed}
+              sub={`${metrics.onboarding_funnel.completion_rate_pct}% completion rate`}
+              color="violet"
+              icon={<span className="text-lg">✅</span>}
+            />
+            <StatCard
+              label="First Analysis"
+              value={metrics.onboarding_funnel.tenants_with_first_analysis}
+              sub="Tenants that ran at least one analysis"
+              color="amber"
+              icon={<span className="text-lg">📊</span>}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Quick links */}
       <div>

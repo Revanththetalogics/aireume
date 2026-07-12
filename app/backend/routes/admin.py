@@ -16,11 +16,15 @@ from sqlalchemy.orm import Session, joinedload
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import (
     require_platform_admin,
+    require_platform_write,
     require_super_admin,
     require_support,
     require_security_admin,
     require_billing_admin,
     require_readonly_platform,
+    ALL_PLATFORM_ROLES,
+    PLATFORM_ROLE_PRODUCT_OWNER,
+    PLATFORM_ROLE_SUPER_ADMIN,
 )
 from app.backend.models.db_models import (
     AuditLog, Tenant, User, SubscriptionPlan, UsageLog,
@@ -230,7 +234,7 @@ def list_tenants(
     status: Optional[str] = Query(None),
     sort_by: str = Query("created_at"),
     sort_order: str = Query("desc"),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List all tenants with pagination, search, and filters."""
@@ -304,7 +308,7 @@ def list_tenants(
 @router.get("/tenants/{tenant_id}", response_model=TenantDetailResponse)
 def get_tenant_detail(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get full tenant detail with users, usage logs, and audit logs."""
@@ -393,7 +397,7 @@ def suspend_tenant(
     tenant_id: int,
     body: SuspendRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Suspend a tenant account."""
@@ -430,7 +434,7 @@ def suspend_tenant(
 def reactivate_tenant(
     tenant_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Reactivate a suspended tenant."""
@@ -464,7 +468,7 @@ def change_tenant_plan(
     tenant_id: int,
     body: ChangePlanRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Change a tenant's subscription plan with proration calculation."""
@@ -568,7 +572,7 @@ def adjust_tenant_usage(
     tenant_id: int,
     body: AdjustUsageRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Override usage counters for a tenant."""
@@ -613,7 +617,7 @@ def adjust_tenant_usage(
 def get_tenant_usage_history(
     tenant_id: int,
     limit: int = Query(100, ge=1, le=500),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get usage logs for a specific tenant."""
@@ -702,7 +706,7 @@ def update_tenant(
     tenant_id: int,
     body: UpdateTenantRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Update tenant details."""
@@ -794,7 +798,7 @@ def delete_tenant(
 @router.get("/tenants/{tenant_id}/sso")
 def get_tenant_sso(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get SSO configuration for a tenant."""
@@ -833,7 +837,7 @@ def update_tenant_sso(
     tenant_id: int,
     body: SSOConfigRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Create or update SSO configuration for a tenant."""
@@ -926,7 +930,7 @@ def update_tenant_sso(
 def delete_tenant_sso(
     tenant_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Remove SSO configuration for a tenant."""
@@ -956,7 +960,7 @@ def delete_tenant_sso(
 @router.post("/tenants/{tenant_id}/sso/test")
 def test_tenant_sso(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Test SSO configuration (validates certificate format, checks IdP URL)."""
@@ -997,7 +1001,7 @@ def add_user_to_tenant(
     tenant_id: int,
     body: AddUserToTenantRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Add an existing user to a tenant or create a new user account."""
@@ -1005,12 +1009,24 @@ def add_user_to_tenant(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
+    if body.is_platform_admin:
+        role = body.platform_role or "support"
+        if role not in ALL_PLATFORM_ROLES:
+            raise HTTPException(status_code=400, detail=f"Invalid platform_role: {role}")
+        if role == PLATFORM_ROLE_PRODUCT_OWNER and admin.platform_role not in (
+            PLATFORM_ROLE_SUPER_ADMIN, PLATFORM_ROLE_PRODUCT_OWNER
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Only super_admin or product_owner can assign the product_owner role",
+            )
+
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == body.email).first()
     if existing_user:
         # Cross-tenant move requires super_admin
         if existing_user.tenant_id != tenant_id:
-            if not (admin.platform_role == "super_admin"):
+            if not (admin.platform_role in ("super_admin", "product_owner")):
                 raise HTTPException(
                     status_code=403,
                     detail="Cross-tenant user reassignment requires super_admin privileges",
@@ -1133,7 +1149,7 @@ def remove_user_from_tenant(
     tenant_id: int,
     user_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Remove a user from a tenant (soft delete by deactivating)."""
@@ -1174,7 +1190,7 @@ def get_audit_logs(
     actor_email: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Query audit logs with filters and pagination."""
@@ -1239,7 +1255,7 @@ def export_audit_logs(
     action: Optional[str] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Export filtered audit logs as CSV or JSON (capped at 10 000 rows)."""
@@ -1304,7 +1320,7 @@ def export_audit_logs(
 def get_admin_notifications(
     unread_only: bool = Query(False),
     limit: int = Query(20, ge=1, le=200),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List admin platform notifications, newest first."""
@@ -1338,7 +1354,7 @@ def get_admin_notifications(
 @router.put("/notifications/{notification_id}/read")
 def mark_notification_read(
     notification_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Mark a single admin notification as read."""
@@ -1351,7 +1367,7 @@ def mark_notification_read(
 
 @router.put("/notifications/read-all")
 def mark_all_notifications_read(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Mark all unread admin notifications as read."""
@@ -1365,7 +1381,7 @@ def mark_all_notifications_read(
 # ─── Feature Flags ─────────────────────────────────────
 @router.get("/feature-flags")
 def list_feature_flags(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List all feature flags with their global state."""
@@ -1387,7 +1403,7 @@ def toggle_feature_flag(
     flag_id: int,
     body: dict,  # { "enabled_globally": bool }
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Toggle a feature flag's global state."""
@@ -1414,7 +1430,7 @@ def toggle_feature_flag(
 @router.get("/tenants/{tenant_id}/features")
 def get_tenant_feature_overrides(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get feature overrides for a specific tenant."""
@@ -1444,7 +1460,7 @@ def set_tenant_feature_override(
     flag_id: int,
     body: dict,  # { "enabled": bool }
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Set a feature override for a specific tenant."""
@@ -1483,7 +1499,7 @@ def delete_tenant_feature_override(
     tenant_id: int,
     flag_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Remove a tenant feature override (revert to global)."""
@@ -1513,9 +1529,24 @@ def delete_tenant_feature_override(
 
 # ─── Platform Metrics ─────────────────────────────────────────────────────────
 
+@router.get("/invoices")
+def list_all_invoices(
+    admin: User = Depends(require_readonly_platform),
+    db: Session = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None),
+    tenant_id: Optional[int] = Query(None),
+):
+    """List invoices across all tenants (platform admin)."""
+    from app.backend.services.billing.invoice_service import get_all_invoices
+    invoices = get_all_invoices(db, limit=limit, offset=offset, status=status, tenant_id=tenant_id)
+    return {"invoices": invoices, "total": len(invoices)}
+
+
 @router.get("/metrics/overview")
 def get_platform_metrics_overview(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get platform-wide metrics overview."""
@@ -1571,19 +1602,30 @@ def get_platform_metrics_overview(
     ).outerjoin(Tenant, Tenant.plan_id == SubscriptionPlan.id).group_by(SubscriptionPlan.name).all()
     plan_distribution = {name: count for name, count in plan_dist}
 
-    # Revenue estimate (MRR = sum of monthly prices for active tenants)
-    mrr_result = db.query(sa_func.coalesce(sa_func.sum(SubscriptionPlan.price_monthly), 0)).join(
-        Tenant, Tenant.plan_id == SubscriptionPlan.id
-    ).filter(Tenant.subscription_status == "active").scalar()
+    from app.backend.services.billing.invoice_service import get_revenue_metrics
+    revenue_metrics = get_revenue_metrics(db)
+
+    # Onboarding funnel metrics
+    total_tenants = db.query(sa_func.count(Tenant.id)).filter(Tenant.deleted_at.is_(None)).scalar() or 0
+    onboarding_completed = db.query(sa_func.count(Tenant.id)).filter(
+        Tenant.onboarding_completed == True, Tenant.deleted_at.is_(None)
+    ).scalar() or 0
+    verified_users = db.query(sa_func.count(User.id)).filter(
+        User.email_verified == True, User.is_active == True
+    ).scalar() or 0
+    tenants_with_analysis = db.query(sa_func.count(sa_func.distinct(UsageLog.tenant_id))).filter(
+        UsageLog.action.in_(["resume_analysis", "batch_analysis"])
+    ).scalar() or 0
 
     return {
         # Flat fields for AdminOverviewPage
         "active_users": total_users,
         "total_analyses": int(analyses_this_month),
-        "mrr": round((mrr_result or 0) / 100, 2),
+        "mrr": revenue_metrics["mrr"],
+        "collected_this_month": revenue_metrics["collected_this_month"],
         # Nested structure preserved for other consumers
         "tenants": tenant_counts,
-        "users": {"total": total_users},
+        "users": {"total": total_users, "verified": verified_users},
         "analyses": {
             "today": int(analyses_today),
             "this_week": int(analyses_this_week),
@@ -1591,16 +1633,20 @@ def get_platform_metrics_overview(
         },
         "storage": {"total_gb": round(total_storage / (1024 ** 3), 2)},
         "plans": plan_distribution,
-        "revenue": {
-            "mrr_cents": int(mrr_result),
-            "arr_estimate_cents": int(mrr_result) * 12,
+        "revenue": revenue_metrics,
+        "onboarding_funnel": {
+            "registered_tenants": total_tenants,
+            "onboarding_completed": onboarding_completed,
+            "verified_users": verified_users,
+            "tenants_with_first_analysis": tenants_with_analysis,
+            "completion_rate_pct": round((onboarding_completed / total_tenants * 100) if total_tenants else 0, 1),
         },
     }
 
 
 @router.get("/metrics/usage-trends")
 def get_usage_trends(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
     days: int = 30,
 ):
@@ -1640,7 +1686,7 @@ def get_usage_trends(
 @router.get("/tenants/{tenant_id}/webhooks")
 def list_tenant_webhooks(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List all webhooks for a tenant."""
@@ -1669,7 +1715,7 @@ def create_tenant_webhook(
     tenant_id: int,
     body: dict,  # { "url": str, "secret": str, "events": list[str] }
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Create a new webhook for a tenant."""
@@ -1708,7 +1754,7 @@ def delete_tenant_webhook(
     tenant_id: int,
     webhook_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Delete a webhook."""
@@ -1733,7 +1779,7 @@ def list_webhook_deliveries(
     tenant_id: int,
     webhook_id: int,
     limit: int = 50,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List delivery history for a webhook."""
@@ -1780,7 +1826,7 @@ def _is_sensitive_key(key: str) -> bool:
 
 @router.get("/billing/config")
 def get_billing_config(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get current billing provider configuration (sensitive values masked)."""
@@ -1816,7 +1862,7 @@ def get_billing_config(
 def set_billing_config(
     body: dict,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Set active billing provider and credentials.
@@ -1889,7 +1935,7 @@ def set_billing_config(
 
 @router.get("/billing/providers")
 def list_billing_providers(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List available billing providers with their required config fields."""
@@ -1909,7 +1955,7 @@ def list_billing_providers(
 
 @router.get("/billing/settings")
 def get_billing_settings(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get current billing provider configuration from platform_settings."""
@@ -1952,7 +1998,7 @@ def get_billing_settings(
 def update_billing_settings(
     body: BillingSettingsRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Store billing provider configuration in platform_settings."""
@@ -1991,7 +2037,7 @@ def update_billing_settings(
 @router.post("/billing/settings/test")
 def test_billing_connection(
     body: TestBillingConnectionRequest,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Test connectivity with stored Stripe or Razorpay credentials via basic HTTP."""
@@ -2049,7 +2095,7 @@ def test_billing_connection(
 def generate_checkout_link(
     body: GenerateCheckoutLinkRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Generate a checkout session/payment link for a tenant and plan."""
@@ -2105,7 +2151,7 @@ def generate_checkout_link(
 
 @router.get("/notifications/config")
 def get_notification_config(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
 ):
     """Return SMTP configuration status (password never exposed)."""
     from app.backend.services.email_service import email_service
@@ -2124,7 +2170,7 @@ class TestEmailRequest(BaseModel):
 @router.post("/notifications/test")
 def send_test_email(
     body: TestEmailRequest = TestEmailRequest(),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
 ):
     """Send a test email to the requesting admin's address (or a provided one).
 
@@ -2180,7 +2226,7 @@ def _mask_smtp_password(pw: str) -> str:
 def upsert_email_config(
     body: EmailConfigRequest,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Create or update the tenant SMTP email configuration.
@@ -2254,7 +2300,7 @@ def upsert_email_config(
 
 @router.get("/email-config")
 def get_email_config(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get the email configuration for the current admin's tenant.
@@ -2290,7 +2336,7 @@ def get_email_config(
 
 @router.post("/email-config/test")
 def test_email_config(
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Send a test email using the tenant's saved SMTP configuration.
@@ -2345,7 +2391,7 @@ def test_email_config(
 @router.delete("/email-config")
 def delete_email_config(
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Remove the tenant email configuration (revert to system default)."""
@@ -2866,7 +2912,7 @@ def list_rate_limit_configs(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     search: Optional[str] = Query(None),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """List all tenant rate limit configurations with pagination and search."""
@@ -2909,7 +2955,7 @@ def list_rate_limit_configs(
 @router.get("/tenants/{tenant_id}/rate-limit")
 def get_tenant_rate_limit(
     tenant_id: int,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_readonly_platform),
     db: Session = Depends(get_db),
 ):
     """Get rate limit configuration for a specific tenant."""
@@ -2950,7 +2996,7 @@ def update_tenant_rate_limit(
     tenant_id: int,
     body: RateLimitConfigUpdate,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Create or update rate limit configuration for a tenant."""
@@ -3017,7 +3063,7 @@ def update_tenant_rate_limit(
 def delete_tenant_rate_limit(
     tenant_id: int,
     request: Request,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Delete tenant rate limit configuration (revert to defaults)."""
@@ -3549,7 +3595,7 @@ def run_bias_audit(
     tenant_id: Optional[int] = None,
     group_field: str = "gender",
     days_back: int = 90,
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_platform_write),
     db: Session = Depends(get_db),
 ):
     """Run a bias audit on screening outcomes. Requires platform admin.

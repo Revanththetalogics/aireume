@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { getOnboardingStatus, completeOnboarding as completeOnboardingAPI } from '../lib/api'
+import { getOnboardingStatus, completeOnboarding as completeOnboardingAPI, skipOnboarding as skipOnboardingAPI, getOnboardingChecklist, updateOnboardingChecklistItem } from '../lib/api'
 import { useAuth } from './AuthContext'
 
 const OnboardingContext = createContext(null)
@@ -54,6 +54,9 @@ export function OnboardingProvider({ children }) {
         if (!cancelled) {
           setOnboardingStatus(data)
           setIsOnboardingComplete(data.completed)
+          if (data.checklist) {
+            setChecklist((prev) => ({ ...prev, ...data.checklist }))
+          }
           setStatusLoading(false)
         }
       } catch {
@@ -90,9 +93,16 @@ export function OnboardingProvider({ children }) {
     })
   }, [])
 
-  const skipOnboarding = useCallback(() => {
+  const skipOnboarding = useCallback(async () => {
+    try {
+      await skipOnboardingAPI()
+    } catch {
+      // surface to caller
+      throw new Error('Failed to skip onboarding')
+    }
     setCurrentStep(6)
     setIsOnboardingComplete(true)
+    setOnboardingStatus((prev) => prev ? { ...prev, completed: true } : prev)
   }, [])
 
   const dismissOnboarding = useCallback(() => {
@@ -112,7 +122,9 @@ export function OnboardingProvider({ children }) {
   const completeChecklistItem = useCallback((key) => {
     setChecklist((prev) => {
       if (key in prev) {
-        return { ...prev, [key]: true }
+        const next = { ...prev, [key]: true }
+        updateOnboardingChecklistItem(key, true).catch(() => {})
+        return next
       }
       return prev
     })
@@ -128,11 +140,7 @@ export function OnboardingProvider({ children }) {
 
   // Mark onboarding as complete on the backend and locally
   const markOnboardingComplete = useCallback(async () => {
-    try {
-      await completeOnboardingAPI()
-    } catch {
-      // Best-effort — still mark locally
-    }
+    await completeOnboardingAPI()
     setIsOnboardingComplete(true)
     setOnboardingStatus((prev) => prev ? { ...prev, completed: true } : prev)
   }, [])

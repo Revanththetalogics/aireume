@@ -47,6 +47,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # ─── Platform Role Constants ──────────────────────────────────────────────────
 
 PLATFORM_ROLE_SUPER_ADMIN = "super_admin"
+PLATFORM_ROLE_PRODUCT_OWNER = "product_owner"
 PLATFORM_ROLE_BILLING_ADMIN = "billing_admin"
 PLATFORM_ROLE_SUPPORT = "support"
 PLATFORM_ROLE_SECURITY_ADMIN = "security_admin"
@@ -54,6 +55,7 @@ PLATFORM_ROLE_READONLY = "readonly"
 
 ALL_PLATFORM_ROLES = [
     PLATFORM_ROLE_SUPER_ADMIN,
+    PLATFORM_ROLE_PRODUCT_OWNER,
     PLATFORM_ROLE_BILLING_ADMIN,
     PLATFORM_ROLE_SUPPORT,
     PLATFORM_ROLE_SECURITY_ADMIN,
@@ -62,11 +64,26 @@ ALL_PLATFORM_ROLES = [
 
 READ_PLATFORM_ROLES = [
     PLATFORM_ROLE_SUPER_ADMIN,
+    PLATFORM_ROLE_PRODUCT_OWNER,
     PLATFORM_ROLE_BILLING_ADMIN,
     PLATFORM_ROLE_SUPPORT,
     PLATFORM_ROLE_SECURITY_ADMIN,
     PLATFORM_ROLE_READONLY,
 ]
+
+WRITE_PLATFORM_ROLES = [
+    PLATFORM_ROLE_SUPER_ADMIN,
+    PLATFORM_ROLE_PRODUCT_OWNER,
+    PLATFORM_ROLE_BILLING_ADMIN,
+    PLATFORM_ROLE_SUPPORT,
+    PLATFORM_ROLE_SECURITY_ADMIN,
+]
+
+# Paths accessible before email verification (authenticated but unverified)
+UNVERIFIED_ALLOWED_PREFIXES = (
+    "/api/auth/me",
+    "/api/auth/logout",
+)
 
 
 # ─── User Loading ─────────────────────────────────────────────────────────────
@@ -129,6 +146,18 @@ def get_current_user(
         )
 
     user = _load_user_from_token(db, token)
+
+    # Block unverified users from app routes (platform admins exempt)
+    if not user.email_verified and not user.is_platform_admin_compat:
+        path = request.url.path
+        if not any(path.startswith(prefix) for prefix in UNVERIFIED_ALLOWED_PREFIXES):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "detail": "Please verify your email before accessing the application.",
+                    "error_code": "EMAIL_NOT_VERIFIED",
+                },
+            )
 
     # Check for impersonation token header
     impersonation_token = request.headers.get("X-Impersonation-Token")
@@ -213,6 +242,9 @@ def _check_platform_role(current_user: User, allowed_roles: list[str]) -> User:
     # Backward compatibility: legacy is_platform_admin=true counts as super_admin
     if legacy_flag and PLATFORM_ROLE_SUPER_ADMIN in allowed_roles:
         return current_user
+    # product_owner legacy: treat as product_owner when that role is allowed
+    if legacy_flag and PLATFORM_ROLE_PRODUCT_OWNER in allowed_roles and user_role == PLATFORM_ROLE_PRODUCT_OWNER:
+        return current_user
 
     if user_role in allowed_roles:
         return current_user
@@ -225,6 +257,11 @@ def require_platform_admin(current_user: User = Depends(get_current_user)) -> Us
     return _check_platform_role(current_user, ALL_PLATFORM_ROLES)
 
 
+def require_platform_write(current_user: User = Depends(get_current_user)) -> User:
+    """Require a platform role that may perform write operations (excludes readonly)."""
+    return _check_platform_role(current_user, WRITE_PLATFORM_ROLES)
+
+
 def require_platform_role(roles: list[str]):
     """Generic decorator requiring one of the specified platform roles."""
     def dependency(current_user: User = Depends(get_current_user)) -> User:
@@ -234,6 +271,10 @@ def require_platform_role(roles: list[str]):
 
 def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
     return _check_platform_role(current_user, [PLATFORM_ROLE_SUPER_ADMIN])
+
+
+def require_product_owner(current_user: User = Depends(get_current_user)) -> User:
+    return _check_platform_role(current_user, [PLATFORM_ROLE_SUPER_ADMIN, PLATFORM_ROLE_PRODUCT_OWNER])
 
 
 def require_billing_admin(current_user: User = Depends(get_current_user)) -> User:

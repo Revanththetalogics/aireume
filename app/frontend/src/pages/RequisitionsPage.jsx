@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle } from 'lucide-react'
 import { listRequisitions, createRequisition, getTeamMembers } from '../lib/api'
+import { useOnboarding } from '../contexts/OnboardingContext'
 import { Button } from '../components/ui'
 import { PageHeaderCard } from '../components/patterns/PageHeader'
 import usePermissions from '../hooks/usePermissions'
@@ -23,6 +24,7 @@ const FILTERS = ['all', 'draft', 'intake_in_progress', 'calibrated', 'sourcing',
 
 export default function RequisitionsPage() {
   const navigate = useNavigate()
+  const { completeChecklistItem } = useOnboarding()
   const { canWrite, isHiringManager } = usePermissions()
   const [reqs, setReqs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -82,6 +84,7 @@ export default function RequisitionsPage() {
       })
       setShowCreate(false)
       setForm({ title: '', jd_text: '', client_name: '', location: '', primary_hiring_manager_id: '' })
+      completeChecklistItem('createdJob')
       navigate(`/requisitions/${req.id}`)
     } catch (err) {
       window.alert(err.response?.data?.detail?.message || err.response?.data?.detail || 'Failed to create requisition')

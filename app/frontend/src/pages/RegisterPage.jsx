@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Eye, EyeOff, AlertCircle, Building2, ArrowRight } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { TRUST } from '../lib/uxLabels'
+import OAuthButtons from '../components/OAuthButtons'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -23,8 +24,11 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      await register(companyName, email, password)
+      const data = await register(companyName, email, password)
       sessionStorage.setItem('aria_pending_verify_email', email)
+      if (data?.tenant?.slug) {
+        sessionStorage.setItem('aria_workspace_slug', data.tenant.slug)
+      }
       navigate('/check-email')
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed. Please try again.')
@@ -131,6 +135,10 @@ export default function RegisterPage() {
               )}
             </button>
           </form>
+
+          <div className="mt-6">
+            <OAuthButtons mode="signup" companyName={companyName} />
+          </div>
 
           <p className="text-center text-sm text-slate-500 mt-6">
             Already have an account?{' '}

@@ -164,6 +164,10 @@ from app.backend.routes import requisitions
 from app.backend.routes import ats
 from app.backend.routes import tenant_audit
 from app.backend.routes import share_links
+from app.backend.routes import oauth
+from app.backend.routes import crm
+from app.backend.routes import branding
+from app.backend.routes import nps
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -531,6 +535,7 @@ app.add_middleware(CSRFMiddleware)
 # ─── Routers ──────────────────────────────────────────────────────────────────
 
 app.include_router(auth.router)
+app.include_router(oauth.router)
 app.include_router(analyze.router)
 app.include_router(compare.router)
 app.include_router(export.router)
@@ -546,6 +551,9 @@ app.include_router(transcript.router)
 app.include_router(subscription.router)
 app.include_router(queue_api.router)
 app.include_router(admin.router)
+app.include_router(crm.router)
+app.include_router(branding.router)
+app.include_router(nps.router)
 app.include_router(upload.router)
 app.include_router(billing.router)
 app.include_router(interview_kit.router)
