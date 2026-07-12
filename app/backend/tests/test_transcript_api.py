@@ -13,8 +13,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.backend.models.db_models import Candidate, RoleTemplate, SubscriptionPlan, Tenant, User
-from app.backend.tests.test_helpers import _verify_user_via_api
+from app.backend.models.db_models import Candidate, RoleTemplate, Tenant, User
+from app.backend.tests.test_helpers import _verify_user_via_api, assign_tenant_plan
 from app.backend.services.feature_flag_service import invalidate_cache
 
 
@@ -22,13 +22,8 @@ def _grant_transcript_access(db, email: str) -> None:
     """Upgrade a tenant to Enterprise so transcript_analysis is enabled."""
     user = db.query(User).filter(User.email == email).first()
     assert user is not None, f"No user found for {email}"
-    enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
-    assert enterprise_plan is not None, "enterprise plan must be seeded"
-    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-    tenant.plan_id = enterprise_plan.id
-    tenant.subscription_status = "active"
-    db.commit()
-    invalidate_cache(tenant.id, "transcript_analysis")
+    assign_tenant_plan(db, "enterprise", email=email)
+    invalidate_cache(user.tenant_id, "transcript_analysis")
 
 
 @pytest.fixture

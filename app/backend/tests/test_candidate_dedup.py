@@ -17,6 +17,8 @@ import hashlib
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from app.backend.tests.test_helpers import assign_tenant_plan
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 LONG_JD = (
@@ -581,7 +583,8 @@ class TestAnalyzeJdEndpoint:
         history = detail.json()["history"]
         assert len(history) >= 2  # original upload + this re-analysis
 
-    def test_custom_scoring_weights_accepted(self, auth_client):
+    def test_custom_scoring_weights_accepted(self, auth_client, db, seed_subscription_plans):
+        assign_tenant_plan(db, "enterprise", slug="testcorp")
         cid = self._seed_candidate_with_profile(auth_client, db=None)
         with patch("app.backend.services.hybrid_pipeline.run_hybrid_pipeline",
                    new_callable=AsyncMock, return_value=MOCK_PIPELINE_RESULT) as mock_pl:

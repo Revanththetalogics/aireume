@@ -9,6 +9,12 @@ import pytest
 from unittest.mock import patch, AsyncMock
 
 
+@pytest.fixture
+def auth_client(auth_client_with_enterprise_plan):
+    """Video analysis routes require video_analysis (Enterprise plan)."""
+    return auth_client_with_enterprise_plan
+
+
 MOCK_ANALYSIS_RESULT = {
     "source": "test_video.mp4",
     "transcript": "Hello, I have five years of experience in Python development.",

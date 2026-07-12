@@ -266,6 +266,15 @@ def _clear_rate_limit_buckets():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _clear_feature_flag_cache():
+    """Clear plan/feature flag cache between tests (module-level TTL cache)."""
+    from app.backend.services.feature_flag_service import invalidate_cache
+    invalidate_cache()
+    yield
+    invalidate_cache()
+
+
 @pytest.fixture(scope="function")
 def client():
     # Create all tables including queue tables
@@ -278,11 +287,13 @@ def client():
 # ─── Authenticated client fixture ────────────────────────────────────────────
 
 @pytest.fixture(scope="function")
-def auth_client(client):
+def auth_client(client, db, seed_subscription_plans):
     """
     Returns a TestClient already configured with a valid JWT Bearer token.
     Registers a tenant + admin user, logs in, injects the Authorization header.
     """
+    from app.backend.tests.test_helpers import assign_tenant_plan
+
     register_payload = {
         "company_name": "TestCorp",
         "email": "admin@testcorp.com",
@@ -294,6 +305,7 @@ def auth_client(client):
 
     # Register no longer returns tokens — verify then login
     _verify_user_via_api("admin@testcorp.com")
+    assign_tenant_plan(db, "growth", "pro", slug="testcorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "admin@testcorp.com",
@@ -307,10 +319,11 @@ def auth_client(client):
 
 
 @pytest.fixture(scope="function")
-def viewer_client(client, db):
+def viewer_client(client, db, seed_subscription_plans):
     """Authenticated client with tenant role=viewer (read-only)."""
     from app.backend.models.db_models import User
     from app.backend.routes.auth import _hash_password
+    from app.backend.tests.test_helpers import assign_tenant_plan
 
     register_payload = {
         "company_name": "ViewerCorp",
@@ -321,6 +334,7 @@ def viewer_client(client, db):
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
     _verify_user_via_api("admin@viewercorp.com")
+    assign_tenant_plan(db, "growth", "pro", slug="viewercorp")
 
     admin_user = db.query(User).filter(User.email == "admin@viewercorp.com").first()
     assert admin_user is not None
@@ -904,7 +918,7 @@ def auth_client_with_agency_plan(client, db, seed_subscription_plans):
 @pytest.fixture
 def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Enterprise plan."""
-    from app.backend.models.db_models import Tenant, SubscriptionPlan
+    from app.backend.tests.test_helpers import assign_tenant_plan
 
     register_payload = {
         "company_name": "EnterpriseCorp",
@@ -916,11 +930,9 @@ def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
 
     _verify_user_via_api("enterprise@enterprisecorp.com")
-
-    enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+    assign_tenant_plan(db, "enterprise", slug="enterprisecorp")
+    from app.backend.models.db_models import Tenant
     tenant = db.query(Tenant).filter(Tenant.slug == "enterprisecorp").first()
-    tenant.plan_id = enterprise_plan.id
-    tenant.subscription_status = "active"
     tenant.analyses_count_this_month = 0
     db.commit()
 

@@ -32,6 +32,12 @@ from app.backend.models.db_models import (
 )
 
 
+@pytest.fixture
+def auth_client(auth_client_with_enterprise_plan):
+    """Voice routes require ai_interviews (Enterprise plan)."""
+    return auth_client_with_enterprise_plan
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _create_candidate(db, tenant_id, name="Voice Candidate", email="voice@example.com"):
@@ -51,10 +57,10 @@ def _create_jd(db, tenant_id, name="Voice JD"):
 
 
 def _get_tenant_id(auth_client, db):
-    """Extract tenant_id from the auth_client's user."""
-    from app.backend.models.db_models import User, Tenant
-    user = db.query(User).filter(User.email == "admin@testcorp.com").first()
-    return user.tenant_id
+    """Extract tenant_id from the authenticated user behind auth_client."""
+    me = auth_client.get("/api/auth/me")
+    assert me.status_code == 200
+    return me.json()["user"]["tenant_id"]
 
 
 # ─── GET /api/voice/settings ──────────────────────────────────────────────────

@@ -13,6 +13,15 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import json
 from io import BytesIO
 
+from app.backend.tests.test_helpers import assign_tenant_plan
+
+
+@pytest.fixture
+def auth_client_with_custom_weights(auth_client, db, seed_subscription_plans):
+    """Enterprise plan required when passing custom scoring_weights to analyze routes."""
+    assign_tenant_plan(db, "enterprise", slug="testcorp")
+    return auth_client
+
 
 # ─── JD URL extraction ────────────────────────────────────────────────────────
 
@@ -314,7 +323,7 @@ class TestScoringWeightsSizeValidation:
         "Strong understanding of software design patterns, testing methodologies, and agile development practices required."
     )
 
-    def test_analyze_rejects_oversized_scoring_weights(self, auth_client, mock_hybrid_pipeline):
+    def test_analyze_rejects_oversized_scoring_weights(self, auth_client_with_custom_weights, mock_hybrid_pipeline):
         """Test that /analyze rejects scoring_weights exceeding 4KB limit."""
         # Create scoring_weights that exceed 4KB
         oversized_weights = {"skills": {f"skill_{i}": 1.0 for i in range(300)}}  # ~5KB JSON
@@ -330,11 +339,11 @@ class TestScoringWeightsSizeValidation:
             "scoring_weights": oversized_json
         }
 
-        resp = auth_client.post("/api/analyze", data=data, files=files)
+        resp = auth_client_with_custom_weights.post("/api/analyze", data=data, files=files)
         assert resp.status_code == 400
         assert "4KB" in resp.json().get("detail", "")
 
-    def test_analyze_stream_rejects_oversized_scoring_weights(self, auth_client):
+    def test_analyze_stream_rejects_oversized_scoring_weights(self, auth_client_with_custom_weights):
         """Test that /analyze/stream rejects scoring_weights exceeding 4KB limit."""
         # Create scoring_weights that exceed 4KB
         oversized_weights = {"skills": {f"skill_{i}": 1.0 for i in range(300)}}  # ~5KB JSON
@@ -350,11 +359,11 @@ class TestScoringWeightsSizeValidation:
             "scoring_weights": oversized_json
         }
 
-        resp = auth_client.post("/api/analyze/stream", data=data, files=files)
+        resp = auth_client_with_custom_weights.post("/api/analyze/stream", data=data, files=files)
         assert resp.status_code == 400
         assert "4KB" in resp.json().get("detail", "")
 
-    def test_analyze_batch_rejects_oversized_scoring_weights(self, auth_client):
+    def test_analyze_batch_rejects_oversized_scoring_weights(self, auth_client_with_custom_weights):
         """Test that /analyze/batch rejects scoring_weights exceeding 4KB limit."""
         # Create scoring_weights that exceed 4KB
         oversized_weights = {"skills": {f"skill_{i}": 1.0 for i in range(300)}}  # ~5KB JSON
@@ -370,11 +379,11 @@ class TestScoringWeightsSizeValidation:
             "scoring_weights": oversized_json
         }
 
-        resp = auth_client.post("/api/analyze/batch", data=data, files=files)
+        resp = auth_client_with_custom_weights.post("/api/analyze/batch", data=data, files=files)
         assert resp.status_code == 400
         assert "4KB" in resp.json().get("detail", "")
 
-    def test_analyze_accepts_valid_scoring_weights(self, auth_client, mock_hybrid_pipeline):
+    def test_analyze_accepts_valid_scoring_weights(self, auth_client_with_custom_weights, mock_hybrid_pipeline):
         """Test that /analyze accepts scoring_weights under 4KB limit."""
         import json
         valid_weights = {"skills": {"python": 0.5, "docker": 0.3, "aws": 0.2}}
@@ -389,7 +398,7 @@ class TestScoringWeightsSizeValidation:
             "scoring_weights": valid_weights_json
         }
 
-        resp = auth_client.post("/api/analyze", data=data, files=files)
+        resp = auth_client_with_custom_weights.post("/api/analyze", data=data, files=files)
         # Should not be rejected for size (may fail for other reasons)
         assert resp.status_code != 400 or "4KB" not in resp.json().get("detail", "")
 
