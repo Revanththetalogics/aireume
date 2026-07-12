@@ -9,6 +9,7 @@ import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import VerifyEmailGate from './components/VerifyEmailGate'
 import RequireWriteAccess from './components/RequireWriteAccess'
+import RequirePlanFeature from './components/RequirePlanFeature'
 import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -175,27 +176,27 @@ function App() {
               <Route path="/requisitions/:id/handoff" element={<Shell><OnboardingGate><HandoffPackage /></OnboardingGate></Shell>} />
               <Route path="/jd-library/:id/handoff" element={<LegacyHandoffRedirect />} />
               <Route path="/jd-library/:id/candidates" element={<LegacyJdPipelineRedirect />} />
-              <Route path="/requisitions" element={<Shell><OnboardingGate><RequisitionsPage /></OnboardingGate></Shell>} />
-              <Route path="/requisitions/:id" element={<Shell><OnboardingGate><RequisitionDetailPage /></OnboardingGate></Shell>} />
+              <Route path="/requisitions" element={<Shell><OnboardingGate><RequirePlanFeature feature="requisitions"><RequisitionsPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/requisitions/:id" element={<Shell><OnboardingGate><RequirePlanFeature feature="requisitions"><RequisitionDetailPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               
               {/* Existing routes */}
               <Route path="/report"     element={<Shell><OnboardingGate><ReportPage /></OnboardingGate></Shell>} />
               <Route path="/candidates" element={<Shell><OnboardingGate><CandidatesPage /></OnboardingGate></Shell>} />
               <Route path="/candidates/:id" element={<Shell><OnboardingGate><CandidateProfilePage /></OnboardingGate></Shell>} />
-              <Route path="/pipeline"    element={<Shell><OnboardingGate><KanbanBoard /></OnboardingGate></Shell>} />
+              <Route path="/pipeline"    element={<Shell><OnboardingGate><RequirePlanFeature feature="pipeline"><KanbanBoard /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/projects"    element={<Navigate to="/requisitions" replace />} />
               <Route path="/projects/:id" element={<Navigate to="/requisitions" replace />} />
-              <Route path="/compare"    element={<Shell><OnboardingGate><ComparePage /></OnboardingGate></Shell>} />
+              <Route path="/compare"    element={<Shell><OnboardingGate><RequirePlanFeature feature="compare"><ComparePage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/team"       element={<Shell><OnboardingGate><TeamPage /></OnboardingGate></Shell>} />
               <Route path="/team-skills" element={<Shell><OnboardingGate><TeamSkillsPage /></OnboardingGate></Shell>} />
-              <Route path="/transcript" element={<Shell><OnboardingGate><TranscriptPage /></OnboardingGate></Shell>} />
-              <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
-              <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
+              <Route path="/transcript" element={<Shell><OnboardingGate><RequirePlanFeature feature="transcript_analysis"><TranscriptPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/video"      element={<Shell><OnboardingGate><RequirePlanFeature feature="video_analysis"><VideoPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/analytics"  element={<Shell><OnboardingGate><RequirePlanFeature feature="analytics"><AnalyticsPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/voice-screening" element={<Navigate to="/ai-interviews" replace />} />
               <Route path="/recruiter-interviews" element={<Navigate to="/ai-interviews" replace />} />
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
-              <Route path="/ai-interviews" element={<Shell><OnboardingGate><InterviewPage /></OnboardingGate></Shell>} />
-              <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><InterviewDetailPage /></OnboardingGate></Shell>} />
+              <Route path="/ai-interviews" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><InterviewPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><InterviewDetailPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/interviews/comparison" element={<Navigate to="/compare" replace />} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}

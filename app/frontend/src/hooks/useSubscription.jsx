@@ -76,20 +76,45 @@ export function SubscriptionProvider({ children }) {
   }, [subscription])
 
   const isFeatureAvailable = useCallback((feature) => {
+    const gatedFeatures = new Set([
+      'video_analysis', 'batch_analysis', 'custom_weights', 'api_access', 'export_excel',
+      'transcript_analysis', 'email_generation', 'requisitions', 'pipeline', 'compare',
+      'analytics', 'ai_interviews', 'white_label', 'hm_workflow', 'sso',
+      'priority_support', 'dedicated_support', 'custom_integrations',
+    ])
+
+    if (subscription?.enabled_features && gatedFeatures.has(feature)) {
+      return subscription.enabled_features.includes(feature)
+    }
     if (!subscription?.current_plan?.plan) return false
     const limits = subscription.current_plan.plan.limits || {}
-    
-    const featureMap = {
-      'batch_analysis': () => limits.batch_size > 1,
-      'api_access': () => limits.api_access === true,
-      'custom_weights': () => limits.custom_weights === true,
-      'priority_support': () => limits.priority_support === true,
-      'unlimited_analyses': () => limits.analyses_per_month < 0,
-      'dedicated_support': () => limits.dedicated_support === true,
-      'custom_integrations': () => limits.custom_integrations === true,
-      'sso': () => limits.sso === true,
+
+    if (typeof limits[feature] === 'boolean') {
+      return limits[feature]
     }
-    
+
+    const featureMap = {
+      batch_analysis: () => limits.batch_size > 1,
+      api_access: () => limits.api_access === true,
+      custom_weights: () => limits.custom_weights === true,
+      priority_support: () => limits.priority_support === true,
+      unlimited_analyses: () => limits.analyses_per_month < 0,
+      dedicated_support: () => limits.dedicated_support === true,
+      custom_integrations: () => limits.custom_integrations === true,
+      sso: () => limits.sso === true,
+      requisitions: () => limits.requisitions === true,
+      pipeline: () => limits.pipeline === true,
+      compare: () => limits.compare === true,
+      analytics: () => limits.analytics === true,
+      ai_interviews: () => limits.ai_interviews === true,
+      video_analysis: () => limits.video_analysis === true,
+      export_excel: () => limits.export_excel === true,
+      white_label: () => limits.white_label === true,
+      hm_workflow: () => limits.hm_workflow === true,
+      transcript_analysis: () => limits.transcript_analysis === true,
+      email_generation: () => limits.email_generation === true,
+    }
+
     const checker = featureMap[feature]
     return checker ? checker() : false
   }, [subscription])

@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.middleware.rbac import (
     can_manage_requisition,
     get_tenant_role,
@@ -78,6 +78,23 @@ from app.backend.services.requisition_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/requisitions", tags=["requisitions"])
+
+
+def _assert_hm_workflow(db: Session, tenant_id: int) -> None:
+    from app.backend.services.feature_flag_service import is_feature_enabled
+    from app.backend.services.plan_entitlement_service import plan_feature_detail
+
+    if not is_feature_enabled(db, tenant_id, "hm_workflow"):
+        detail = plan_feature_detail(db, tenant_id, "hm_workflow")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": detail.get("upgrade_hint") or "Hiring Manager workflows are not available on your plan",
+                "error_code": "PLAN_FEATURE_LOCKED",
+                "feature": "hm_workflow",
+                "plan": detail.get("plan"),
+            },
+        )
 
 _ALLOWED_PIPELINE = {"pending", "shortlisted", "rejected", "in-review", "hired"}
 
@@ -155,6 +172,7 @@ def update_settings(
     if body.intake_gate_mode is not None:
         row.intake_gate_mode = body.intake_gate_mode
     if body.hm_pipeline_permission is not None:
+        _assert_hm_workflow(db, current_user.tenant_id)
         row.hm_pipeline_permission = body.hm_pipeline_permission
     if body.hiring_signal_weights is not None:
         from app.backend.models.db_models import Tenant
@@ -203,6 +221,8 @@ def create_req(
     current_user: User = Depends(require_recruiter_or_admin),
     db: Session = Depends(get_db),
 ):
+    if body.primary_hiring_manager_id or body.hiring_manager_ids:
+        _assert_hm_workflow(db, current_user.tenant_id)
     req = create_requisition(
         db,
         tenant_id=current_user.tenant_id,
@@ -267,7 +287,7 @@ def list_reqs(
     return [_to_out(db, r, current_user.tenant_id, current_user=current_user) for r in rows]
 
 
-@router.get("/hm-requests", response_model=list[RequisitionOut])
+@router.get("/hm-requests", response_model=list[RequisitionOut], dependencies=[Depends(require_feature("hm_workflow"))])
 def list_hm_requests(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -327,6 +347,7 @@ def update_req(
     if body.must_ask_questions_json is not None:
         req.must_ask_questions_json = json.dumps(body.must_ask_questions_json)
     if body.primary_hiring_manager_id is not None:
+        _assert_hm_workflow(db, current_user.tenant_id)
         assign_hiring_managers(db, req, body.primary_hiring_manager_id, None)
         if req.intake_status == "draft":
             req.intake_status = "pending_hm"
@@ -450,7 +471,7 @@ def update_criteria(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.post("/{req_id}/hm-approval", response_model=RequisitionOut)
+@router.post("/{req_id}/hm-approval", response_model=RequisitionOut, dependencies=[Depends(require_feature("hm_workflow"))])
 def hm_approval(
     req_id: int,
     body: RequisitionHmApproval,
@@ -473,7 +494,7 @@ def hm_approval(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.post("/{req_id}/hm-request", response_model=RequisitionOut)
+@router.post("/{req_id}/hm-request", response_model=RequisitionOut, dependencies=[Depends(require_feature("hm_workflow"))])
 def submit_hm_request(
     req_id: int,
     body: RequisitionHmRequestCreate,
@@ -512,7 +533,7 @@ def submit_hm_request(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.post("/{req_id}/hm-request/approve", response_model=RequisitionOut)
+@router.post("/{req_id}/hm-request/approve", response_model=RequisitionOut, dependencies=[Depends(require_feature("hm_workflow"))])
 def approve_hm_request_route(
     req_id: int,
     current_user: User = Depends(require_admin),
@@ -537,7 +558,7 @@ def approve_hm_request_route(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.post("/{req_id}/hm-request/reject", response_model=RequisitionOut)
+@router.post("/{req_id}/hm-request/reject", response_model=RequisitionOut, dependencies=[Depends(require_feature("hm_workflow"))])
 def reject_hm_request_route(
     req_id: int,
     body: RequisitionHmRequestDecision,
@@ -732,7 +753,7 @@ def submit_to_hm(
     return packet
 
 
-@router.put("/{req_id}/candidates/{candidate_id}/outcome")
+@router.put("/{req_id}/candidates/{candidate_id}/outcome", dependencies=[Depends(require_feature("hm_workflow"))])
 def record_outcome(
     req_id: int,
     candidate_id: int,
@@ -768,7 +789,7 @@ def record_outcome(
     return {"status": "ok", "hm_outcome": body.hm_outcome}
 
 
-@router.get("/{req_id}/analytics")
+@router.get("/{req_id}/analytics", dependencies=[Depends(require_feature("analytics"))])
 def req_analytics(
     req_id: int,
     current_user: User = Depends(get_current_user),

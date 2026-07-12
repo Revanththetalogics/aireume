@@ -129,7 +129,7 @@ class TestSelectPlan:
     def test_select_valid_plan(self, auth_client, seed_subscription_plans, db):
         """Should set plan_id on tenant."""
         # Get the free plan id
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
 
         response = auth_client.post("/api/onboarding/select-plan", json={
             "plan_id": free_plan.id,
@@ -137,7 +137,7 @@ class TestSelectPlan:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["plan"]["name"] == "free"
+        assert data["plan"]["name"] == "starter"
 
         # Verify tenant plan_id was updated
         tenant = db.query(Tenant).first()
@@ -176,7 +176,7 @@ class TestSelectPlan:
 
     def test_plan_step_reflected_in_status(self, auth_client, seed_subscription_plans, db):
         """After selecting a plan, status should show plan_selected=True."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
 
         auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
 
@@ -198,7 +198,7 @@ class TestCompleteOnboarding:
     def test_complete_onboarding(self, auth_client, seed_subscription_plans, db):
         """Should mark onboarding as complete."""
         # Prerequisite: select a plan before completing
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
 
         response = auth_client.post("/api/onboarding/complete")
@@ -215,7 +215,7 @@ class TestCompleteOnboarding:
     def test_complete_onboarding_idempotent(self, auth_client, seed_subscription_plans, db):
         """Calling complete again should still succeed."""
         # Prerequisite: select a plan before completing
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
 
         auth_client.post("/api/onboarding/complete")
@@ -228,7 +228,7 @@ class TestCompleteOnboarding:
     def test_status_after_complete(self, auth_client, seed_subscription_plans, db):
         """Status endpoint should reflect completed onboarding."""
         # Prerequisite: select a plan before completing
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
 
         auth_client.post("/api/onboarding/complete")
@@ -261,7 +261,7 @@ class TestOnboardingFlow:
         assert response.status_code == 200
 
         # 3. Select plan
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         response = auth_client.post("/api/onboarding/select-plan", json={
             "plan_id": free_plan.id,
         })

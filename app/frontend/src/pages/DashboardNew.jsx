@@ -10,7 +10,9 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import usePermissions from '../hooks/usePermissions'
+import { useSubscription } from '../hooks/useSubscription'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
+import { PlanLockedButton, PlanUpgradeCard, PlanUsageMeter } from '../components/PlanLockedInline'
 
 import { getDashboardSummary, getDashboardActivity, getInterviewAnalytics } from '../lib/api'
 import { safeStr } from '../lib/utils'
@@ -187,6 +189,10 @@ function DashboardContent() {
   const location = useLocation()
   const { user } = useAuth()
   const { canWrite } = usePermissions()
+  const { isFeatureAvailable } = useSubscription()
+  const hasRequisitions = isFeatureAvailable('requisitions')
+  const hasCompare = isFeatureAvailable('compare')
+  const hasAiInterviews = isFeatureAvailable('ai_interviews')
 
   const [summary, setSummary] = useState(null)
   const [activity, setActivity] = useState(null)
@@ -323,6 +329,7 @@ function DashboardContent() {
           Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <PlanUsageMeter />
           {canWrite && (
           <button
             onClick={() => navigate('/analyze')}
@@ -333,7 +340,7 @@ function DashboardContent() {
           </button>
           )}
 
-          {canWrite && (
+          {canWrite && hasRequisitions ? (
           <button
             onClick={() => navigate('/requisitions')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
@@ -341,8 +348,11 @@ function DashboardContent() {
             <Plus className="w-4 h-4" />
             Create Requisition
           </button>
-          )}
+          ) : canWrite ? (
+            <PlanLockedButton feature="requisitions">Create Requisition</PlanLockedButton>
+          ) : null}
 
+          {hasCompare ? (
           <button
             onClick={() => navigate('/compare')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
@@ -350,6 +360,9 @@ function DashboardContent() {
             <GitCompare className="w-4 h-4" />
             Compare Candidates
           </button>
+          ) : (
+            <PlanLockedButton feature="compare">Compare Candidates</PlanLockedButton>
+          )}
         </div>
         {loading && <Loader2 className="w-5 h-5 text-brand-500 animate-spin shrink-0" />}
       </div>
@@ -472,7 +485,14 @@ function DashboardContent() {
       {/* ── Pipeline Summary (Improvements #1 & #2 — progress bars, urgency, sorting) */}
       <div className="mb-8">
         <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-4">Requisitions</h2>
-        {sortedPipelineByJd.length > 0 ? (
+        {!hasRequisitions ? (
+          <PlanUpgradeCard
+            feature="requisitions"
+            title="Organize roles with Requisitions"
+            description="Starter includes core resume screening on Analyze. Upgrade to Growth to create requisitions, track pipeline per role, and collaborate with hiring managers."
+            icon={LayoutTemplate}
+          />
+        ) : sortedPipelineByJd.length > 0 ? (
           <div className="max-h-[480px] overflow-y-auto scroll-smooth pr-2">
             <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {sortedPipelineByJd.map((jd) => {
@@ -768,6 +788,7 @@ function DashboardContent() {
       </div>
 
       {/* ── AI Interviews Widget ─────────────────────────────────────────── */}
+      {hasAiInterviews && (
       <div className="mb-8">
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 p-6">
           <div className="flex items-center justify-between mb-5">
@@ -828,6 +849,7 @@ function DashboardContent() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

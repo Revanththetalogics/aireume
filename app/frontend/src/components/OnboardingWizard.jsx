@@ -188,7 +188,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
         const data = await getAvailablePlans()
         setPlans(Array.isArray(data) ? data : [])
         // Auto-select free plan
-        const freePlan = (Array.isArray(data) ? data : []).find(p => p.name === 'free')
+        const freePlan = (Array.isArray(data) ? data : []).find(p => p.name === 'starter' || p.name === 'free')
         if (freePlan) setSelectedPlan(freePlan.id)
       } catch {
         setError('Failed to load plans. You can skip this step.')
@@ -205,7 +205,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
     setError(null)
     try {
       const plan = plans.find((p) => p.id === selectedPlan)
-      const isPaid = plan && plan.name !== 'free' && (plan.price_monthly || 0) > 0
+      const isPaid = plan && plan.name !== 'starter' && plan.name !== 'free' && (plan.price_monthly || 0) > 0
       if (isPaid) {
         const origin = window.location.origin
         const checkout = await createBillingCheckout(
@@ -247,7 +247,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
           <CreditCard className="w-6 h-6 text-green-600" />
         </div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Choose your plan</h2>
-        <p className="text-slate-500">Start free, upgrade anytime.</p>
+        <p className="text-slate-500">Start with Starter free, upgrade anytime.</p>
       </div>
 
       {loading ? (
@@ -257,7 +257,8 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
       ) : (
         <div className="grid gap-3">
           {plans.map((plan) => {
-            const isFree = plan.name === 'free'
+            const isStarter = plan.name === 'starter' || plan.name === 'free'
+            const isGrowth = plan.name === 'growth' || plan.name === 'pro'
             const isSelected = selectedPlan === plan.id
             const price = plan.price_monthly === 0 ? 'Free' : `$${(plan.price_monthly / 100).toFixed(0)}/mo`
             const features = sanitizePlanFeatures(Array.isArray(plan.features) ? plan.features : [])
@@ -277,8 +278,8 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-900">{plan.display_name}</span>
-                    {isFree && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-brand-100 text-brand-700 rounded-full">Popular</span>
+                    {isGrowth && (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-brand-100 text-brand-700 rounded-full">Most popular</span>
                     )}
                   </div>
                   <span className="font-bold text-slate-900">{price}</span>

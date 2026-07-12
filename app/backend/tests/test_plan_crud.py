@@ -122,7 +122,7 @@ class TestListPlans:
 
     def test_list_plans_subscriber_count(self, super_admin_client, db, seed_subscription_plans, client):
         """Subscriber count reflects active tenants on the plan."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
 
         # Create a tenant on the free plan
         reg = client.post("/api/auth/register", json={
@@ -140,7 +140,7 @@ class TestListPlans:
         resp = super_admin_client.get("/api/admin/plans")
         assert resp.status_code == 200
         for plan in resp.json()["plans"]:
-            if plan["name"] == "free":
+            if plan["name"] == "starter":
                 assert plan["subscriber_count"] >= 1
 
 
@@ -202,7 +202,7 @@ class TestCreatePlan:
     def test_create_plan_duplicate_name(self, billing_admin_client, seed_subscription_plans):
         """Name uniqueness is enforced."""
         payload = {
-            "name": "free",
+            "name": "starter",
             "display_name": "Free Duplicate",
             "price_monthly": 0,
             "price_yearly": 0,
@@ -253,7 +253,7 @@ class TestUpdatePlan:
 
     def test_update_plan_success(self, billing_admin_client, db, seed_subscription_plans):
         """Partial update works."""
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{plan.id}", json={
             "display_name": "Free Updated",
             "price_monthly": 100,
@@ -263,7 +263,7 @@ class TestUpdatePlan:
         assert data["display_name"] == "Free Updated"
         assert data["price_monthly"] == 100
         # Unchanged fields preserved
-        assert data["name"] == "free"
+        assert data["name"] == "starter"
 
         # Audit log with diff
         audit = db.query(AuditLog).filter(
@@ -278,9 +278,9 @@ class TestUpdatePlan:
 
     def test_update_plan_name_uniqueness(self, billing_admin_client, db, seed_subscription_plans):
         """Renaming to an existing name fails."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{free_plan.id}", json={
-            "name": "pro",
+            "name": "growth",
         })
         assert resp.status_code == 409
         assert "already exists" in resp.json()["detail"]
@@ -294,7 +294,7 @@ class TestUpdatePlan:
 
     def test_update_plan_limits(self, billing_admin_client, db, seed_subscription_plans):
         """Update limits field."""
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{plan.id}", json={
             "limits": {"analyses_per_month": 10, "team_members": 2, "storage_gb": 2, "batch_size": 5},
         })
@@ -303,7 +303,7 @@ class TestUpdatePlan:
 
     def test_update_plan_features(self, billing_admin_client, db, seed_subscription_plans):
         """Update features field."""
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{plan.id}", json={
             "features": ["new feature"],
         })
@@ -312,7 +312,7 @@ class TestUpdatePlan:
 
     def test_update_plan_currency_uppercase(self, billing_admin_client, db, seed_subscription_plans):
         """Currency is normalized to uppercase."""
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{plan.id}", json={
             "currency": "eur",
         })
@@ -345,7 +345,7 @@ class TestArchivePlan:
 
     def test_archive_plan_conflict_with_subscribers(self, super_admin_client, db, seed_subscription_plans, client):
         """Archiving a plan with active subscribers returns 409."""
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("growth", "pro"))).first()
 
         # Create tenant on pro plan
         reg = client.post("/api/auth/register", json={
@@ -367,7 +367,7 @@ class TestArchivePlan:
 
     def test_archive_plan_force(self, super_admin_client, db, seed_subscription_plans, client):
         """Force archive bypasses subscriber check."""
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("growth", "pro"))).first()
 
         # Create tenant on pro plan
         reg = client.post("/api/auth/register", json={
@@ -425,7 +425,7 @@ class TestRoleChecks:
 
     def test_billing_admin_can_update(self, billing_admin_client, db, seed_subscription_plans):
         """Billing admin can update plans."""
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         resp = billing_admin_client.put(f"/api/admin/plans/{plan.id}", json={
             "display_name": "Updated by Billing",
         })

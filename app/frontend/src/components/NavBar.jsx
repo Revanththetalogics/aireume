@@ -21,6 +21,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { useBranding } from '../contexts/BrandingContext'
 import usePermissions from '../hooks/usePermissions'
+import { useSubscription } from '../hooks/useSubscription'
 import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
 import JobCenter from './patterns/JobCenter'
@@ -30,29 +31,29 @@ import NotificationBell from './NotificationBell'
 
 const PRIMARY_NAV_RECRUITER = [
   { label: NAV.home, path: '/', icon: LayoutDashboard },
-  { label: NAV.requisitions, path: '/requisitions', icon: Briefcase },
+  { label: NAV.requisitions, path: '/requisitions', icon: Briefcase, feature: 'requisitions' },
   { label: NAV.analyze, path: '/analyze', icon: ScanSearch },
   { label: NAV.candidates, path: '/candidates', icon: Users },
 ]
 
 const PRIMARY_NAV_HM = [
-  { label: NAV.hmDashboard, path: '/requisitions', icon: Briefcase },
+  { label: NAV.hmDashboard, path: '/requisitions', icon: Briefcase, feature: 'requisitions' },
   { label: NAV.candidates, path: '/candidates', icon: Users },
 ]
 
 const USER_MENU_LINKS = [
-  { label: NAV.interviews, path: '/ai-interviews', icon: Mic },
-  { label: NAV.compare, path: '/compare', icon: GitCompare },
-  { label: NAV.pipeline, path: '/pipeline', icon: Columns },
-  { label: NAV.analytics, path: '/analytics', icon: BarChart3 },
+  { label: NAV.interviews, path: '/ai-interviews', icon: Mic, feature: 'ai_interviews' },
+  { label: NAV.compare, path: '/compare', icon: GitCompare, feature: 'compare' },
+  { label: NAV.pipeline, path: '/pipeline', icon: Columns, feature: 'pipeline' },
+  { label: NAV.analytics, path: '/analytics', icon: BarChart3, feature: 'analytics' },
   { label: NAV.team, path: '/team', icon: Users2 },
-  { label: NAV.interviewReview, path: '/video', icon: Video },
+  { label: NAV.interviewReview, path: '/video', icon: Video, feature: 'video_analysis' },
   { label: NAV.settings, path: '/settings', icon: Settings },
 ]
 
 /* ── Desktop user menu dropdown ──────────────────────── */
 
-function UserMenu({ user, tenant, logout, onClose }) {
+function UserMenu({ user, tenant, logout, onClose, menuLinks }) {
   const navigate = useNavigate()
   const { theme, toggleTheme } = useTheme()
   const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
@@ -89,7 +90,7 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
       {/* Links */}
       <div className="py-1">
-        {USER_MENU_LINKS.map(item => (
+        {menuLinks.map(item => (
           <button
             key={item.path}
             role="menuitem"
@@ -129,7 +130,7 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
 /* ── Mobile bottom tab bar ───────────────────────────── */
 
-function MobileTabBar({ location, canWrite, primaryNav }) {
+function MobileTabBar({ location, canWrite, primaryNav, menuLinks }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const sheetRef = useRef(null)
 
@@ -162,7 +163,7 @@ function MobileTabBar({ location, canWrite, primaryNav }) {
           ref={sheetRef}
           className="fixed bottom-16 left-0 right-0 popover-surface rounded-t-2xl shadow-brand-xl z-50 md:hidden animate-fade-up border-t-0"
         >
-          <MobileMoreSheet onNavigate={() => setMoreOpen(false)} />
+          <MobileMoreSheet onNavigate={() => setMoreOpen(false)} menuLinks={menuLinks} />
         </div>
       )}
 
@@ -214,7 +215,7 @@ function MobileTabBar({ location, canWrite, primaryNav }) {
 
 /* ── Mobile "More" sheet content ─────────────────────── */
 
-function MobileMoreSheet({ onNavigate }) {
+function MobileMoreSheet({ onNavigate, menuLinks }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
@@ -242,7 +243,7 @@ function MobileMoreSheet({ onNavigate }) {
 
       {/* Links grid */}
       <div className="grid grid-cols-3 gap-3">
-        {USER_MENU_LINKS.map(item => (
+        {menuLinks.map(item => (
           <button
             key={item.path}
             onClick={() => handleNav(item.path)}
@@ -274,7 +275,13 @@ export default function NavBar() {
   const { user, tenant, logout } = useAuth()
   const { branding } = useBranding()
   const { canWrite, isHiringManager } = usePermissions()
-  const primaryNav = isHiringManager ? PRIMARY_NAV_HM : PRIMARY_NAV_RECRUITER
+  const { isFeatureAvailable } = useSubscription()
+
+  const filterByFeature = (items) =>
+    items.filter((item) => !item.feature || isFeatureAvailable(item.feature))
+
+  const primaryNav = filterByFeature(isHiringManager ? PRIMARY_NAV_HM : PRIMARY_NAV_RECRUITER)
+  const menuLinks = filterByFeature(USER_MENU_LINKS)
   const location = useLocation()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef(null)
@@ -377,7 +384,7 @@ export default function NavBar() {
 
               <AnimatePresence>
                 {userMenuOpen && (
-                  <UserMenu user={user} tenant={tenant} logout={logout} onClose={() => setUserMenuOpen(false)} />
+                  <UserMenu user={user} tenant={tenant} logout={logout} onClose={() => setUserMenuOpen(false)} menuLinks={menuLinks} />
                 )}
               </AnimatePresence>
             </div>
@@ -394,7 +401,7 @@ export default function NavBar() {
       </header>
 
       {/* Mobile bottom tab bar */}
-      <MobileTabBar location={location} canWrite={canWrite} primaryNav={primaryNav} />
+      <MobileTabBar location={location} canWrite={canWrite} primaryNav={primaryNav} menuLinks={menuLinks} />
     </>
   )
 }

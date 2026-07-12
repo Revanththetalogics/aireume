@@ -12,6 +12,8 @@ import StreamingText from './StreamingText'
 import { generateEmail, getNarrative, recordOutcome, recordOutcomeFeedback } from '../lib/api'
 import { hasNarrativeContent, needsNarrativeHydration, isNarrativePending } from '../lib/enrichmentUtils'
 import { safeStr } from '../lib/utils'
+import { useSubscription } from '../hooks/useSubscription'
+import { PlanLockedButton } from './PlanLockedInline'
 
 // ─── Small reusable components ────────────────────────────────────────────────
 
@@ -557,6 +559,8 @@ function PendingBanner() {
 // ─── Main ResultCard ──────────────────────────────────────────────────────────
 
 export default function ResultCard({ result, defaultExpandEducation = false, skipNarrativePolling = false }) {
+  const { isFeatureAvailable } = useSubscription()
+  const canEmail = isFeatureAvailable('email_generation')
   const [showEmailModal, setShowEmailModal] = useState(false)
 
   // Outcome feedback state
@@ -802,6 +806,7 @@ export default function ResultCard({ result, defaultExpandEducation = false, ski
               <BadgeIcon className="w-4 h-4" />
               {safeStr(final_recommendation)}
             </span>
+            {canEmail ? (
             <button
               onClick={() => setShowEmailModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl ring-1 ring-brand-200 text-sm text-brand-700 hover:bg-brand-50 transition-colors font-semibold"
@@ -810,6 +815,9 @@ export default function ResultCard({ result, defaultExpandEducation = false, ski
               <Mail className="w-4 h-4" />
               <span className="hidden sm:inline">Email</span>
             </button>
+            ) : (
+              <PlanLockedButton feature="email_generation" className="!px-3 !py-1.5 !text-sm">Email</PlanLockedButton>
+            )}
           </div>
         </div>
 

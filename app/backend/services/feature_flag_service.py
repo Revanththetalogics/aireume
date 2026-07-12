@@ -3,6 +3,11 @@ import time
 import threading
 from sqlalchemy.orm import Session
 from app.backend.models.db_models import FeatureFlag, TenantFeatureOverride, PlanFeature, Tenant
+from app.backend.services.plan_entitlement_service import (
+    GATED_FEATURE_KEYS,
+    _limit_allows_feature,
+    parse_plan_limits,
+)
 
 # Simple TTL cache
 _cache = {}
@@ -47,17 +52,18 @@ def is_feature_enabled(db: Session, tenant_id: int, feature_key: str) -> bool:
     """Check if a feature is enabled for a specific tenant.
 
     Resolution order:
-    1. Check tenant-specific override (highest priority)
-    2. Check plan entitlement (if plan says disabled, feature is hidden)
-    3. Fall back to global flag state
-    4. If flag doesn't exist, default to True (safe default)
+    1. Tenant-specific override (highest priority)
+    2. Plan-feature mapping (admin plan_features table)
+    3. Plan limits JSON boolean / derived limits (batch_size, etc.)
+    4. Global flag state
+    5. Gated features default to False; unknown features default to True
     """
     ck = _cache_key(tenant_id, feature_key)
     cached = _get_cached(ck)
     if cached is not None:
         return cached
 
-    # 1. Check tenant-specific override
+    # 1. Tenant-specific override
     override = (
         db.query(TenantFeatureOverride)
         .join(FeatureFlag)
@@ -69,13 +75,18 @@ def is_feature_enabled(db: Session, tenant_id: int, feature_key: str) -> bool:
         _set_cached(ck, override.enabled)
         return override.enabled
 
-    # 2. Check plan entitlement
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    plan = None
     if tenant and tenant.plan_id is not None:
+        from app.backend.models.db_models import SubscriptionPlan
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.plan_id).first()
+
+    # 2. Plan-feature mapping
+    if plan is not None:
         plan_feature = (
             db.query(PlanFeature)
             .join(FeatureFlag)
-            .filter(PlanFeature.plan_id == tenant.plan_id)
+            .filter(PlanFeature.plan_id == plan.id)
             .filter(FeatureFlag.key == feature_key)
             .first()
         )
@@ -83,15 +94,24 @@ def is_feature_enabled(db: Session, tenant_id: int, feature_key: str) -> bool:
             _set_cached(ck, plan_feature.enabled)
             return plan_feature.enabled
 
-    # 3. Fall back to global flag
-    flag = db.query(FeatureFlag).filter(FeatureFlag.key == feature_key).first()
-    if flag is None:
-        # Unknown flag — default to enabled (safe)
-        _set_cached(ck, True)
-        return True
+    # 3. Plan limits JSON
+    if plan is not None:
+        limits = parse_plan_limits(plan)
+        limit_allowed = _limit_allows_feature(limits, feature_key)
+        if limit_allowed is not None:
+            _set_cached(ck, limit_allowed)
+            return limit_allowed
 
-    _set_cached(ck, flag.enabled_globally)
-    return flag.enabled_globally
+    # 4. Global flag
+    flag = db.query(FeatureFlag).filter(FeatureFlag.key == feature_key).first()
+    if flag is not None:
+        _set_cached(ck, flag.enabled_globally)
+        return flag.enabled_globally
+
+    # 5. Safe default
+    default = feature_key not in GATED_FEATURE_KEYS
+    _set_cached(ck, default)
+    return default
 
 
 def get_all_flags(db: Session) -> list:
@@ -122,13 +142,10 @@ def get_enabled_features_for_tenant(db: Session, tenant_id: int) -> list:
 
     This is useful for the frontend to know which features to show/hide.
     """
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant or not tenant.plan_id:
-        return []
+    from app.backend.services.plan_entitlement_service import GATED_FEATURE_KEYS
 
-    flags = db.query(FeatureFlag).all()
     enabled = []
-    for flag in flags:
-        if is_feature_enabled(db, tenant_id, flag.key):
-            enabled.append(flag.key)
+    for feature_key in sorted(GATED_FEATURE_KEYS):
+        if is_feature_enabled(db, tenant_id, feature_key):
+            enabled.append(feature_key)
     return enabled

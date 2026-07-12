@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.models.db_models import Tenant, User
 
 router = APIRouter(prefix="/api/branding", tags=["branding"])
@@ -57,7 +57,7 @@ def get_my_branding(
     return {"branding": _branding_dict(tenant)}
 
 
-@router.put("/me")
+@router.put("/me", dependencies=[Depends(require_feature("white_label"))])
 def update_my_branding(
     body: BrandingUpdateRequest,
     current_user: User = Depends(require_admin),

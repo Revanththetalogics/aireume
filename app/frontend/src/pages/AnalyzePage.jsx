@@ -23,6 +23,7 @@ import {
   parseJdPreviewFromFile,
 } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
+import { usePlanLimits } from '../components/PlanLockedInline'
 import { useNotification } from '../contexts/NotificationContext'
 import { useOnboarding } from '../contexts/OnboardingContext'
 import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
@@ -134,7 +135,10 @@ export default function AnalyzePage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { checkBeforeAnalysis, getRemainingAnalyses } = useUsageCheck()
-  const { subscription, refreshAfterAnalysis } = useSubscription()
+  const { subscription, refreshAfterAnalysis, isFeatureAvailable } = useSubscription()
+  const { batchSize: planBatchLimit } = usePlanLimits()
+  const hasRequisitions = isFeatureAvailable('requisitions')
+  const hasCustomWeights = isFeatureAvailable('custom_weights')
   const {
     startBatchAnalysis,
     updateProgress,
@@ -240,15 +244,19 @@ export default function AnalyzePage() {
     }
   }, [])
 
-  // Load requisitions for picker
+  // Load requisitions for picker (Growth+ only)
   useEffect(() => {
+    if (!hasRequisitions) {
+      setRequisitions([])
+      return
+    }
     getRequisitionsForPicker()
       .then((res) => {
         const arr = Array.isArray(res) ? res : res?.templates || []
         setRequisitions(arr)
       })
       .catch(() => setRequisitions([]))
-  }, [])
+  }, [hasRequisitions])
 
   // Load requisition from URL query (?requisition_id=)
   useEffect(() => {
@@ -700,10 +708,20 @@ export default function AnalyzePage() {
     maxSize: 5 * 1024 * 1024
   })
 
-  // Handle resume file upload
-  const onResumeDrop = useCallback((acceptedFiles) => {
-    setFiles(prev => [...prev, ...acceptedFiles])
-  }, [])
+  // Handle resume file upload (respect plan batch limit)
+  const onResumeDrop = useCallback((acceptedFiles, rejectedFiles) => {
+    setFiles((prev) => {
+      const room = planBatchLimit - prev.length
+      return [...prev, ...acceptedFiles.slice(0, Math.max(0, room))]
+    })
+    if (rejectedFiles?.length || acceptedFiles.length + files.length > planBatchLimit) {
+      addNotification({
+        type: 'warning',
+        title: 'File limit reached',
+        message: `Your plan allows up to ${planBatchLimit} resumes per batch.`,
+      })
+    }
+  }, [planBatchLimit, files.length, addNotification])
 
   const { getRootProps: getResumeRootProps, getInputProps: getResumeInputProps, isDragActive: isResumeDragActive } = useDropzone({
     onDrop: onResumeDrop,
@@ -712,7 +730,7 @@ export default function AnalyzePage() {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc']
     },
-    maxFiles: 50,
+    maxFiles: planBatchLimit,
     maxSize: 10 * 1024 * 1024
   })
 
@@ -882,7 +900,7 @@ export default function AnalyzePage() {
     let activeReqId = loadedRequisitionId
 
     try {
-      if (!hasLoadedRequisition) {
+      if (hasRequisitions && !hasLoadedRequisition) {
         const reqTitle = buildRequisitionTitle(roleName, jdParseResult, roleCategory)
         const reqTags = buildRequisitionTags(jdParseResult, roleCategory)
         let created
@@ -902,7 +920,7 @@ export default function AnalyzePage() {
         activeReqId = created.id
         setLoadedRequisitionId(created.id)
         setHasLoadedRequisition(true)
-      } else if (loadedRequisitionId && skillOverrides) {
+      } else if (hasRequisitions && loadedRequisitionId && skillOverrides) {
         try {
           await updateRequisition(loadedRequisitionId, {
             required_skills_override: skillOverrides.required_skills,
@@ -1288,6 +1306,7 @@ export default function AnalyzePage() {
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description & Skill Review</h2>
+            {hasRequisitions && (
             <div className="relative" ref={requisitionPickerRef}>
               <button
                 onClick={() => setShowRequisitionPicker(!showRequisitionPicker)}
@@ -1317,6 +1336,7 @@ export default function AnalyzePage() {
                 </div>
               )}
             </div>
+            )}
           </div>
 
           {/* JD Mode Tabs */}
@@ -1341,8 +1361,8 @@ export default function AnalyzePage() {
             ))}
           </div>
 
-          {/* Role title — used when creating a new requisition on analyze */}
-          {!hasLoadedRequisition && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
+          {/* Role title — saved as requisition on Growth+ */}
+          {hasRequisitions && !hasLoadedRequisition && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
             <div className="mb-4">
               <label htmlFor="role-name" className="block text-sm font-semibold text-brand-900 mb-1.5">
                 Role name
@@ -1669,7 +1689,7 @@ export default function AnalyzePage() {
             <p className="text-sm font-medium text-slate-700">
               {files.length > 0 ? 'Drop more resumes or click to add' : 'Drop resumes here or click to browse'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">PDF or DOCX (max 10MB each, up to 50 files)</p>
+            <p className="text-xs text-slate-500 mt-1">PDF or DOCX (max 10MB each, up to {planBatchLimit} files on your plan)</p>
           </div>
 
           {/* File List */}
@@ -1705,7 +1725,8 @@ export default function AnalyzePage() {
             {!weightsManuallySet && ' (auto-detected)'}
           </p>
 
-          {/* Advanced: Scoring Weights (collapsible) */}
+          {/* Advanced: Scoring Weights (Business+) */}
+          {hasCustomWeights ? (
           <div className="mt-6">
             <button 
               onClick={() => setShowAdvanced(!showAdvanced)}
@@ -1718,7 +1739,6 @@ export default function AnalyzePage() {
             
             {showAdvanced && (
               <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                {/* AI Suggestion Panel */}
                 {showAiSuggestion && jdText && (
                   <div className="mb-6">
                     <WeightSuggestionPanel
@@ -1728,8 +1748,6 @@ export default function AnalyzePage() {
                     />
                   </div>
                 )}
-
-                {/* Universal Weights Panel */}
                 <UniversalWeightsPanel
                   weights={weights}
                   onChange={handleWeightsChange}
@@ -1738,6 +1756,11 @@ export default function AnalyzePage() {
               </div>
             )}
           </div>
+          ) : (
+            <p className="mt-4 text-xs text-slate-400">
+              Custom scoring weights are available on Business and above.
+            </p>
+          )}
 
           {/* Skill confirmation required message */}
           {!skillsConfirmed && files.length > 0 && (

@@ -57,7 +57,7 @@ class TestCheckQuota:
 
     def test_within_quota_allowed(self, db, seed_subscription_plans):
         """Tenant with 0 used results on free plan should be allowed."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "quotaok", plan_id=free_plan.id)
         db.commit()
 
@@ -68,7 +68,7 @@ class TestCheckQuota:
 
     def test_at_quota_limit_blocked(self, db, seed_subscription_plans):
         """Tenant at quota limit should be blocked."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "quotaexhausted", plan_id=free_plan.id)
         db.commit()
 
@@ -109,13 +109,13 @@ class TestCheckQuota:
 
         result = check_quota(tenant.id, db)
         assert result["allowed"] is True
-        assert result["plan"] == "free"
-        # The fallback PLAN_LIMITS["free"] = 10
-        assert result["limit"] == PLAN_LIMITS["free"]
+        assert result["plan"] == "starter"
+        # The fallback PLAN_LIMITS["starter"] = 30
+        assert result["limit"] == PLAN_LIMITS["starter"]
 
     def test_quota_resets_each_calendar_month(self, db, seed_subscription_plans):
         """Results from a previous month should not count toward this month's quota."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "monthlyreset", plan_id=free_plan.id)
         db.commit()
 
@@ -145,19 +145,19 @@ class TestCheckQuota:
 
     def test_pro_plan_quota(self, db, seed_subscription_plans):
         """Pro plan should use its plan limits for quota checking."""
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("growth", "pro"))).first()
         tenant = _make_tenant(db, "procorp", plan_id=pro_plan.id)
         db.commit()
 
         result = check_quota(tenant.id, db)
         assert result["allowed"] is True
-        assert result["plan"] == "pro"
+        assert result["plan"] == "growth"
         plan_limits = json.loads(pro_plan.limits)
         assert result["limit"] == plan_limits["analyses_per_month"]
 
     def test_partial_usage_shows_remaining(self, db, seed_subscription_plans):
         """Tenant with some but not full usage should show correct remaining count."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "partialcorp", plan_id=free_plan.id)
         db.commit()
 
@@ -186,7 +186,7 @@ class TestQuotaHTTPEndpoint:
         """POST /api/analyze should return 403 when the tenant's monthly quota is used up."""
         from app.backend.models.db_models import Tenant as T, SubscriptionPlan as SP
 
-        free_plan = db.query(SP).filter(SP.name == "free").first()
+        free_plan = db.query(SP).filter(SP.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "httpexhausted", plan_id=free_plan.id)
 
         # Exhaust quota
@@ -215,7 +215,7 @@ class TestQuotaHTTPEndpoint:
 
     def test_403_response_shape(self, db, seed_subscription_plans):
         """Verify the 403 error detail has the expected shape."""
-        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
         tenant = _make_tenant(db, "shapecorp", plan_id=free_plan.id)
 
         plan_limits = json.loads(free_plan.limits)
@@ -225,7 +225,7 @@ class TestQuotaHTTPEndpoint:
         db.commit()
 
         quota = check_quota(tenant.id, db)
-        assert quota["plan"] == "free"
+        assert quota["plan"] == "starter"
         assert quota["limit"] == limit
         assert quota["used"] == limit
         # This matches the detail shape raised in analyze.py

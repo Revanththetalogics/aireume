@@ -22,6 +22,7 @@ import { useEnrichmentPolling } from '../hooks/useEnrichmentPolling'
 import { useNotification } from '../contexts/NotificationContext'
 import { useOnboarding } from '../contexts/OnboardingContext'
 import usePermissions from '../hooks/usePermissions'
+import { useSubscription } from '../hooks/useSubscription'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { showSuccess, showError } from '../lib/toast'
 import { getFitTierLabel, getScoreHexColor } from '../lib/constants'
@@ -419,6 +420,8 @@ export default function ReportPage() {
   const navigate  = useNavigate()
   const { completeChecklistItem } = useOnboarding()
   const { canWrite } = usePermissions()
+  const { isFeatureAvailable } = useSubscription()
+  const hasAiInterviews = isFeatureAvailable('ai_interviews')
   const [copied, setCopied]           = useState(false)
   const [result, setResult]           = useState(location.state?.result || null)
   const [labelStatus, setLabelStatus]   = useState(null)
@@ -1238,8 +1241,8 @@ export default function ReportPage() {
         <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden px-6 py-3">
           <ReportActionBar
             result={result}
-            onAiScreenCall={canWrite && result?.candidate_id ? () => setInterviewModalOpen(true) : undefined}
-            onLiveScreenKit={canWrite && hasDeterministicData ? handleStartLiveScreen : undefined}
+            onAiScreenCall={canWrite && hasAiInterviews && result?.candidate_id ? () => setInterviewModalOpen(true) : undefined}
+            onLiveScreenKit={canWrite && hasAiInterviews && hasDeterministicData ? handleStartLiveScreen : undefined}
             onViewResume={result?.candidate_id ? async () => {
               setResumeActionLoading(true)
               try { await viewCandidateResume(result.candidate_id) } catch { alert('Resume not available') }

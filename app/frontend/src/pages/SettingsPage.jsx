@@ -445,10 +445,10 @@ export default function SettingsPage() {
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
-    ...(isAdmin ? [{ id: 'branding', label: 'White-label', icon: Palette }] : []),
-    { id: 'interviews', label: 'Interviews', icon: Mic },
-    { id: 'requisitions', label: 'Requisitions', icon: FileText },
-    { id: 'integrations', label: 'Integrations', icon: Plug },
+    ...(isAdmin && isFeatureAvailable('white_label') ? [{ id: 'branding', label: 'White-label', icon: Palette }] : []),
+    ...(isFeatureAvailable('ai_interviews') ? [{ id: 'interviews', label: 'Interviews', icon: Mic }] : []),
+    ...(isFeatureAvailable('requisitions') ? [{ id: 'requisitions', label: 'Requisitions', icon: FileText }] : []),
+    ...(isFeatureAvailable('api_access') || isFeatureAvailable('custom_integrations') ? [{ id: 'integrations', label: 'Integrations', icon: Plug }] : []),
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
   ]
@@ -631,7 +631,7 @@ export default function SettingsPage() {
                     <div className="grid sm:grid-cols-3 gap-4">
                       {availablePlans.map((plan, index) => {
                         const isCurrent = currentPlan?.plan?.id === plan.id
-                        const isPopular = plan.name === 'pro'
+                        const isPopular = plan.name === 'growth' || plan.name === 'pro'
                         return (
                           <div
                             key={plan.id}
@@ -977,7 +977,7 @@ export default function SettingsPage() {
                         ? 'bg-brand-100 text-brand-700 ring-brand-200'
                         : 'bg-amber-100 text-amber-700 ring-amber-200'
                     }`}>
-                      {isFeatureAvailable('api_access') ? 'Available' : 'Pro Required'}
+                      {isFeatureAvailable('api_access') ? 'Available' : 'Agency plan required'}
                     </span>
                   </div>
                   {isFeatureAvailable('api_access') ? (
@@ -995,7 +995,7 @@ export default function SettingsPage() {
                   ) : (
                     <div className="flex items-center gap-2 text-sm text-slate-500">
                       <AlertTriangle className="w-4 h-4 text-amber-500" />
-                      Upgrade to Pro to access API keys
+                      Upgrade to Agency to access API keys
                     </div>
                   )}
                 </div>

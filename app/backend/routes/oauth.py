@@ -152,7 +152,7 @@ def _get_or_create_oauth_user(
     db.flush()
 
     try:
-        start_trial(db, tenant, plan_name="pro")
+        start_trial(db, tenant, plan_name="growth")
     except ValueError:
         pass
 

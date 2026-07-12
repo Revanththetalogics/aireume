@@ -1485,6 +1485,31 @@ def _check_scoring_weights_size(scoring_weights: str | None) -> None:
         )
 
 
+def _assert_custom_weights_allowed(db: Session, tenant_id: int) -> None:
+    """Reject custom scoring weights when the tenant's plan does not include them."""
+    from app.backend.services.feature_flag_service import is_feature_enabled
+    from app.backend.services.plan_entitlement_service import plan_feature_detail
+
+    if not is_feature_enabled(db, tenant_id, "custom_weights"):
+        detail = plan_feature_detail(db, tenant_id, "custom_weights")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": detail.get("upgrade_hint") or "Custom scoring weights are not available on your plan",
+                "error_code": "PLAN_FEATURE_LOCKED",
+                "feature": "custom_weights",
+                "plan": detail.get("plan"),
+            },
+        )
+
+
+def _assert_custom_weights_allowed_if_provided(
+    db: Session, tenant_id: int, scoring_weights: str | None
+) -> None:
+    if scoring_weights:
+        _assert_custom_weights_allowed(db, tenant_id)
+
+
 async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tuple[dict, bytes | None]:
     """Parse resume with automatic DOC-to-PDF conversion for better accuracy.
 
@@ -1644,7 +1669,8 @@ def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quanti
     # Get plan limits (read-only, no side effects)
     plan = tenant.plan
     if not plan:
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        from app.backend.services.plan_entitlement_service import get_default_plan
+        plan = get_default_plan(db)
     
     analyses_limit = None
     if plan:
@@ -1793,6 +1819,7 @@ async def analyze_endpoint(
 
     # Validate scoring_weights size before parsing
     _check_scoring_weights_size(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
     # Validate skill_overrides size before parsing
     if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
@@ -1843,8 +1870,10 @@ async def analyze_endpoint(
         try:
             tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
             if tenant and tenant.scoring_weights:
-                weights = json.loads(tenant.scoring_weights)
-                log.info("Loaded tenant default weights for tenant %s", current_user.tenant_id)
+                from app.backend.services.feature_flag_service import is_feature_enabled
+                if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
+                    weights = json.loads(tenant.scoring_weights)
+                    log.info("Loaded tenant default weights for tenant %s", current_user.tenant_id)
         except Exception as e:
             log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
 
@@ -2164,6 +2193,7 @@ async def analyze_stream_endpoint(
 
     # Validate scoring_weights size before parsing
     _check_scoring_weights_size(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
     # Validate skill_overrides size before parsing
     if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
@@ -2215,8 +2245,10 @@ async def analyze_stream_endpoint(
         try:
             tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
             if tenant and tenant.scoring_weights:
-                weights = json.loads(tenant.scoring_weights)
-                log.info("Loaded tenant default weights for tenant %s: %s", current_user.tenant_id, weights)
+                from app.backend.services.feature_flag_service import is_feature_enabled
+                if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
+                    weights = json.loads(tenant.scoring_weights)
+                    log.info("Loaded tenant default weights for tenant %s: %s", current_user.tenant_id, weights)
         except Exception as e:
             log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
     
@@ -2656,6 +2688,7 @@ async def batch_analyze_chunked_endpoint(
 
     # Validate scoring_weights size
     _check_scoring_weights_size(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
     weights = None
     if scoring_weights:
@@ -2935,6 +2968,7 @@ async def batch_analyze_stream_endpoint(
 
     # Validate scoring_weights size
     _check_scoring_weights_size(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
     parsed_weights = None
     if scoring_weights:
@@ -3297,6 +3331,7 @@ async def batch_analyze_endpoint(
 
     # Validate scoring_weights size before parsing
     _check_scoring_weights_size(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
     weights = None
     if scoring_weights:
@@ -3700,7 +3735,9 @@ def rescore_endpoint(
     try:
         tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
         if tenant and tenant.scoring_weights:
-            scoring_weights = json.loads(tenant.scoring_weights)
+            from app.backend.services.feature_flag_service import is_feature_enabled
+            if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
+                scoring_weights = json.loads(tenant.scoring_weights)
     except Exception:
         pass
 

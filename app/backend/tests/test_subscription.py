@@ -18,12 +18,13 @@ class TestGetAvailablePlans:
         
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 3
+        assert len(data) == 4
         
         # Check order
-        assert data[0]["name"] == "free"
-        assert data[1]["name"] == "pro"
-        assert data[2]["name"] == "enterprise"
+        assert data[0]["name"] == "starter"
+        assert data[1]["name"] == "growth"
+        assert data[2]["name"] == "agency"
+        assert data[3]["name"] == "enterprise"
     
     def test_plan_structure_includes_all_fields(self, client, seed_subscription_plans):
         """Each plan should have all required fields."""
@@ -45,16 +46,16 @@ class TestGetAvailablePlans:
             assert isinstance(plan["features"], list)
             assert isinstance(plan["limits"], dict)
     
-    def test_free_plan_limits(self, client, seed_subscription_plans):
-        """Free plan should have limited features."""
+    def test_starter_plan_limits(self, client, seed_subscription_plans):
+        """Starter plan should have limited features."""
         response = client.get("/api/subscription/plans")
         
         data = response.json()
-        free_plan = next(p for p in data if p["name"] == "free")
+        starter_plan = next(p for p in data if p["name"] == "starter")
         
-        assert free_plan["price_monthly"] == 0
-        assert free_plan["limits"]["analyses_per_month"] == 5
-        assert free_plan["limits"]["api_access"] is False
+        assert starter_plan["price_monthly"] == 0
+        assert starter_plan["limits"]["analyses_per_month"] == 5
+        assert starter_plan["limits"]["api_access"] is False
     
     def test_enterprise_plan_unlimited(self, client, seed_subscription_plans):
         """Enterprise plan should have unlimited analyses."""
@@ -92,7 +93,7 @@ class TestGetMySubscription:
         
         # Check current plan
         plan = data["current_plan"]
-        assert plan["plan"]["name"] == "pro"
+        assert plan["plan"]["name"] == "growth"
         assert plan["status"] == "active"
         assert plan["billing_cycle"] in ["monthly", "yearly"]
         
@@ -109,7 +110,7 @@ class TestGetMySubscription:
         assert response.status_code == 200
         data = response.json()
         
-        assert data["current_plan"]["plan"]["name"] == "free"
+        assert data["current_plan"]["plan"]["name"] == "starter"
         assert data["usage"]["analyses_limit"] == 5  # Free plan limit
     
     def test_unlimited_analyses_display(self, auth_client, db, seed_subscription_plans):
@@ -292,7 +293,7 @@ class TestAdminChangePlan:
         data = response.json()
         
         assert data["message"] == "Plan changed successfully"
-        assert data["previous_plan"] == "free"
+        assert data["previous_plan"] == "starter"
         assert data["new_plan"] == "enterprise"
         
         # Verify in database

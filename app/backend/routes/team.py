@@ -77,6 +77,20 @@ def invite_member(
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    from app.backend.services.plan_entitlement_service import check_team_member_capacity
+
+    allowed, count, limit = check_team_member_capacity(db, current_user.tenant_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": f"Team member limit reached ({count}/{limit}). Upgrade your plan to invite more members.",
+                "error_code": "PLAN_LIMIT_REACHED",
+                "limit": limit,
+                "current": count,
+            },
+        )
+
     temp_password = secrets.token_urlsafe(12)
     new_user = User(
         tenant_id=current_user.tenant_id,

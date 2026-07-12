@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.models.db_models import Candidate, Requisition, RequisitionCandidate, RoleTemplate, ScreeningResult, User
 from app.backend.services.skill_trend_service import compute_monthly_snapshot, get_skill_trends
 
@@ -284,7 +284,7 @@ async def get_dashboard_activity(
 
 # ── GET /api/analytics/screening ───────────────────────────────────────────────
 
-@router.get("/api/analytics/screening")
+@router.get("/api/analytics/screening", dependencies=[Depends(require_feature("analytics"))])
 async def get_screening_analytics(
     period: str = Query("last_30_days", pattern="^(last_7_days|last_30_days|last_90_days)$"),
     current_user: User = Depends(get_current_user),
@@ -428,7 +428,7 @@ async def get_screening_analytics(
 
 # ── GET /api/analytics/skill-trends ───────────────────────────────────────────
 
-@router.get("/api/analytics/skill-trends")
+@router.get("/api/analytics/skill-trends", dependencies=[Depends(require_feature("analytics"))])
 async def get_skill_trends_endpoint(
     role_category: Optional[str] = Query(None, description="Filter by role category"),
     months: int = Query(6, ge=1, le=24, description="Number of months to look back"),
@@ -442,7 +442,7 @@ async def get_skill_trends_endpoint(
 
 # ── POST /api/analytics/skill-trends/compute ──────────────────────────────────
 
-@router.post("/api/analytics/skill-trends/compute")
+@router.post("/api/analytics/skill-trends/compute", dependencies=[Depends(require_feature("analytics"))])
 async def compute_skill_trends_endpoint(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -457,7 +457,7 @@ async def compute_skill_trends_endpoint(
 
 # ── Analytics hub (interactive deep-dive) ─────────────────────────────────────
 
-@router.get("/api/analytics/hub")
+@router.get("/api/analytics/hub", dependencies=[Depends(require_feature("analytics"))])
 async def get_analytics_hub(
     period: str = Query("last_30_days"),
     requisition_id: Optional[int] = Query(None),
@@ -477,13 +477,13 @@ async def get_analytics_hub(
 
 # ── Report builder & BI export ────────────────────────────────────────────────
 
-@router.get("/api/analytics/reports/templates")
+@router.get("/api/analytics/reports/templates", dependencies=[Depends(require_feature("analytics"))])
 async def list_report_templates_endpoint(current_user: User = Depends(get_current_user)):
     from app.backend.services.report_builder_service import list_report_templates
     return {"templates": list_report_templates()}
 
 
-@router.post("/api/analytics/reports/run")
+@router.post("/api/analytics/reports/run", dependencies=[Depends(require_feature("analytics"))])
 async def run_report_endpoint(
     body: dict = Body(...),
     current_user: User = Depends(get_current_user),
@@ -519,7 +519,7 @@ async def run_report_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/api/analytics/reports/bi-manifest")
+@router.get("/api/analytics/reports/bi-manifest", dependencies=[Depends(require_feature("analytics"))])
 async def bi_manifest_endpoint(current_user: User = Depends(get_current_user)):
     from app.backend.services.report_builder_service import bi_export_manifest
     return bi_export_manifest(current_user.tenant_id)

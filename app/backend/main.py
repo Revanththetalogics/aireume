@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -134,6 +134,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.middleware.csrf import CSRFMiddleware
 from app.backend.middleware.rate_limit import RateLimitMiddleware
+from app.backend.middleware.auth import require_feature
 from app.backend.routes import analyze
 from app.backend.routes import auth
 from app.backend.routes import compare
@@ -534,20 +535,23 @@ app.add_middleware(CSRFMiddleware)
 
 # ─── Routers ──────────────────────────────────────────────────────────────────
 
+def _plan_gate(feature_key: str):
+    return [Depends(require_feature(feature_key))]
+
 app.include_router(auth.router)
 app.include_router(oauth.router)
 app.include_router(analyze.router)
-app.include_router(compare.router)
-app.include_router(export.router)
+app.include_router(compare.router, dependencies=_plan_gate("compare"))
+app.include_router(export.router, dependencies=_plan_gate("export_excel"))
 app.include_router(templates.router)
 app.include_router(candidates.router)
 app.include_router(candidates.jd_router)
-app.include_router(email_gen.router)
+app.include_router(email_gen.router, dependencies=_plan_gate("email_generation"))
 app.include_router(jd_url.router)
 app.include_router(team.router)
 app.include_router(training.router)
-app.include_router(video.router)
-app.include_router(transcript.router)
+app.include_router(video.router, dependencies=_plan_gate("video_analysis"))
+app.include_router(transcript.router, dependencies=_plan_gate("transcript_analysis"))
 app.include_router(subscription.router)
 app.include_router(queue_api.router)
 app.include_router(admin.router)
@@ -561,11 +565,11 @@ app.include_router(dashboard.router)
 app.include_router(onboarding.router)
 app.include_router(sso.sso_router)
 app.include_router(webhook_docs.router)
-app.include_router(voice.router)
-app.include_router(recruiter.router)
-app.include_router(interviews.router)
-app.include_router(projects.router)
-app.include_router(requisitions.router)
+app.include_router(voice.router, dependencies=_plan_gate("ai_interviews"))
+app.include_router(recruiter.router, dependencies=_plan_gate("ai_interviews"))
+app.include_router(interviews.router, dependencies=_plan_gate("ai_interviews"))
+app.include_router(projects.router, dependencies=_plan_gate("pipeline"))
+app.include_router(requisitions.router, dependencies=_plan_gate("requisitions"))
 app.include_router(ats.router)
 app.include_router(tenant_audit.router)
 app.include_router(share_links.router)

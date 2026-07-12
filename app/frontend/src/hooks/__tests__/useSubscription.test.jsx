@@ -41,9 +41,9 @@ const mockSubscription = {
   current_plan: {
     plan: {
       id: 2,
-      name: 'pro',
-      display_name: 'Pro',
-      description: 'Pro tier for teams',
+      name: 'growth',
+      display_name: 'Growth',
+      description: 'Growth tier for teams',
       price_monthly: 4900,
       price_yearly: 47000,
       currency: 'USD',
@@ -63,6 +63,7 @@ const mockSubscription = {
     current_period_end: '2026-05-01T00:00:00Z',
     price: 4900,
   },
+  enabled_features: ['api_access', 'custom_weights', 'requisitions', 'pipeline', 'compare', 'export_excel', 'email_generation'],
   usage: {
     analyses_used: 25,
     analyses_limit: 100,
@@ -207,7 +208,7 @@ describe('useSubscription', () => {
       })
 
       const plan = result.current.getCurrentPlan()
-      expect(plan.plan.name).toBe('pro')
+      expect(plan.plan.name).toBe('growth')
       expect(plan.status).toBe('active')
       expect(plan.billing_cycle).toBe('monthly')
     })
@@ -245,6 +246,7 @@ describe('useSubscription', () => {
       // Mock free plan subscription
       const freeSubscription = {
         ...mockSubscription,
+        enabled_features: ['requisitions', 'pipeline', 'compare', 'export_excel', 'email_generation'],
         current_plan: {
           ...mockSubscription.current_plan,
           plan: {

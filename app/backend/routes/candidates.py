@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.backend.db.database import get_db, SessionLocal
-from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.middleware.rbac import require_recruiter_or_admin, require_active_recruiter
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
@@ -525,7 +525,7 @@ def get_screening_result(
     return response_data
 
 
-@router.get("/pipeline")
+@router.get("/pipeline", dependencies=[Depends(require_feature("pipeline"))])
 def get_candidate_pipeline(
     jd_id: Optional[int] = Query(None, description="Filter by JD (role_template_id)"),
     current_user: User = Depends(get_current_user),

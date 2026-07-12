@@ -17,7 +17,7 @@ def start_trial(
     db: Session,
     tenant: Tenant,
     *,
-    plan_name: str = "pro",
+    plan_name: str = "growth",
     trial_days: Optional[int] = None,
 ) -> Tenant:
     """Start a time-boxed trial on a paid plan."""
@@ -28,7 +28,7 @@ def start_trial(
     ).first()
     if not plan:
         plan = db.query(SubscriptionPlan).filter(
-            SubscriptionPlan.name == "pro",
+            SubscriptionPlan.name.in_(("growth", "pro")),
             SubscriptionPlan.is_active == True,
         ).first()
     if not plan:

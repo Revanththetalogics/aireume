@@ -63,16 +63,14 @@ def _save_checklist(user, checklist: dict, db: Session):
     db.commit()
 
 
-def _ensure_free_plan(db: Session, tenant: Tenant) -> None:
+def _ensure_starter_plan(db: Session, tenant: Tenant) -> None:
     if tenant.plan_id:
         return
-    free_plan = db.query(SubscriptionPlan).filter(
-        SubscriptionPlan.name == "free",
-        SubscriptionPlan.is_active == True,
-    ).first()
-    if not free_plan:
+    from app.backend.services.plan_entitlement_service import get_default_plan
+    starter_plan = get_default_plan(db)
+    if not starter_plan:
         raise HTTPException(status_code=400, detail="No default plan available. Please select a plan.")
-    tenant.plan_id = free_plan.id
+    tenant.plan_id = starter_plan.id
     db.flush()
 
 
@@ -258,7 +256,7 @@ async def skip_onboarding(
     if tenant.onboarding_completed:
         return {"completed": True, "already_completed": True}
 
-    _ensure_free_plan(db, tenant)
+    _ensure_starter_plan(db, tenant)
 
     tenant.onboarding_completed = True
     tenant.onboarding_completed_at = datetime.now(timezone.utc)
@@ -285,6 +283,8 @@ async def invite_team_during_onboarding(
     from app.backend.services.invite_service import send_team_invite_email
     import secrets
 
+    from app.backend.services.plan_entitlement_service import check_team_member_capacity
+
     results = []
     valid_roles = {"admin", "recruiter", "viewer", "hiring_manager"}
     role = body.role if body.role in valid_roles else "recruiter"
@@ -295,6 +295,15 @@ async def invite_team_during_onboarding(
             continue
         if db.query(User).filter(User.email == email).first():
             results.append({"email": email, "status": "already_exists"})
+            continue
+
+        allowed, count, limit = check_team_member_capacity(db, tenant.id)
+        if not allowed:
+            results.append({
+                "email": email,
+                "status": "limit_reached",
+                "message": f"Team member limit reached ({count}/{limit})",
+            })
             continue
 
         temp_password = secrets.token_urlsafe(12)

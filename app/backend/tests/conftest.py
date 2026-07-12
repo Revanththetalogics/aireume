@@ -715,12 +715,33 @@ def seed_subscription_plans(db):
     """Seed subscription plans for testing."""
     from app.backend.models.db_models import SubscriptionPlan
     
+    starter_limits = {
+        "analyses_per_month": 5, "batch_size": 3, "team_members": 1, "storage_gb": 1,
+        "api_access": False, "custom_weights": False,
+        "requisitions": False, "pipeline": False, "compare": False, "analytics": False,
+        "ai_interviews": False, "video_analysis": False, "export_excel": False,
+        "transcript_analysis": False, "email_generation": False, "white_label": False, "hm_workflow": False,
+    }
+    growth_limits = {
+        "analyses_per_month": 100, "batch_size": 20, "team_members": 5, "storage_gb": 10,
+        "api_access": False, "custom_weights": False,
+        "requisitions": True, "pipeline": True, "compare": True, "analytics": False,
+        "ai_interviews": False, "video_analysis": False, "export_excel": True,
+        "transcript_analysis": False, "email_generation": True, "white_label": False, "hm_workflow": True,
+    }
+    agency_limits = {
+        "analyses_per_month": 1000, "batch_size": 50, "team_members": 15, "storage_gb": 25,
+        "api_access": True, "custom_weights": False,
+        "requisitions": True, "pipeline": True, "compare": True, "analytics": True,
+        "ai_interviews": False, "video_analysis": False, "export_excel": True,
+        "transcript_analysis": False, "email_generation": True, "white_label": False, "hm_workflow": True,
+    }
     plans = [
         {
-            "name": "free",
-            "display_name": "Free",
-            "description": "Free tier",
-            "limits": json.dumps({"analyses_per_month": 5, "batch_size": 3, "team_members": 1, "storage_gb": 1, "api_access": False, "custom_weights": False}),
+            "name": "starter",
+            "display_name": "Starter",
+            "description": "Starter tier",
+            "limits": json.dumps(starter_limits),
             "price_monthly": 0,
             "price_yearly": 0,
             "currency": "USD",
@@ -729,28 +750,47 @@ def seed_subscription_plans(db):
             "sort_order": 1,
         },
         {
-            "name": "pro",
-            "display_name": "Pro",
-            "description": "Pro tier",
-            "limits": json.dumps({"analyses_per_month": 100, "batch_size": 20, "team_members": 5, "storage_gb": 10, "api_access": True, "custom_weights": True}),
-            "price_monthly": 4900,  # $49
-            "price_yearly": 47000,  # $470
+            "name": "growth",
+            "display_name": "Growth",
+            "description": "Growth tier",
+            "limits": json.dumps(growth_limits),
+            "price_monthly": 4900,
+            "price_yearly": 47000,
             "currency": "USD",
-            "features": json.dumps(["100 analyses", "5 team members", "API access"]),
+            "features": json.dumps(["100 analyses", "5 team members", "Requisitions & pipeline"]),
             "is_active": True,
             "sort_order": 2,
+        },
+        {
+            "name": "agency",
+            "display_name": "Agency",
+            "description": "Agency tier",
+            "limits": json.dumps(agency_limits),
+            "price_monthly": 12900,
+            "price_yearly": 131000,
+            "currency": "USD",
+            "features": json.dumps(["1,000 analyses", "API access", "Analytics"]),
+            "is_active": True,
+            "sort_order": 3,
         },
         {
             "name": "enterprise",
             "display_name": "Enterprise",
             "description": "Enterprise tier",
-            "limits": json.dumps({"analyses_per_month": -1, "batch_size": 100, "team_members": 25, "storage_gb": 100, "api_access": True, "custom_weights": True, "dedicated_support": True}),
-            "price_monthly": 19900,  # $199
-            "price_yearly": 191000,  # $1910
+            "limits": json.dumps({
+                "analyses_per_month": -1, "batch_size": 100, "team_members": 25, "storage_gb": 100,
+                "api_access": True, "custom_weights": True, "dedicated_support": True,
+                "requisitions": True, "pipeline": True, "compare": True, "analytics": True,
+                "ai_interviews": True, "video_analysis": True, "export_excel": True,
+                "transcript_analysis": True, "email_generation": True, "white_label": True, "hm_workflow": True,
+                "sso": True, "custom_integrations": True,
+            }),
+            "price_monthly": 19900,
+            "price_yearly": 191000,
             "currency": "USD",
             "features": json.dumps(["Unlimited analyses", "25 team members", "Dedicated support"]),
             "is_active": True,
-            "sort_order": 3,
+            "sort_order": 4,
         },
     ]
     
@@ -779,11 +819,11 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
     # Mark user as verified for testing
     _verify_user_via_api("free@freecorp.com")
 
-    # Get the tenant and set it to free plan
-    free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
-    free_plan_id = free_plan.id
+    # Get the tenant and set it to starter plan
+    starter_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
+    starter_plan_id = starter_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
-    tenant.plan_id = free_plan_id
+    tenant.plan_id = starter_plan_id
     db.commit()
 
     login_resp = client.post("/api/auth/login", json={
@@ -813,10 +853,10 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     _verify_user_via_api("pro@procorp.com")
 
     # Get the tenant and set it to pro plan
-    pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
-    pro_plan_id = pro_plan.id
+    growth_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("growth", "pro"))).first()
+    growth_plan_id = growth_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
-    tenant.plan_id = pro_plan_id
+    tenant.plan_id = growth_plan_id
     tenant.subscription_status = "active"
     tenant.analyses_count_this_month = 0
     db.commit()
@@ -847,11 +887,11 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     # Mark user as verified for testing
     _verify_user_via_api("limited@limitedcorp.com")
 
-    # Get the tenant and set it to free plan at limit
-    free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
-    free_plan_id = free_plan.id
+    # Get the tenant and set it to starter plan at limit
+    starter_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("starter", "free"))).first()
+    starter_plan_id = starter_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "limitedcorp").first()
-    tenant.plan_id = free_plan_id
+    tenant.plan_id = starter_plan_id
     tenant.analyses_count_this_month = 5  # At limit
     tenant.subscription_status = "active"
     db.commit()

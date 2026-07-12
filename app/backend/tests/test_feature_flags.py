@@ -229,4 +229,6 @@ class TestRequireFeatureDependency:
         with pytest.raises(HTTPException) as exc_info:
             dep(current_user=user, db=db)
         assert exc_info.value.status_code == 403
-        assert "not available" in exc_info.value.detail
+        detail = exc_info.value.detail
+        message = detail.get("detail", detail) if isinstance(detail, dict) else detail
+        assert "not available" in message.lower() or "upgrade" in message.lower()

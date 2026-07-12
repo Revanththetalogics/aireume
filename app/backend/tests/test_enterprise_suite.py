@@ -12,7 +12,7 @@ class TestTrialService:
         tenant = db.query(Tenant).first()
         assert tenant is not None
 
-        start_trial(db, tenant, plan_name="pro", trial_days=14)
+        start_trial(db, tenant, plan_name="growth", trial_days=14)
         db.commit()
         db.refresh(tenant)
 
@@ -24,7 +24,7 @@ class TestTrialService:
 
     def test_expire_trials_marks_past_due(self, db, seed_subscription_plans):
         from app.backend.models.db_models import SubscriptionPlan
-        pro = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro = db.query(SubscriptionPlan).filter(SubscriptionPlan.name.in_(("growth", "pro"))).first()
         tenant = Tenant(
             name="ExpiredTrial",
             slug="expiredtrial",
@@ -79,7 +79,16 @@ class TestCrmService:
 
 
 class TestBrandingApi:
-    def test_get_and_update_branding(self, auth_client, db):
+    def test_get_and_update_branding(self, auth_client, db, seed_subscription_plans):
+        from app.backend.models.db_models import Tenant, User
+        user = db.query(User).filter(User.email == "test@example.com").first()
+        if not user:
+            user = db.query(User).first()
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+        enterprise = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+        tenant.plan_id = enterprise.id
+        db.commit()
+
         me = auth_client.get("/api/branding/me")
         assert me.status_code == 200
         assert "branding" in me.json()

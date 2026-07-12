@@ -302,10 +302,17 @@ def require_feature(feature_key: str):
         db: Session = Depends(get_db),
     ) -> User:
         from app.backend.services.feature_flag_service import is_feature_enabled
+        from app.backend.services.plan_entitlement_service import plan_feature_detail
         if not is_feature_enabled(db, current_user.tenant_id, feature_key):
+            detail = plan_feature_detail(db, current_user.tenant_id, feature_key)
             raise HTTPException(
                 status_code=403,
-                detail=f"Feature '{feature_key}' is not available on your plan"
+                detail={
+                    "detail": detail.get("upgrade_hint") or f"Feature '{feature_key}' is not available on your plan",
+                    "error_code": "PLAN_FEATURE_LOCKED",
+                    "feature": feature_key,
+                    "plan": detail.get("plan"),
+                },
             )
         return current_user
     return dependency

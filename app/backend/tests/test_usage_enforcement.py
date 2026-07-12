@@ -588,7 +588,7 @@ class TestUsageDashboardIntegration:
         data = response.json()
         
         # Verify plan
-        assert data["current_plan"]["plan"]["name"] == "pro"
+        assert data["current_plan"]["plan"]["name"] == "growth"
         assert data["current_plan"]["status"] == "active"
         assert data["current_plan"]["billing_cycle"] in ["monthly", "yearly"]
         # Price depends on billing cycle (monthly=4900, yearly=47000)
@@ -608,11 +608,11 @@ class TestUsageDashboardIntegration:
         data = response.json()
         
         plans = data["available_plans"]
-        assert len(plans) == 3
+        assert len(plans) == 4
         
         plan_names = [p["name"] for p in plans]
-        assert "free" in plan_names
-        assert "pro" in plan_names
+        assert "starter" in plan_names
+        assert "growth" in plan_names
         assert "enterprise" in plan_names
 
 

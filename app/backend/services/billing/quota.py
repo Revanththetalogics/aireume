@@ -18,11 +18,15 @@ from app.backend.models.db_models import ScreeningResult, Tenant, SubscriptionPl
 # ─── Plan limits fallback (used when no SubscriptionPlan row exists) ──────────
 
 PLAN_LIMITS: Dict[str, int] = {
+    "starter": 30,
     "free": 10,
+    "growth": 200,
     "basic": 100,
     "professional": 500,
-    "pro": 100,        # alias — existing DB uses "pro" not "professional"
-    "enterprise": -1,  # -1 = unlimited
+    "pro": 100,
+    "agency": 1000,
+    "business": 500,
+    "enterprise": -1,
     "unlimited": -1,
 }
 
@@ -62,12 +66,12 @@ def check_quota(tenant_id: int, db: Session) -> Dict:
             "remaining": 0,
             "limit": 0,
             "used": 0,
-            "plan": "free",
+            "plan": "starter",
         }
 
     # Determine plan name and limit
-    plan_name = "free"
-    analyses_limit = PLAN_LIMITS["free"]
+    plan_name = "starter"
+    analyses_limit = PLAN_LIMITS["starter"]
 
     if tenant.plan_id:
         plan = db.query(SubscriptionPlan).filter(
@@ -79,9 +83,9 @@ def check_quota(tenant_id: int, db: Session) -> Dict:
             try:
                 import json as _json
                 limits = _json.loads(plan.limits) if plan.limits else {}
-                analyses_limit = limits.get("analyses_per_month", PLAN_LIMITS.get(plan_name, PLAN_LIMITS["free"]))
+                analyses_limit = limits.get("analyses_per_month", PLAN_LIMITS.get(plan_name, PLAN_LIMITS["starter"]))
             except Exception:
-                analyses_limit = PLAN_LIMITS.get(plan_name, PLAN_LIMITS["free"])
+                analyses_limit = PLAN_LIMITS.get(plan_name, PLAN_LIMITS["starter"])
 
     # Count screening_results this calendar month
     start, end = _get_current_month_range()

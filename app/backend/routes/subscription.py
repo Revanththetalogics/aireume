@@ -225,7 +225,8 @@ def get_my_subscription(
     plan = tenant.plan
     if not plan:
         # Fallback to free plan if no plan assigned
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        from app.backend.services.plan_entitlement_service import get_default_plan
+        plan = get_default_plan(db)
         if not plan:
             raise HTTPException(status_code=500, detail="No subscription plan found")
     
@@ -313,7 +314,8 @@ def check_usage(
     
     plan = tenant.plan
     if not plan:
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        from app.backend.services.plan_entitlement_service import get_default_plan
+        plan = get_default_plan(db)
     
     if not plan:
         return UsageCheckResponse(
