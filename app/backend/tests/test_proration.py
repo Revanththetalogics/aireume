@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.backend.services.proration_service import calculate_proration, get_plan_price_for_period
 from app.backend.models.db_models import Tenant, SubscriptionPlan, AuditLog
+from app.backend.tests.test_helpers import resolve_plan
 
 
 # ─── Unit Tests for calculate_proration ─────────────────────────────────────────
@@ -250,7 +251,7 @@ class TestChangePlanProration:
     def test_change_plan_with_period_upgrade(self, platform_admin_client_with_plans, db):
         """Changing plan with active period returns proration for upgrade."""
         tenant = db.query(Tenant).first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
         enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
 
         # Set tenant on pro plan with an active billing period that includes today
@@ -286,7 +287,7 @@ class TestChangePlanProration:
         """Downgrade returns negative net_amount (credit)."""
         tenant = db.query(Tenant).first()
         enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
 
         tenant.plan_id = enterprise_plan.id
         today = datetime.now(timezone.utc)
@@ -306,7 +307,7 @@ class TestChangePlanProration:
     def test_change_plan_without_period_dates(self, platform_admin_client_with_plans, db):
         """No period dates means proration is skipped."""
         tenant = db.query(Tenant).first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
 
         tenant.current_period_start = None
         tenant.current_period_end = None
@@ -324,7 +325,7 @@ class TestChangePlanProration:
     def test_change_plan_same_price(self, platform_admin_client_with_plans, db):
         """Same price plan change results in zero net."""
         tenant = db.query(Tenant).first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
 
         # Create a plan with same price as pro
         same_price_plan = SubscriptionPlan(
@@ -357,7 +358,7 @@ class TestChangePlanProration:
     def test_change_plan_updates_subscription_updated_at(self, platform_admin_client_with_plans, db):
         """Plan change updates the subscription_updated_at timestamp."""
         tenant = db.query(Tenant).first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
 
         tenant.subscription_updated_at = None
         db.commit()

@@ -45,8 +45,8 @@ class TestAnalyticsHub:
         assert activity.get(user.id) == 3
         assert activity.get(other.id) == 1
 
-    def test_hub_endpoint(self, auth_client):
-        resp = auth_client.get("/api/analytics/hub?period=last_30_days")
+    def test_hub_endpoint(self, auth_client_with_agency_plan):
+        resp = auth_client_with_agency_plan.get("/api/analytics/hub?period=last_30_days")
         assert resp.status_code == 200
         data = resp.json()
         assert "slices" in data

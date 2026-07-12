@@ -6,6 +6,7 @@ import pytest
 from app.backend.models.db_models import (
     Tenant, User, SubscriptionPlan, UsageLog, AuditLog,
 )
+from app.backend.tests.test_helpers import resolve_plan
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -232,7 +233,8 @@ class TestChangePlan:
     def test_change_plan(self, platform_admin_client_with_plans, db):
         """Change tenant plan works with valid plan."""
         tenant = db.query(Tenant).first()
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+        pro_plan = resolve_plan(db, "growth", "pro")
+        assert pro_plan is not None
 
         resp = platform_admin_client_with_plans.post(
             f"/api/admin/tenants/{tenant.id}/change-plan",
@@ -240,7 +242,7 @@ class TestChangePlan:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["new_plan"] == "pro"
+        assert data["new_plan"] == pro_plan.name
 
         db.refresh(tenant)
         assert tenant.plan_id == pro_plan.id

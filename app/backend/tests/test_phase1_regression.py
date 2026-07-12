@@ -94,9 +94,9 @@ class TestTeamManagementRegression:
         resp = auth_client.get("/api/team")
         assert resp.status_code == 200
 
-    def test_invite_team_member(self, auth_client):
+    def test_invite_team_member(self, auth_client_with_pro_plan):
         """Team invite still works for admin users."""
-        resp = auth_client.post("/api/invites", json={
+        resp = auth_client_with_pro_plan.post("/api/invites", json={
             "email": "newmember@testcorp.com",
             "role": "recruiter",
             "full_name": "New Member",

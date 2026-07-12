@@ -59,6 +59,7 @@ from app.backend.services.recruiter.orchestrator import RecruiterOrchestrator
 logger = logging.getLogger("aria.interviews")
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
+internal_router = APIRouter(prefix="/api/interviews", tags=["interviews-internal"])
 
 RECRUITER_ENABLED = os.getenv("RECRUITER_INTERVIEW_ENABLED", "true").lower() == "true"
 
@@ -1370,7 +1371,7 @@ def _apply_auto_status_update(db: Session, recruiter_session_id: str) -> None:
         )
 
 
-@router.post("/internal/complete")
+@internal_router.post("/internal/complete")
 async def on_interview_complete(
     request: Request,
     background_tasks: BackgroundTasks,

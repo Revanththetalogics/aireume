@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # New features should be added to interviews.py, not here.
 
 router = APIRouter(prefix="/api/voice", tags=["voice-screening"])
+internal_router = APIRouter(prefix="/api/voice", tags=["voice-internal"])
 
 # ─── Default consent script ───────────────────────────────────────────────────
 
@@ -502,7 +503,7 @@ def get_next_available_slot(
 # These are called by the voice-agent container over the internal Docker network.
 # They are NOT exposed through Nginx (only /api/voice/* is proxied).
 
-@router.get("/internal/config/{tenant_id}")
+@internal_router.get("/internal/config/{tenant_id}")
 def get_voice_config_internal(
     tenant_id: int,
     db: Session = Depends(get_db),
@@ -530,7 +531,7 @@ def get_voice_config_internal(
     }
 
 
-@router.get("/internal/candidate/{tenant_id}/{candidate_id}")
+@internal_router.get("/internal/candidate/{tenant_id}/{candidate_id}")
 def get_candidate_internal(
     tenant_id: int,
     candidate_id: int,
@@ -570,7 +571,7 @@ class VoiceSessionUpdate(BaseModel):
     error_log: Optional[str] = None
 
 
-@router.patch("/sessions/{session_id}")
+@internal_router.patch("/sessions/{session_id}")
 def update_voice_session(
     session_id: int,
     body: VoiceSessionUpdate,

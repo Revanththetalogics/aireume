@@ -62,6 +62,7 @@ logger = logging.getLogger("aria.recruiter")
 # New features should be added to interviews.py, not here.
 
 router = APIRouter(prefix="/api/recruiter", tags=["recruiter"])
+internal_router = APIRouter(prefix="/api/recruiter", tags=["recruiter-internal"])
 
 # Feature flag for the AI Recruiter module
 RECRUITER_ENABLED = os.getenv("RECRUITER_INTERVIEW_ENABLED", "true").lower() == "true"
@@ -817,7 +818,7 @@ async def _generate_scorecard_background(session_id: str) -> None:
         db.close()
 
 
-@router.post("/internal/complete")
+@internal_router.post("/internal/complete")
 async def on_recruiter_interview_complete(
     request: Request,
     background_tasks: BackgroundTasks,

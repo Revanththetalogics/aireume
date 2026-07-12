@@ -871,6 +871,69 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
 
 
 @pytest.fixture
+def auth_client_with_agency_plan(client, db, seed_subscription_plans):
+    """Create an authenticated client with a tenant on the Agency plan."""
+    from app.backend.models.db_models import Tenant, SubscriptionPlan
+
+    register_payload = {
+        "company_name": "AgencyCorp",
+        "email": "agency@agencycorp.com",
+        "password": "TestPass123!",
+        "full_name": "Agency User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    _verify_user_via_api("agency@agencycorp.com")
+
+    agency_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "agency").first()
+    tenant = db.query(Tenant).filter(Tenant.slug == "agencycorp").first()
+    tenant.plan_id = agency_plan.id
+    tenant.subscription_status = "active"
+    db.commit()
+
+    login_resp = client.post("/api/auth/login", json={
+        "email": "agency@agencycorp.com",
+        "password": "TestPass123!",
+    })
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
+def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
+    """Create an authenticated client with a tenant on the Enterprise plan."""
+    from app.backend.models.db_models import Tenant, SubscriptionPlan
+
+    register_payload = {
+        "company_name": "EnterpriseCorp",
+        "email": "enterprise@enterprisecorp.com",
+        "password": "TestPass123!",
+        "full_name": "Enterprise User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    _verify_user_via_api("enterprise@enterprisecorp.com")
+
+    enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+    tenant = db.query(Tenant).filter(Tenant.slug == "enterprisecorp").first()
+    tenant.plan_id = enterprise_plan.id
+    tenant.subscription_status = "active"
+    tenant.analyses_count_this_month = 0
+    db.commit()
+
+    login_resp = client.post("/api/auth/login", json={
+        "email": "enterprise@enterprisecorp.com",
+        "password": "TestPass123!",
+    })
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
 def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     """Create an authenticated client at their usage limit (Free plan = 5 analyses)."""
     from app.backend.models.db_models import Tenant, SubscriptionPlan
@@ -914,8 +977,10 @@ def db_session(db):
 
 
 @pytest.fixture(scope="function")
-def sample_user(client, db):
+def sample_user(client, db, seed_subscription_plans):
     """Create a test user + tenant for recruiter tests (role: recruiter)."""
+    from app.backend.models.db_models import Tenant, SubscriptionPlan, User
+
     register_payload = {
         "company_name": "RecruiterTests",
         "email": "sampleuser@recruitertests.com",
@@ -927,7 +992,12 @@ def sample_user(client, db):
 
     _verify_user_via_api("sampleuser@recruitertests.com")
 
-    from app.backend.models.db_models import User
+    enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+    tenant = db.query(Tenant).filter(Tenant.slug == "recruitertests").first()
+    tenant.plan_id = enterprise_plan.id
+    tenant.subscription_status = "active"
+    db.commit()
+
     user = db.query(User).filter(User.email == "sampleuser@recruitertests.com").first()
     assert user is not None
     # Registration creates the first user as admin; downgrade to recruiter so

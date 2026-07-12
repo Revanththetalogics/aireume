@@ -13,8 +13,28 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.backend.models.db_models import Candidate, RoleTemplate
+from app.backend.models.db_models import Candidate, RoleTemplate, SubscriptionPlan, Tenant, User
 from app.backend.tests.test_helpers import _verify_user_via_api
+from app.backend.services.feature_flag_service import invalidate_cache
+
+
+def _grant_transcript_access(db, email: str) -> None:
+    """Upgrade a tenant to Enterprise so transcript_analysis is enabled."""
+    user = db.query(User).filter(User.email == email).first()
+    assert user is not None, f"No user found for {email}"
+    enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+    assert enterprise_plan is not None, "enterprise plan must be seeded"
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant.plan_id = enterprise_plan.id
+    tenant.subscription_status = "active"
+    db.commit()
+    invalidate_cache(tenant.id, "transcript_analysis")
+
+
+@pytest.fixture
+def auth_client(auth_client_with_enterprise_plan):
+    """Transcript routes require transcript_analysis (Enterprise plan)."""
+    return auth_client_with_enterprise_plan
 
 
 # ─── Shared mock Ollama response ─────────────────────────────────────────────
@@ -301,7 +321,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     # ── Tenant isolation ──────────────────────────────────────────────────────
 
-    def test_cannot_use_another_tenants_template(self, client):
+    def test_cannot_use_another_tenants_template(self, client, db, seed_subscription_plans):
         """Two different tenant users cannot cross-use templates."""
         # Tenant A registers and creates a template
         client.post("/api/auth/register", json={
@@ -310,6 +330,7 @@ class TestAnalyzeTranscriptEndpoint:
             "password": "PassA123!",
         })
         _verify_user_via_api("a@tenanta.com")
+        _grant_transcript_access(db, "a@tenanta.com")
         login_a = client.post("/api/auth/login", json={
             "email": "a@tenanta.com", "password": "PassA123!"
         })
@@ -329,6 +350,7 @@ class TestAnalyzeTranscriptEndpoint:
             "password": "PassB123!",
         })
         _verify_user_via_api("b@tenantb.com")
+        _grant_transcript_access(db, "b@tenantb.com")
         login_b = client.post("/api/auth/login", json={
             "email": "b@tenantb.com", "password": "PassB123!"
         })
@@ -404,7 +426,7 @@ class TestListTranscriptAnalyses:
         resp = auth_client.get("/api/transcript/analyses")
         assert resp.json()["total"] == 3
 
-    def test_tenant_isolation_in_list(self, client):
+    def test_tenant_isolation_in_list(self, client, db, seed_subscription_plans):
         """Two tenants see only their own analyses."""
         for company, email, pwd in [
             ("CorpX", "x@corpx.com", "PassX123!"),
@@ -414,6 +436,7 @@ class TestListTranscriptAnalyses:
                 "company_name": company, "email": email, "password": pwd
             })
             _verify_user_via_api(email)
+            _grant_transcript_access(db, email)
 
         # Tenant X creates a template and an analysis
         login_x = client.post("/api/auth/login", json={"email": "x@corpx.com", "password": "PassX123!"})
@@ -476,7 +499,7 @@ class TestGetTranscriptAnalysis:
     def test_get_nonexistent_analysis_returns_404(self, auth_client):
         assert auth_client.get("/api/transcript/analyses/99999").status_code == 404
 
-    def test_cannot_get_other_tenants_analysis(self, client):
+    def test_cannot_get_other_tenants_analysis(self, client, db, seed_subscription_plans):
         """Tenant A cannot retrieve Tenant B's analysis."""
         for company, email, pwd in [
             ("Alpha", "alpha@alpha.com", "AlphaPass1!"),
@@ -486,6 +509,7 @@ class TestGetTranscriptAnalysis:
                 "company_name": company, "email": email, "password": pwd
             })
             _verify_user_via_api(email)
+            _grant_transcript_access(db, email)
 
         # Tenant Alpha creates an analysis
         login_a = client.post("/api/auth/login", json={"email": "alpha@alpha.com", "password": "AlphaPass1!"})

@@ -196,6 +196,17 @@ export function useSubscription() {
   return context
 }
 
+/** Safe plan feature check for components that may render outside SubscriptionProvider (e.g. unit tests). */
+export function usePlanFeature(feature, defaultValue = false) {
+  const context = useContext(SubscriptionContext)
+  if (!context) return defaultValue
+  return context.isFeatureAvailable(feature)
+}
+
+export function useHasSubscriptionContext() {
+  return useContext(SubscriptionContext) !== null
+}
+
 // Hook for checking limits before operations
 export function useUsageCheck() {
   const { checkActionAllowed, getRemainingAnalyses, subscription } = useSubscription()

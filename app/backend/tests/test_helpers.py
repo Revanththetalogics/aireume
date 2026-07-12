@@ -21,3 +21,12 @@ def _verify_user_via_api(email: str):
             db.commit()
     finally:
         db.close()
+
+
+def resolve_plan(db, *names: str):
+    """Look up a subscription plan by name, supporting legacy aliases (e.g. pro → growth)."""
+    from app.backend.models.db_models import SubscriptionPlan
+    return db.query(SubscriptionPlan).filter(
+        SubscriptionPlan.name.in_(names),
+        SubscriptionPlan.is_active == True,
+    ).first()
