@@ -21,7 +21,11 @@ class TestAuthFlowRegression:
         })
         assert resp.status_code in (200, 201)
         data = resp.json()
-        assert "access_token" in data or "user" in data
+        assert data.get("requires_verification") is True
+        assert "tenant" in data
+        assert data["tenant"]["name"] == "RegressionCorp"
+        assert data["tenant"]["slug"]
+        assert "access_token" not in data
 
     def test_login_returns_token(self, client):
         """Login flow still works."""
