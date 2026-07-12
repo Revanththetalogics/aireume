@@ -85,16 +85,14 @@ class TestTeamManagement:
         # Admin fixture has role=admin, so this should succeed
         assert resp.status_code in (200, 201)
 
-    def test_recruiter_can_invite_hiring_manager(self, client, auth_headers):
+    def test_recruiter_cannot_invite_hiring_manager(self, client, auth_headers):
+        """Recruiters use requisition HM request flow; direct invites are admin-only."""
         resp = client.post(
             "/api/invites",
             json={"email": "hm-invite@testcorp.com", "role": "hiring_manager"},
             headers=auth_headers,
         )
-        assert resp.status_code in (200, 201)
-        data = resp.json()
-        assert data.get("role") == "hiring_manager"
-        assert data.get("user_id")
+        assert resp.status_code == 403
 
     def test_recruiter_cannot_invite_non_hm_role(self, client, auth_headers):
         resp = client.post(
