@@ -1880,6 +1880,96 @@ export async function getBiExportManifest() {
   return response.data
 }
 
+export async function getAnalyticsOverview(params = {}) {
+  const response = await api.get('/analytics/overview', { params })
+  return response.data
+}
+
+export async function getAnalyticsMetrics() {
+  const response = await api.get('/analytics/metrics')
+  return response.data
+}
+
+export async function listAnalyticsViews() {
+  const response = await api.get('/analytics/views')
+  return response.data
+}
+
+export async function createAnalyticsView(body) {
+  const response = await api.post('/analytics/views', body)
+  return response.data
+}
+
+export async function updateAnalyticsView(viewId, body) {
+  const response = await api.put(`/analytics/views/${viewId}`, body)
+  return response.data
+}
+
+export async function deleteAnalyticsView(viewId) {
+  const response = await api.delete(`/analytics/views/${viewId}`)
+  return response.data
+}
+
+export async function getReportFieldCatalog() {
+  const response = await api.get('/analytics/reports/fields')
+  return response.data
+}
+
+export async function runCustomReport(body) {
+  const response = await api.post('/analytics/reports/custom/run', body)
+  return response.data
+}
+
+export async function listSavedReports() {
+  const response = await api.get('/analytics/reports/saved')
+  return response.data
+}
+
+export async function createSavedReport(body) {
+  const response = await api.post('/analytics/reports/saved', body)
+  return response.data
+}
+
+export async function updateSavedReport(reportId, body) {
+  const response = await api.put(`/analytics/reports/saved/${reportId}`, body)
+  return response.data
+}
+
+export async function deleteSavedReport(reportId) {
+  const response = await api.delete(`/analytics/reports/saved/${reportId}`)
+  return response.data
+}
+
+export async function shareSavedReport(reportId) {
+  const response = await api.post(`/analytics/reports/saved/${reportId}/share`)
+  return response.data
+}
+
+export async function unshareSavedReport(reportId) {
+  const response = await api.delete(`/analytics/reports/saved/${reportId}/share`)
+  return response.data
+}
+
+export async function listScheduledReports() {
+  const response = await api.get('/analytics/reports/scheduled')
+  return response.data
+}
+
+export async function createScheduledReport(body) {
+  const response = await api.post('/analytics/reports/scheduled', body)
+  return response.data
+}
+
+export async function updateScheduledReport(scheduleId, body) {
+  const response = await api.put(`/analytics/reports/scheduled/${scheduleId}`, body)
+  return response.data
+}
+
+export async function deleteScheduledReport(scheduleId) {
+  const response = await api.delete(`/analytics/reports/scheduled/${scheduleId}`)
+  return response.data
+}
+
 // ─── HM Handoff Package ──────────────────────────────────────────────────────
 
 export async function getHandoffPackage(reqId) {

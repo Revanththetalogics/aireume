@@ -268,7 +268,7 @@ export default function InterviewPage() {
             value={activeTab}
             onChange={(v) => {
               if (v === 'analytics') {
-                navigate('/analytics?slice=interviews')
+                navigate('/analytics/explore?slice=interviews')
                 return
               }
               setActiveTab(v)

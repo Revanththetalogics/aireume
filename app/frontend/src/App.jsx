@@ -41,7 +41,11 @@ const TeamSkillsPage = lazy(() => import('./pages/TeamSkillsPage'))
 const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
+const AnalyticsLayout = lazy(() => import('./pages/AnalyticsLayout'))
+const AnalyticsOverviewPage = lazy(() => import('./pages/AnalyticsOverviewPage'))
+const AnalyticsExplorePage = lazy(() => import('./pages/AnalyticsExplorePage'))
+const ReportBuilderPage = lazy(() => import('./pages/ReportBuilderPage'))
+const AnalyticsDocsPage = lazy(() => import('./pages/AnalyticsDocsPage'))
 const InterviewPage = lazy(() => import('./pages/InterviewPage'))
 const InterviewDetailPage = lazy(() => import('./pages/InterviewDetailPage'))
 const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
@@ -191,7 +195,12 @@ function App() {
               <Route path="/team-skills" element={<Shell><OnboardingGate><TeamSkillsPage /></OnboardingGate></Shell>} />
               <Route path="/transcript" element={<Shell><OnboardingGate><RequirePlanFeature feature="transcript_analysis"><TranscriptPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/video"      element={<Shell><OnboardingGate><RequirePlanFeature feature="video_analysis"><VideoPage /></RequirePlanFeature></OnboardingGate></Shell>} />
-              <Route path="/analytics"  element={<Shell><OnboardingGate><RequirePlanFeature feature="analytics"><AnalyticsPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/analytics" element={<Shell><OnboardingGate><RequirePlanFeature feature="analytics"><AnalyticsLayout /></RequirePlanFeature></OnboardingGate></Shell>}>
+                <Route index element={<AnalyticsOverviewPage />} />
+                <Route path="explore" element={<AnalyticsExplorePage />} />
+                <Route path="reports" element={<ReportBuilderPage />} />
+                <Route path="docs" element={<AnalyticsDocsPage />} />
+              </Route>
               <Route path="/voice-screening" element={<Navigate to="/ai-interviews" replace />} />
               <Route path="/recruiter-interviews" element={<Navigate to="/ai-interviews" replace />} />
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />

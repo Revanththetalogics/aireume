@@ -450,3 +450,335 @@ async def run_report_endpoint(
 async def bi_manifest_endpoint(current_user: User = Depends(get_current_user)):
     from app.backend.services.report_builder_service import bi_export_manifest
     return bi_export_manifest(current_user.tenant_id)
+
+
+# ── Analytics overview, views, metrics ────────────────────────────────────────
+
+@router.get("/api/analytics/overview", dependencies=[Depends(require_feature("analytics"))])
+async def get_analytics_overview(
+    period: str = Query("last_30_days", pattern="^(last_7_days|last_30_days|last_90_days)$"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    requisition_id: Optional[int] = Query(None),
+    recruiter_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.analytics_hub_service import validate_hub_filters
+    from app.backend.services.analytics_overview_service import build_analytics_overview
+
+    validate_hub_filters(db, current_user.tenant_id, requisition_id=requisition_id, recruiter_id=recruiter_id)
+    include_pii = current_user.role not in ("viewer",)
+    return build_analytics_overview(
+        db,
+        current_user.tenant_id,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        requisition_id=requisition_id,
+        recruiter_id=recruiter_id,
+        include_pii=include_pii,
+        user_role=current_user.role,
+    )
+
+
+@router.get("/api/analytics/metrics", dependencies=[Depends(require_feature("analytics"))])
+async def get_analytics_metrics():
+    from app.backend.services.analytics_metrics_service import get_metric_glossary
+    return get_metric_glossary()
+
+
+@router.get("/api/analytics/views", dependencies=[Depends(require_feature("analytics"))])
+async def list_analytics_views(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.analytics_views_service import get_default_view, list_views
+    return {
+        "views": list_views(db, current_user.tenant_id, current_user.id),
+        "default_view": get_default_view(db, current_user.tenant_id, current_user.id),
+    }
+
+
+@router.post("/api/analytics/views", dependencies=[Depends(require_feature("analytics"))])
+async def create_analytics_view(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.analytics_views_service import create_view
+    try:
+        row = create_view(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            name=body.get("name", "Saved view"),
+            view_type=body.get("view_type", "explore"),
+            slice=body.get("slice"),
+            filters=body.get("filters"),
+            is_default=bool(body.get("is_default")),
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/api/analytics/views/{view_id}", dependencies=[Depends(require_feature("analytics"))])
+async def update_analytics_view(
+    view_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.analytics_views_service import update_view
+    try:
+        row = update_view(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            view_id,
+            name=body.get("name"),
+            slice=body.get("slice"),
+            filters=body.get("filters"),
+            is_default=body.get("is_default"),
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/api/analytics/views/{view_id}", dependencies=[Depends(require_feature("analytics"))])
+async def delete_analytics_view(
+    view_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.analytics_views_service import delete_view
+    try:
+        delete_view(db, current_user.tenant_id, current_user.id, view_id)
+        db.commit()
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ── Custom report builder ─────────────────────────────────────────────────────
+
+@router.get("/api/analytics/reports/fields", dependencies=[Depends(require_feature("analytics"))])
+async def report_fields_endpoint(current_user: User = Depends(get_current_user)):
+    from app.backend.services.custom_report_service import get_field_catalog
+    return get_field_catalog()
+
+
+@router.post("/api/analytics/reports/custom/run", dependencies=[Depends(require_feature("analytics"))])
+async def run_custom_report_endpoint(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.audit_service import log_tenant_event
+    from app.backend.services.custom_report_service import run_custom_report
+    try:
+        include_pii = current_user.role not in ("viewer",)
+        result = run_custom_report(
+            db,
+            current_user.tenant_id,
+            body.get("definition") or body,
+            include_pii=include_pii,
+            format=body.get("format", "json"),
+        )
+        log_tenant_event(
+            db,
+            actor=current_user,
+            action="analytics.custom_report_run",
+            resource_type="report",
+            details={"entity": result.get("entity"), "format": body.get("format", "json")},
+        )
+        db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/analytics/reports/saved", dependencies=[Depends(require_feature("analytics"))])
+async def list_saved_reports_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.custom_report_service import list_saved_reports
+    return {"reports": list_saved_reports(db, current_user.tenant_id, current_user.id)}
+
+
+@router.post("/api/analytics/reports/saved", dependencies=[Depends(require_feature("analytics"))])
+async def create_saved_report_endpoint(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import create_saved_report
+    try:
+        row = create_saved_report(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            name=body.get("name", "Untitled report"),
+            definition=body.get("definition") or {},
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/api/analytics/reports/saved/{report_id}", dependencies=[Depends(require_feature("analytics"))])
+async def update_saved_report_endpoint(
+    report_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import update_saved_report
+    try:
+        row = update_saved_report(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            report_id,
+            name=body.get("name"),
+            definition=body.get("definition"),
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/api/analytics/reports/saved/{report_id}", dependencies=[Depends(require_feature("analytics"))])
+async def delete_saved_report_endpoint(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import delete_saved_report
+    try:
+        delete_saved_report(db, current_user.tenant_id, current_user.id, report_id)
+        db.commit()
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/api/analytics/reports/saved/{report_id}/share", dependencies=[Depends(require_feature("analytics"))])
+async def share_saved_report_endpoint(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import share_saved_report
+    try:
+        row = share_saved_report(db, current_user.tenant_id, current_user.id, report_id)
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/api/analytics/reports/saved/{report_id}/share", dependencies=[Depends(require_feature("analytics"))])
+async def unshare_saved_report_endpoint(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import unshare_saved_report
+    try:
+        row = unshare_saved_report(db, current_user.tenant_id, current_user.id, report_id)
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ── Scheduled reports ─────────────────────────────────────────────────────────
+
+@router.get("/api/analytics/reports/scheduled", dependencies=[Depends(require_feature("analytics"))])
+async def list_scheduled_reports_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.custom_report_service import list_scheduled_reports
+    return {"schedules": list_scheduled_reports(db, current_user.tenant_id, current_user.id)}
+
+
+@router.post("/api/analytics/reports/scheduled", dependencies=[Depends(require_feature("analytics"))])
+async def create_scheduled_report_endpoint(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import create_scheduled_report
+    try:
+        row = create_scheduled_report(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            saved_report_id=body.get("saved_report_id"),
+            schedule=body.get("schedule", "weekly"),
+            recipients=body.get("recipients") or [],
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/api/analytics/reports/scheduled/{schedule_id}", dependencies=[Depends(require_feature("analytics"))])
+async def update_scheduled_report_endpoint(
+    schedule_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import update_scheduled_report
+    try:
+        row = update_scheduled_report(
+            db,
+            current_user.tenant_id,
+            current_user.id,
+            schedule_id,
+            schedule=body.get("schedule"),
+            recipients=body.get("recipients"),
+            enabled=body.get("enabled"),
+        )
+        db.commit()
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/api/analytics/reports/scheduled/{schedule_id}", dependencies=[Depends(require_feature("analytics"))])
+async def delete_scheduled_report_endpoint(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from app.backend.services.custom_report_service import delete_scheduled_report
+    try:
+        delete_scheduled_report(db, current_user.tenant_id, current_user.id, schedule_id)
+        db.commit()
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

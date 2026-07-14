@@ -89,6 +89,21 @@ def expire_trials_job():
         db.close()
 
 
+def process_scheduled_reports():
+    """Deliver due scheduled analytics reports via email."""
+    from app.backend.services.custom_report_service import process_due_scheduled_reports
+
+    db = SessionLocal()
+    try:
+        count = process_due_scheduled_reports(db)
+        if count:
+            logger.info("Delivered %d scheduled analytics reports", count)
+    except Exception as exc:
+        logger.error("Scheduled report delivery failed: %s", exc, exc_info=True)
+    finally:
+        db.close()
+
+
 def start_scheduler():
     """Start the background scheduler with all periodic jobs."""
     if scheduler.running:
@@ -118,10 +133,19 @@ def start_scheduler():
         misfire_grace_time=300,
     )
 
+    scheduler.add_job(
+        process_scheduled_reports,
+        trigger=IntervalTrigger(hours=1),
+        id="scheduled_analytics_reports",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
     logger.info(
         "Background scheduler started "
-        "(dunning retries: every 1 h, stale job recovery: every 5 min, trial expiry: every 1 h)"
+        "(dunning retries: every 1 h, stale job recovery: every 5 min, trial expiry: every 1 h, "
+        "scheduled reports: every 1 h)"
     )
 
 

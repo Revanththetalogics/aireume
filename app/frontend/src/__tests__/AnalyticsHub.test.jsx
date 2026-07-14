@@ -53,18 +53,18 @@ describe('AnalyticsHub', () => {
     expect(await screen.findByText(/Total analyzed/i)).toBeInTheDocument()
   })
 
-  it('renders reports slice without hub API', async () => {
-    const { getAnalyticsHub } = await import('../lib/api')
+  it('renders explore slices without reports tab when hidden', async () => {
     render(
       <MemoryRouter>
         <AnalyticsHub
           period="last_30_days"
-          activeSlice="reports"
+          activeSlice="screening"
           permissions={{ role: 'admin', isAdmin: true }}
+          hideReportsTab
         />
       </MemoryRouter>,
     )
-    expect(await screen.findByText(/BI export endpoints/i)).toBeInTheDocument()
-    expect(getAnalyticsHub).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Total analyzed/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^Reports$/)).not.toBeInTheDocument()
   })
 })

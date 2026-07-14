@@ -1826,6 +1826,54 @@ class AnalysisArtifact(Base):
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class SavedAnalyticsView(Base):
+    """User-pinned analytics filters and explore slice preferences."""
+    __tablename__ = "saved_analytics_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    view_type = Column(String(20), nullable=False, default="explore")
+    slice = Column(String(30), nullable=True)
+    filters = Column(JSON, nullable=False, default=dict)
+    is_default = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class SavedReport(Base):
+    """Custom report definition saved by a user."""
+    __tablename__ = "saved_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    definition = Column(JSON, nullable=False, default=dict)
+    shared_with_tenant = Column(Boolean, nullable=False, default=False)
+    share_token = Column(String(64), nullable=True, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ScheduledReport(Base):
+    """Scheduled delivery of a saved report via email."""
+    __tablename__ = "scheduled_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    saved_report_id = Column(Integer, ForeignKey("saved_reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    schedule = Column(String(20), nullable=False)
+    recipients = Column(JSON, nullable=False, default=list)
+    enabled = Column(Boolean, nullable=False, default=True)
+    next_run_at = Column(DateTime(timezone=True), nullable=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class JobMetrics(Base):
     __tablename__ = 'job_metrics'
 

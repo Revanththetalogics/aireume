@@ -186,8 +186,9 @@ def _to_xlsx(payload: dict[str, Any]) -> bytes:
 
 def bi_export_manifest(tenant_id: int) -> dict[str, Any]:
     """Semantic layer field dictionary for BI tools."""
-    return {
+    return     {
         "tenant_id": tenant_id,
+        "description": "Semantic layer for BI tools and custom report builder.",
         "entities": {
             "screening_results": [
                 "id", "candidate_id", "requisition_id", "deterministic_score",
@@ -206,7 +207,12 @@ def bi_export_manifest(tenant_id: int) -> dict[str, Any]:
         },
         "export_endpoints": {
             "hub": "/api/analytics/hub",
+            "overview": "/api/analytics/overview",
             "report_run": "/api/analytics/reports/run",
+            "report_custom": "/api/analytics/reports/custom/run",
+            "report_fields": "/api/analytics/reports/fields",
             "report_templates": "/api/analytics/reports/templates",
+            "saved_reports": "/api/analytics/reports/saved",
+            "metrics": "/api/analytics/metrics",
         },
     }

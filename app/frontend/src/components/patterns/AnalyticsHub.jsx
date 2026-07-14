@@ -439,7 +439,7 @@ function ScreeningSlice({
           rows={data?.drill_down || []}
           columns={SCREENING_COLUMNS}
           onRowClick={(row) => onDrill?.('screening', row)}
-          emptyMessage="No screenings in this period. Run an analysis to populate this table."
+          emptyMessage={ANALYTICS.emptyScreening}
           pagination={data?.drill_down_pagination}
           onPageChange={onLoadMoreDrill}
         />
@@ -542,7 +542,7 @@ function InterviewsSlice({ data, onDrill }) {
           rows={data?.resume_vs_call_delta || []}
           columns={INTERVIEW_COLUMNS}
           onRowClick={(row) => onDrill('candidate', row)}
-          emptyMessage="No completed interviews with both resume and call scores yet."
+          emptyMessage={ANALYTICS.emptyInterviews}
         />
       </Card>
     </div>
@@ -624,7 +624,7 @@ function HmSlice({ data, onDrill }) {
             },
           ]}
           onRowClick={(row) => onDrill?.('requisition', row)}
-          emptyMessage="No submissions waiting on hiring manager review."
+          emptyMessage={ANALYTICS.emptyHm}
         />
       </Card>
     </div>
@@ -702,7 +702,7 @@ function AtsSlice({ data }) {
             },
             { key: 'error_message', label: 'Error' },
           ]}
-          emptyMessage="No ATS sync failures in this period."
+          emptyMessage={ANALYTICS.emptyAts}
         />
       </Card>
     </div>
@@ -830,17 +830,23 @@ const AnalyticsHub = forwardRef(function AnalyticsHub({
   trendRoleCategory,
   onTrendRoleCategoryChange,
   onComputeSnapshots,
+  hideReportsTab = false,
 }, ref) {
   const navigate = useNavigate()
   const [internalSlice, setInternalSlice] = useState(initialSlice)
   const slice = controlledSlice ?? internalSlice
   const role = permissions.role || 'recruiter'
-  const visibleSlices = useMemo(
-    () => ALL_SLICES.filter((s) => (SLICES_BY_ROLE[role] || VALID_SLICE_IDS).has(s.id)),
-    [role],
-  )
+  const visibleSlices = useMemo(() => {
+    let allowed = ALL_SLICES.filter((s) => (SLICES_BY_ROLE[role] || VALID_SLICE_IDS).has(s.id))
+    if (hideReportsTab) allowed = allowed.filter((s) => s.id !== 'reports')
+    return allowed
+  }, [role, hideReportsTab])
 
   const setSlice = (next) => {
+    if (next === 'reports' && hideReportsTab) {
+      navigate(`/analytics/reports?period=${period}`)
+      return
+    }
     if (!visibleSlices.some((s) => s.id === next)) return
     if (controlledSlice === undefined) setInternalSlice(next)
     onSliceChange?.(next)
