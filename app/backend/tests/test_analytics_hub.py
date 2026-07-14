@@ -94,6 +94,35 @@ class TestAnalyticsHub:
         assert "filter_options" in hub
         assert "attention" in hub
 
+    def test_drill_down_falls_back_to_analysis_contact_name(self, db, auth_client):
+        user = _admin_user(db)
+        cand = Candidate(tenant_id=user.tenant_id, name=None, email=None)
+        db.add(cand)
+        db.flush()
+
+        result = ScreeningResult(
+            tenant_id=user.tenant_id,
+            candidate_id=cand.id,
+            resume_text="Resume text",
+            jd_text="Long enough job description for testing candidate name fallback.",
+            parsed_data=json.dumps({"contact_info": {"name": "Revanth Kumar", "email": "revanth@example.com"}}),
+            analysis_result=json.dumps({
+                "fit_score": 74,
+                "final_recommendation": "Consider",
+                "contact_info": {"name": "Revanth Kumar", "email": "revanth@example.com"},
+            }),
+            deterministic_score=74,
+            timestamp=datetime.now(timezone.utc),
+        )
+        db.add(result)
+        db.commit()
+
+        hub = build_analytics_hub(db, user.tenant_id, period="last_30_days")
+        row = hub["slices"]["screening"]["drill_down"][0]
+        assert row["candidate_name"] == "Revanth Kumar"
+        assert row["candidate_email"] == "revanth@example.com"
+        assert row["recommendation"] == "Consider"
+
     def test_hub_endpoint(self, auth_client_with_agency_plan):
         resp = auth_client_with_agency_plan.get("/api/analytics/hub?period=last_30_days")
         assert resp.status_code == 200

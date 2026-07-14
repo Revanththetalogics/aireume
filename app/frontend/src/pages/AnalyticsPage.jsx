@@ -192,12 +192,31 @@ function PassThroughFunnel({ totalAnalyzed, rates }) {
 // ─── Main Analytics Page ─────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const hubSlice = searchParams.get('slice') || 'screening'
+  const [activeSlice, setActiveSlice] = useState(hubSlice)
   const [period, setPeriod] = useState('last_30_days')
   const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const showScreeningTrends = activeSlice === 'screening'
+
+  useEffect(() => {
+    setActiveSlice(hubSlice)
+  }, [hubSlice])
+
+  const handleSliceChange = (nextSlice) => {
+    setActiveSlice(nextSlice)
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (nextSlice === 'screening') {
+        params.delete('slice')
+      } else {
+        params.set('slice', nextSlice)
+      }
+      return params
+    }, { replace: true })
+  }
 
   // ─── Skill Trends State ─────────────────────────────────────
   const [trendData, setTrendData] = useState(null)
@@ -219,8 +238,9 @@ export default function AnalyticsPage() {
   }, [period])
 
   useEffect(() => {
+    if (!showScreeningTrends) return
     fetchData()
-  }, [fetchData])
+  }, [fetchData, showScreeningTrends])
 
   // ─── Skill Trends Fetch ─────────────────────────────────────
   const fetchTrends = useCallback(async () => {
@@ -238,8 +258,9 @@ export default function AnalyticsPage() {
   }, [trendRoleCategory])
 
   useEffect(() => {
+    if (!showScreeningTrends) return
     fetchTrends()
-  }, [fetchTrends])
+  }, [fetchTrends, showScreeningTrends])
 
   const handleComputeSnapshots = async () => {
     setComputing(true)
@@ -299,13 +320,21 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <AnalyticsHub period={period} initialSlice={hubSlice} />
+      <AnalyticsHub
+        period={period}
+        initialSlice={hubSlice}
+        activeSlice={activeSlice}
+        onSliceChange={handleSliceChange}
+      />
 
+      {showScreeningTrends && (
+        <>
       <div className="pt-2 pb-1">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-brand-600" />
           Screening trends
         </h2>
+        <p className="text-sm text-slate-500">Charts and historical trends for resume screening volume and quality.</p>
       </div>
 
       {/* ── Loading ─────────────────────────────────────────── */}

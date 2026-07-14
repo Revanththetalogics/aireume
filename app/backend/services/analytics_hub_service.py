@@ -67,6 +67,45 @@ def _candidate_label(candidate: Optional[Candidate], candidate_id: Optional[int]
     return "Unknown candidate"
 
 
+def _resolve_candidate_display(
+    candidate: Optional[Candidate],
+    *,
+    candidate_id: Optional[int] = None,
+    analysis: Optional[dict] = None,
+    parsed: Optional[dict] = None,
+) -> tuple[str, Optional[str]]:
+    """Resolve display name/email from candidate row or stored screening JSON."""
+    analysis = analysis or {}
+    parsed = parsed or {}
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+    if candidate:
+        if candidate.name and str(candidate.name).strip():
+            name = str(candidate.name).strip()
+        email = candidate.email
+
+    if not name:
+        for candidate_name in (
+            analysis.get("candidate_name"),
+            (analysis.get("contact_info") or {}).get("name"),
+            (analysis.get("candidate_profile") or {}).get("name"),
+            (parsed.get("contact_info") or {}).get("name"),
+        ):
+            if candidate_name and str(candidate_name).strip():
+                name = str(candidate_name).strip()
+                break
+
+    if not email:
+        email = (
+            (analysis.get("contact_info") or {}).get("email")
+            or (parsed.get("contact_info") or {}).get("email")
+        )
+
+    display = name or _candidate_label(None, candidate_id)
+    return display, email
+
+
 def _load_candidates(
     db: Session, tenant_id: int, candidate_ids: set[int]
 ) -> dict[int, Candidate]:
@@ -208,12 +247,19 @@ def _screening_slice(
                 skill_gaps[str(name).lower()] += 1
         cand = candidates.get(r.candidate_id) if r.candidate_id else None
         req = requisitions.get(r.requisition_id) if r.requisition_id else None
+        parsed = _parse_json(r.parsed_data)
+        display_name, display_email = _resolve_candidate_display(
+            cand,
+            candidate_id=r.candidate_id,
+            analysis=analysis,
+            parsed=parsed,
+        )
         drill_down.append({
             "id": r.id,
             "result_id": r.id,
             "candidate_id": r.candidate_id,
-            "candidate_name": _candidate_label(cand, r.candidate_id),
-            "candidate_email": cand.email if cand else None,
+            "candidate_name": display_name,
+            "candidate_email": display_email,
             "requisition_id": r.requisition_id,
             "requisition_title": req.title if req else None,
             "role_title": (req.title if req else None) or analysis.get("job_role"),
@@ -459,22 +505,46 @@ def _hm_slice(
     outcomes: Counter[str] = Counter()
     pending_review = 0
     turnaround_hours: list[float] = []
+    pending_submissions: list[dict] = []
+    pending_candidate_ids: set[int] = set()
 
     for rc in rows:
         if rc.submission_status == "submitted":
             submitted += 1
             if not rc.hm_outcome:
                 pending_review += 1
+                pending_candidate_ids.add(rc.candidate_id)
+                pending_submissions.append({
+                    "candidate_id": rc.candidate_id,
+                    "requisition_id": rc.requisition_id,
+                    "submitted_at": rc.submitted_at.isoformat() if rc.submitted_at else None,
+                })
         if rc.hm_outcome:
             outcomes[rc.hm_outcome] += 1
         if rc.submitted_at and rc.outcome_at:
             delta = (rc.outcome_at - rc.submitted_at).total_seconds() / 3600
             turnaround_hours.append(delta)
 
+    pending_candidates = _load_candidates(db, tenant_id, pending_candidate_ids)
+    pending_req_ids = {item["requisition_id"] for item in pending_submissions}
+    pending_reqs = _load_requisitions(db, tenant_id, pending_req_ids)
+    for item in pending_submissions:
+        cand = pending_candidates.get(item["candidate_id"])
+        req = pending_reqs.get(item["requisition_id"])
+        item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
+        item["candidate_email"] = cand.email if cand else None
+        item["requisition_title"] = req.title if req else None
+
+    pending_submissions.sort(
+        key=lambda row: row.get("submitted_at") or "",
+        reverse=True,
+    )
+
     return {
         "submissions_sent": submitted,
         "pending_hm_review": pending_review,
         "outcome_distribution": dict(outcomes),
+        "pending_submissions": pending_submissions[:30],
         "avg_turnaround_hours": round(sum(turnaround_hours) / len(turnaround_hours), 1)
         if turnaround_hours
         else None,
