@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.backend.models.db_models import (
@@ -477,7 +477,7 @@ def _funnel_slice(
             }
         by_req[req.id]["stages"][stage] += 1
         by_req[req.id]["total"] += 1
-        if rc.updated_at and rc.updated_at < stale_cutoff and stage in ("pending", "in-review"):
+        if rc.updated_at and _ensure_aware(rc.updated_at) < stale_cutoff and stage in ("pending", "in-review"):
             stale_candidate_ids.add(rc.candidate_id)
             stale.append({
                 "candidate_id": rc.candidate_id,
@@ -541,10 +541,11 @@ def _interviews_slice(
     )
     if requisition_id:
         candidate_ids_for_req = set(
-            db.query(RequisitionCandidate.candidate_id)
-            .filter(RequisitionCandidate.requisition_id == requisition_id)
-            .scalars()
-            .all()
+            db.execute(
+                select(RequisitionCandidate.candidate_id).where(
+                    RequisitionCandidate.requisition_id == requisition_id
+                )
+            ).scalars().all()
         )
         candidate_ids_for_req.discard(None)
         if not candidate_ids_for_req:
@@ -586,12 +587,17 @@ def _interviews_slice(
                 if call_score is not None and sr:
                     resume_score = extract_fit_score(sr)
                     if resume_score is not None:
+                        try:
+                            call_score_int = int(float(call_score))
+                            resume_score_int = int(resume_score)
+                        except (TypeError, ValueError):
+                            continue
                         interview_candidate_ids.add(s.candidate_id)
                         resume_vs_call.append({
                             "candidate_id": s.candidate_id,
-                            "resume_score": int(resume_score),
-                            "call_score": call_score,
-                            "delta": int(call_score) - int(resume_score),
+                            "resume_score": resume_score_int,
+                            "call_score": call_score_int,
+                            "delta": call_score_int - resume_score_int,
                         })
             except (json.JSONDecodeError, TypeError):
                 pass

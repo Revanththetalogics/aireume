@@ -227,6 +227,52 @@ class TestAnalyticsHub:
         assert "team" in hub["slices"]
         assert "screening" not in hub["slices"]
 
+    def test_interviews_slice_with_requisition_filter(self, db, auth_client):
+        user = _admin_user(db)
+        req = Requisition(
+            tenant_id=user.tenant_id,
+            title="Interview Filter Req",
+            jd_text="Job description for interview filter test long enough.",
+            created_by=user.id,
+        )
+        db.add(req)
+        db.flush()
+        cand = Candidate(tenant_id=user.tenant_id, name="Voice Cand", email="voice@example.com")
+        db.add(cand)
+        db.flush()
+        db.add(RequisitionCandidate(
+            requisition_id=req.id,
+            candidate_id=cand.id,
+        ))
+        db.commit()
+
+        hub = build_analytics_hub(
+            db,
+            user.tenant_id,
+            period="last_30_days",
+            requisition_id=req.id,
+            slices=["interviews"],
+        )
+        assert "interviews" in hub["slices"]
+        assert hub["slices"]["interviews"]["kpis"]["total_sessions"] == 0
+
+    def test_hub_interviews_endpoint_with_requisition_filter(self, auth_client_with_agency_plan, db):
+        from app.backend.models.db_models import User
+        user = db.query(User).filter(User.email == "agency@agencycorp.com").first()
+        req = Requisition(
+            tenant_id=user.tenant_id,
+            title="API Interview Filter",
+            jd_text="Job description for hub interviews endpoint filter test.",
+            created_by=user.id,
+        )
+        db.add(req)
+        db.commit()
+        resp = auth_client_with_agency_plan.get(
+            f"/api/analytics/hub?period=last_30_days&slices=interviews&requisition_id={req.id}"
+        )
+        assert resp.status_code == 200
+        assert "interviews" in resp.json()["slices"]
+
     def test_viewer_masks_email(self, db, auth_client):
         user = _admin_user(db)
         cand = Candidate(tenant_id=user.tenant_id, name="Masked", email="secret@example.com")
