@@ -187,7 +187,7 @@ export default function InterviewSettingsPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => navigate('/voice-screening')}
+            onClick={() => navigate('/voice-screening?tab=settings')}
             className="flex items-center justify-between gap-3 px-4 py-3 panel-surface rounded-xl hover:ring-brand-300 transition-all text-left"
           >
             <span className="flex items-center gap-3">
@@ -201,7 +201,7 @@ export default function InterviewSettingsPanel() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/recruiter-interviews')}
+            onClick={() => navigate('/recruiter-interviews?tab=config')}
             className="flex items-center justify-between gap-3 px-4 py-3 panel-surface rounded-xl hover:ring-brand-300 transition-all text-left"
           >
             <span className="flex items-center gap-3">

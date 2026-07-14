@@ -29,6 +29,7 @@ import {
 } from '../lib/api'
 import { INDUSTRIES, COMPANY_SIZES } from '../lib/constants'
 import { TRUST, sanitizePlanFeatures } from '../lib/uxLabels'
+import { formatPlanPrice } from '../lib/planDisplay'
 
 const TOTAL_STEPS = 4
 
@@ -260,7 +261,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
             const isStarter = plan.name === 'starter' || plan.name === 'free'
             const isGrowth = plan.name === 'growth' || plan.name === 'pro'
             const isSelected = selectedPlan === plan.id
-            const price = plan.price_monthly === 0 ? 'Free' : `$${(plan.price_monthly / 100).toFixed(0)}/mo`
+            const price = formatPlanPrice(plan)
             const features = sanitizePlanFeatures(Array.isArray(plan.features) ? plan.features : [])
 
             return (

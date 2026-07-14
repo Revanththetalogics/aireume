@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Brain, BarChart3, Settings, Plus, Filter, Search, RefreshCw,
@@ -91,6 +91,10 @@ function Section({ title, icon: Icon, children, description, action }) {
 
 export default function RecruiterInterviewPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialTab = ['sessions', 'analytics', 'config'].includes(searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : 'sessions'
   const [sessions, setSessions] = useState([])
   const [analytics, setAnalytics] = useState(null)
   const [config, setConfig] = useState(null)
@@ -99,7 +103,12 @@ export default function RecruiterInterviewPage() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('sessions')
+  const [activeTab, setActiveTab] = useState(initialTab)
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'sessions' || tab === 'analytics' || tab === 'config') setActiveTab(tab)
+  }, [searchParams])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState(null)
   const [showInitiateModal, setShowInitiateModal] = useState(false)

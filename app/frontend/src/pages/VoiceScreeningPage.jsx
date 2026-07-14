@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Phone, Settings as SettingsIcon, Clock, CheckCircle2, XCircle,
   AlertTriangle, Play, Pause, RefreshCw, ChevronRight, Loader2,
@@ -171,6 +171,8 @@ function DayPicker({ value, onChange }) {
 
 export default function VoiceScreeningPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') === 'settings' ? 'settings' : 'sessions'
   const [settings, setSettings] = useState(null)
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -185,7 +187,12 @@ export default function VoiceScreeningPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [scheduleModal, setScheduleModal] = useState(false)
   const [editingSession, setEditingSession] = useState(null)
-  const [activeTab, setActiveTab] = useState('sessions') // sessions | settings
+  const [activeTab, setActiveTab] = useState(initialTab) // sessions | settings
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'settings' || tab === 'sessions') setActiveTab(tab)
+  }, [searchParams])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())

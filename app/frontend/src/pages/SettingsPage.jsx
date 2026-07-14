@@ -34,6 +34,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice, getTenantBranding, updateTenantBranding } from '../lib/api'
 import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
+import { formatPlanPrice, isSalesLedPlan, SALES_CONTACT_EMAIL } from '../lib/planDisplay'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
 import RequisitionSettingsPanel from '../components/settings/RequisitionSettingsPanel'
@@ -427,13 +428,17 @@ export default function SettingsPage() {
     }
   }
 
-  const handleChangePlan = async (planId) => {
-    if (!confirm(`Switch to ${planId} plan?`)) return
-    setActionLoading(`changePlan-${planId}`)
+  const handleChangePlan = async (plan) => {
+    if (isSalesLedPlan(plan)) {
+      window.location.href = `mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry&body=Hi, I'd like to learn more about the Enterprise plan for our team.`
+      return
+    }
+    if (!confirm(`Switch to ${plan.display_name || plan.name} plan?`)) return
+    setActionLoading(`changePlan-${plan.id}`)
     try {
-      await adminChangePlan(planId)
+      await adminChangePlan(plan.id)
       await fetchSubscription(true)
-      alert(`Switched to ${planId} plan`)
+      alert(`Switched to ${plan.display_name || plan.name}`)
     } catch (err) {
       alert('Failed to change plan: ' + getUserFriendlyError(err))
     } finally {
@@ -654,9 +659,8 @@ export default function SettingsPage() {
                               </div>
                             )}
                             <h4 className="font-extrabold text-brand-900 text-lg">{plan.display_name}</h4>
-                            <p className="text-2xl font-bold text-brand-900 mt-1">
-                              ${(plan.price_monthly / 100).toFixed(0)}
-                              <span className="text-sm font-medium text-slate-500">/mo</span>
+                            <p className={`mt-1 font-bold text-brand-900 ${isSalesLedPlan(plan) ? 'text-lg' : 'text-2xl'}`}>
+                              {formatPlanPrice(plan)}
                             </p>
                             <p className="text-xs text-slate-500 mt-1">{plan.description}</p>
                             <ul className="mt-4 space-y-2">
@@ -670,27 +674,45 @@ export default function SettingsPage() {
                               ))}
                             </ul>
                             {user?.role === 'admin' ? (
-                              <button
-                                onClick={() => handleChangePlan(plan.id)}
-                                disabled={isCurrent || actionLoading?.startsWith('changePlan')}
-                                className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                  isCurrent
-                                    ? 'bg-brand-200 text-brand-700 cursor-default'
-                                    : 'btn-brand text-white shadow-brand-sm disabled:opacity-50'
-                                }`}
-                              >
-                                {isCurrent ? 'Current Plan' : actionLoading === `changePlan-${plan.id}` ? 'Changing...' : actionLoading?.startsWith('changePlan') ? 'Please wait...' : 'Switch Plan'}
-                              </button>
+                              isSalesLedPlan(plan) ? (
+                                <a
+                                  href={`mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry`}
+                                  className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all block text-center ${
+                                    isCurrent
+                                      ? 'bg-brand-200 text-brand-700 cursor-default pointer-events-none'
+                                      : 'btn-brand text-white shadow-brand-sm'
+                                  }`}
+                                >
+                                  {isCurrent ? 'Current Plan' : 'Contact Sales'}
+                                </a>
+                              ) : (
+                                <button
+                                  onClick={() => handleChangePlan(plan)}
+                                  disabled={isCurrent || actionLoading?.startsWith('changePlan')}
+                                  className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                    isCurrent
+                                      ? 'bg-brand-200 text-brand-700 cursor-default'
+                                      : 'btn-brand text-white shadow-brand-sm disabled:opacity-50'
+                                  }`}
+                                >
+                                  {isCurrent ? 'Current Plan' : actionLoading === `changePlan-${plan.id}` ? 'Changing...' : actionLoading?.startsWith('changePlan') ? 'Please wait...' : 'Switch Plan'}
+                                </button>
+                              )
                             ) : (
                               <button
                                 disabled={isCurrent}
                                 className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
                                   isCurrent
                                     ? 'bg-brand-200 text-brand-700 cursor-default'
-                                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    : isSalesLedPlan(plan)
+                                      ? 'btn-brand text-white shadow-brand-sm'
+                                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                 }`}
+                                onClick={isSalesLedPlan(plan) && !isCurrent
+                                  ? () => { window.location.href = `mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry` }
+                                  : undefined}
                               >
-                                {isCurrent ? 'Current Plan' : 'Contact Admin'}
+                                {isCurrent ? 'Current Plan' : isSalesLedPlan(plan) ? 'Contact Sales' : 'Contact Admin'}
                               </button>
                             )}
                           </div>

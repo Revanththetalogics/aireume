@@ -48,6 +48,8 @@ const ReportBuilderPage = lazy(() => import('./pages/ReportBuilderPage'))
 const AnalyticsDocsPage = lazy(() => import('./pages/AnalyticsDocsPage'))
 const InterviewPage = lazy(() => import('./pages/InterviewPage'))
 const InterviewDetailPage = lazy(() => import('./pages/InterviewDetailPage'))
+const VoiceScreeningPage = lazy(() => import('./pages/VoiceScreeningPage'))
+const RecruiterInterviewPage = lazy(() => import('./pages/RecruiterInterviewPage'))
 const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
 
 // Admin layout + pages
@@ -201,8 +203,8 @@ function App() {
                 <Route path="reports" element={<ReportBuilderPage />} />
                 <Route path="docs" element={<AnalyticsDocsPage />} />
               </Route>
-              <Route path="/voice-screening" element={<Navigate to="/ai-interviews" replace />} />
-              <Route path="/recruiter-interviews" element={<Navigate to="/ai-interviews" replace />} />
+              <Route path="/voice-screening" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><VoiceScreeningPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/recruiter-interviews" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><RecruiterInterviewPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
               <Route path="/ai-interviews" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><InterviewPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><RequirePlanFeature feature="ai_interviews"><InterviewDetailPage /></RequirePlanFeature></OnboardingGate></Shell>} />

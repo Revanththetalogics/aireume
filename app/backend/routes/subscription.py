@@ -468,6 +468,12 @@ def admin_change_plan(
     if not new_plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     
+    if new_plan.name == "enterprise":
+        raise HTTPException(
+            status_code=400,
+            detail="Enterprise plans are sales-led. Contact sales@thetalogics.com to upgrade.",
+        )
+
     old_plan_name = tenant.plan.name if tenant.plan else "none"
     tenant.plan_id = plan_id
     tenant.subscription_status = "active"

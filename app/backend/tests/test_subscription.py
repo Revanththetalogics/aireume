@@ -283,23 +283,30 @@ class TestAdminChangePlan:
     def test_change_plan_success(self, auth_client_with_free_plan, db, seed_subscription_plans):
         """Should successfully change subscription plan."""
         from app.backend.models.db_models import Tenant, SubscriptionPlan
-        
-        # Get enterprise plan ID
-        enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
-        
-        response = auth_client_with_free_plan.post(f"/api/subscription/admin/change-plan/{enterprise_plan.id}")
-        
+
+        growth_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "growth").first()
+
+        response = auth_client_with_free_plan.post(f"/api/subscription/admin/change-plan/{growth_plan.id}")
+
         assert response.status_code == 200
         data = response.json()
-        
+
         assert data["message"] == "Plan changed successfully"
         assert data["previous_plan"] == "starter"
-        assert data["new_plan"] == "enterprise"
-        
-        # Verify in database
+        assert data["new_plan"] == "growth"
+
         tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
-        assert tenant.plan_id == enterprise_plan.id
+        assert tenant.plan_id == growth_plan.id
         assert tenant.subscription_status == "active"
+
+    def test_change_plan_enterprise_blocked(self, auth_client_with_free_plan, db, seed_subscription_plans):
+        """Enterprise is sales-led — self-serve switch must be rejected."""
+        from app.backend.models.db_models import SubscriptionPlan
+
+        enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+        response = auth_client_with_free_plan.post(f"/api/subscription/admin/change-plan/{enterprise_plan.id}")
+        assert response.status_code == 400
+        assert "sales" in response.json()["detail"].lower()
     
     def test_change_plan_invalid_plan(self, auth_client_with_free_plan):
         """Should return 404 for non-existent plan."""
