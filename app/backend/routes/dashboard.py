@@ -15,6 +15,7 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.models.db_models import Candidate, Requisition, RequisitionCandidate, RoleTemplate, ScreeningResult, User
 from app.backend.services.skill_trend_service import compute_monthly_snapshot, get_skill_trends
+from app.backend.models.schemas import AnalyticsHubOut, ScreeningAnalyticsOut
 
 logger = logging.getLogger(__name__)
 
@@ -284,146 +285,33 @@ async def get_dashboard_activity(
 
 # ── GET /api/analytics/screening ───────────────────────────────────────────────
 
-@router.get("/api/analytics/screening", dependencies=[Depends(require_feature("analytics"))])
+@router.get(
+    "/api/analytics/screening",
+    dependencies=[Depends(require_feature("analytics"))],
+    response_model=ScreeningAnalyticsOut,
+)
 async def get_screening_analytics(
     period: str = Query("last_30_days", pattern="^(last_7_days|last_30_days|last_90_days)$"),
+    start_date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (custom range)"),
+    end_date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (custom range)"),
+    requisition_id: Optional[int] = Query(None),
+    compare: bool = Query(False, description="Include prior-period comparison"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    tenant_id = current_user.tenant_id
-    start_date = _period_to_start(period)
+    from app.backend.services.analytics_hub_service import validate_hub_filters
+    from app.backend.services.screening_analytics_service import build_screening_analytics
 
-    # ── Base queryset ───────────────────────────────────────────────────────────
-    results = (
-        db.query(ScreeningResult)
-        .filter(
-            ScreeningResult.tenant_id == tenant_id,
-            ScreeningResult.is_active == True,
-            ScreeningResult.timestamp >= start_date,
-        )
-        .all()
+    validate_hub_filters(db, current_user.tenant_id, requisition_id=requisition_id)
+    return build_screening_analytics(
+        db,
+        current_user.tenant_id,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        requisition_id=requisition_id,
+        compare=compare,
     )
-
-    total_analyzed = len(results)
-
-    # ── Fit scores & recommendation distribution ────────────────────────────────
-    fit_scores: List[float] = []
-    recommendation_counter: Counter = Counter()
-    skill_gap_counter: Counter = Counter()
-    analyses_by_day: Dict[str, int] = Counter()
-    score_buckets = {"0-20": 0, "21-40": 0, "41-60": 0, "61-80": 0, "81-100": 0}
-    shortlisted = 0
-    hired = 0
-
-    # JD effectiveness tracking
-    jd_data: Dict[int, dict] = {}  # jd_id -> {scores, shortlisted, total}
-
-    for r in results:
-        # Fit score
-        analysis = _safe_parse_json(r.analysis_result)
-        score = _extract_fit_score(analysis)
-        if score is not None:
-            fit_scores.append(score)
-            # Bucket
-            if score <= 20:
-                score_buckets["0-20"] += 1
-            elif score <= 40:
-                score_buckets["21-40"] += 1
-            elif score <= 60:
-                score_buckets["41-60"] += 1
-            elif score <= 80:
-                score_buckets["61-80"] += 1
-            else:
-                score_buckets["81-100"] += 1
-
-        # Recommendation
-        rec = analysis.get("final_recommendation")
-        if rec and isinstance(rec, str):
-            recommendation_counter[rec] += 1
-
-        # Skill gaps
-        missing = analysis.get("missing_skills", [])
-        if isinstance(missing, list):
-            for skill in missing:
-                if isinstance(skill, str) and skill.strip():
-                    skill_gap_counter[skill.strip()] += 1
-
-        # Day grouping
-        if r.timestamp:
-            day_key = r.timestamp.strftime("%Y-%m-%d")
-            analyses_by_day[day_key] += 1
-
-        # Status counts
-        if r.status == "shortlisted":
-            shortlisted += 1
-        if r.status == "hired":
-            hired += 1
-
-        # JD effectiveness
-        jid = r.role_template_id
-        if jid is not None:
-            if jid not in jd_data:
-                jd_data[jid] = {"scores": [], "shortlisted": 0, "total": 0}
-            jd_data[jid]["total"] += 1
-            if score is not None:
-                jd_data[jid]["scores"].append(score)
-            if r.status == "shortlisted":
-                jd_data[jid]["shortlisted"] += 1
-
-    # Load JD names
-    jd_ids = set(jd_data.keys())
-    jd_map: Dict[int, str] = {}
-    if jd_ids:
-        templates = db.query(RoleTemplate).filter(RoleTemplate.id.in_(jd_ids)).all()
-        jd_map = {t.id: t.name for t in templates}
-
-    # Build analyses_by_day sorted list
-    analyses_by_day_list = [
-        {"date": day, "count": count}
-        for day, count in sorted(analyses_by_day.items())
-    ]
-
-    # Build top_skill_gaps
-    top_skill_gaps = [
-        {"skill": skill, "frequency": freq}
-        for skill, freq in skill_gap_counter.most_common(10)
-    ]
-
-    # Build score_distribution
-    score_distribution = [
-        {"range": range_name, "count": count}
-        for range_name, count in score_buckets.items()
-    ]
-
-    # Pass-through rates
-    pass_through_rates = {
-        "analyzed_to_shortlisted": round(shortlisted / total_analyzed, 2) if total_analyzed else 0,
-        "shortlisted_to_hired": round(hired / shortlisted, 2) if shortlisted else 0,
-    }
-
-    # JD effectiveness
-    jd_effectiveness = []
-    for jid, data in jd_data.items():
-        avg_score = round(sum(data["scores"]) / len(data["scores"]), 1) if data["scores"] else 0
-        shortlist_rate = round(data["shortlisted"] / data["total"], 2) if data["total"] else 0
-        jd_effectiveness.append({
-            "jd_name": jd_map.get(jid, "Unknown JD"),
-            "candidates": data["total"],
-            "avg_score": avg_score,
-            "shortlist_rate": shortlist_rate,
-        })
-
-    return {
-        "period": period,
-        "total_analyzed": total_analyzed,
-        "avg_fit_score": round(sum(fit_scores) / len(fit_scores), 1) if fit_scores else 0,
-        "recommendation_distribution": dict(recommendation_counter),
-        "analyses_by_day": analyses_by_day_list,
-        "top_skill_gaps": top_skill_gaps,
-        "score_distribution": score_distribution,
-        "pass_through_rates": pass_through_rates,
-        "jd_effectiveness": jd_effectiveness,
-    }
 
 
 # ── GET /api/analytics/skill-trends ───────────────────────────────────────────
@@ -457,21 +345,59 @@ async def compute_skill_trends_endpoint(
 
 # ── Analytics hub (interactive deep-dive) ─────────────────────────────────────
 
-@router.get("/api/analytics/hub", dependencies=[Depends(require_feature("analytics"))])
+@router.get(
+    "/api/analytics/hub",
+    dependencies=[Depends(require_feature("analytics"))],
+    response_model=AnalyticsHubOut,
+)
 async def get_analytics_hub(
-    period: str = Query("last_30_days"),
+    period: str = Query("last_30_days", pattern="^(last_7_days|last_30_days|last_90_days)$"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
     requisition_id: Optional[int] = Query(None),
     recruiter_id: Optional[int] = Query(None),
+    slices: Optional[str] = Query(None, description="Comma-separated slice ids to load"),
+    drill_limit: int = Query(100, ge=1, le=500),
+    drill_offset: int = Query(0, ge=0),
+    compare: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.backend.services.analytics_hub_service import build_analytics_hub
+    from app.backend.services.analytics_hub_service import (
+        VALID_SLICES,
+        build_analytics_hub,
+        validate_hub_filters,
+    )
+
+    validate_hub_filters(
+        db,
+        current_user.tenant_id,
+        requisition_id=requisition_id,
+        recruiter_id=recruiter_id,
+    )
+    slice_list = None
+    if slices:
+        slice_list = [s.strip() for s in slices.split(",") if s.strip()]
+        invalid = [s for s in slice_list if s not in VALID_SLICES]
+        if invalid:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail=f"Invalid slices: {', '.join(invalid)}")
+
+    include_pii = current_user.role not in ("viewer",)
     return build_analytics_hub(
         db,
         current_user.tenant_id,
         period=period,
+        start_date=start_date,
+        end_date=end_date,
         requisition_id=requisition_id,
         recruiter_id=recruiter_id,
+        slices=slice_list,
+        drill_limit=drill_limit,
+        drill_offset=drill_offset,
+        include_pii=include_pii,
+        compare=compare,
+        user_role=current_user.role,
     )
 
 
@@ -499,6 +425,7 @@ async def run_report_endpoint(
             template_id=body.get("template_id", ""),
             period=body.get("period", "last_30_days"),
             requisition_id=body.get("requisition_id"),
+            recruiter_id=body.get("recruiter_id"),
             format=body.get("format", "json"),
         )
         log_tenant_event(

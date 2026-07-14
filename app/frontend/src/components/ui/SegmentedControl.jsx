@@ -1,29 +1,26 @@
 import { motion } from 'framer-motion'
 
-/**
- * SegmentedControl — Apple-style animated segmented control.
- *
- * The active pill indicator slides between segments using layoutId.
- *
- * Usage:
- *   <SegmentedControl
- *     options={[{ label: 'Sessions', value: 'sessions' }, { label: 'Settings', value: 'settings' }]}
- *     value={activeTab}
- *     onChange={setActiveTab}
- *   />
- */
-
-export default function SegmentedControl({ options, value, onChange, className = '' }) {
+export default function SegmentedControl({
+  options, value, onChange, className = '', role, ariaLabel,
+}) {
+  const isTablist = role === 'tablist'
   return (
-    <div className={`relative inline-flex items-center bg-slate-100 dark:bg-dark-card-elevated rounded-xl p-1 ${className}`}>
-      {options.map(option => {
+    <div
+      className={`relative inline-flex items-center bg-slate-100 dark:bg-dark-card-elevated rounded-xl p-1 ${className}`}
+      role={role}
+      aria-label={ariaLabel}
+    >
+      {options.map((option) => {
         const isActive = option.value === value
         return (
           <button
             key={option.value}
+            type="button"
+            role={isTablist ? 'tab' : undefined}
+            aria-selected={isTablist ? isActive : undefined}
             onClick={() => onChange(option.value)}
             className={`
-              relative z-10 px-4 py-2 text-sm font-semibold rounded-lg
+              relative z-10 px-4 py-2 text-sm font-semibold rounded-lg whitespace-nowrap
               transition-colors duration-200
               ${isActive
                 ? 'text-brand-700 dark:text-brand-400'

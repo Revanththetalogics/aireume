@@ -1,22 +1,48 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart3, Users, Columns3, Phone, Building2, AlertTriangle, Plug, FileSpreadsheet, Download,
 } from 'lucide-react'
 import { Card, Button, SegmentedControl, Badge, Skeleton } from '../ui'
-import { getAnalyticsHub, getReportTemplates, runAnalyticsReport } from '../../lib/api'
+import {
+  getAnalyticsHub, getReportTemplates, runAnalyticsReport, getBiExportManifest,
+} from '../../lib/api'
 import EmptyState from '../EmptyState'
+import ScreeningTrendsCharts from './ScreeningTrendsCharts'
+import { ANALYTICS } from '../../lib/uxLabels'
 
-const SLICES = [
-  { id: 'screening', label: 'Screening', icon: BarChart3 },
-  { id: 'funnel', label: 'Funnel', icon: Columns3 },
-  { id: 'interviews', label: 'Interviews', icon: Phone },
-  { id: 'team', label: 'Team', icon: Users },
-  { id: 'hm', label: 'HM', icon: Building2 },
-  { id: 'leadership', label: 'Executive', icon: AlertTriangle },
-  { id: 'ats', label: 'ATS', icon: Plug },
-  { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
+export const VALID_SLICE_IDS = new Set([
+  'screening', 'funnel', 'interviews', 'team', 'hm', 'leadership', 'ats', 'reports',
+])
+
+const ALL_SLICES = [
+  { id: 'screening', label: ANALYTICS.sliceScreening, icon: BarChart3 },
+  { id: 'funnel', label: ANALYTICS.sliceFunnel, icon: Columns3 },
+  { id: 'interviews', label: ANALYTICS.sliceInterviews, icon: Phone },
+  { id: 'team', label: ANALYTICS.sliceTeam, icon: Users },
+  { id: 'hm', label: ANALYTICS.sliceHm, icon: Building2 },
+  { id: 'leadership', label: ANALYTICS.sliceExecutive, icon: AlertTriangle },
+  { id: 'ats', label: ANALYTICS.sliceAts, icon: Plug },
+  { id: 'reports', label: ANALYTICS.sliceReports, icon: FileSpreadsheet },
 ]
+
+const SLICES_BY_ROLE = {
+  admin: VALID_SLICE_IDS,
+  recruiter: VALID_SLICE_IDS,
+  viewer: new Set(['screening', 'funnel', 'reports']),
+  hiring_manager: new Set(['screening', 'funnel', 'hm', 'reports']),
+}
+
+const SLICE_LOAD_DEPS = {
+  screening: ['screening', 'funnel', 'hm', 'leadership'],
+  funnel: ['funnel'],
+  interviews: ['interviews'],
+  team: ['team'],
+  hm: ['hm'],
+  leadership: ['leadership'],
+  ats: ['ats'],
+  reports: [],
+}
 
 const SLICE_META = {
   screening: {
@@ -139,39 +165,60 @@ function KpiTile({ label, value, suffix = '' }) {
   )
 }
 
-function DrillTable({ rows, columns, onRowClick, emptyMessage = 'No rows to display.' }) {
+function DrillTable({
+  rows, columns, onRowClick, emptyMessage = 'No rows to display.', pagination, onPageChange,
+}) {
   if (!rows?.length) return <p className="text-sm text-slate-500 py-4">{emptyMessage}</p>
   return (
-    <div className="overflow-x-auto rounded-xl ring-1 ring-brand-100">
-      <table className="w-full text-sm">
-        <thead className="bg-brand-50/80">
-          <tr>
-            {columns.map((c) => (
-              <th key={c.key} className="text-left px-3 py-2 font-semibold text-slate-600">{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr
-              key={row.id || row.result_id || `${row.candidate_id}-${row.requisition_id}-${i}`}
-              className={onRowClick ? 'cursor-pointer hover:bg-brand-50/50 border-t border-brand-50' : 'border-t border-brand-50'}
-              onClick={() => onRowClick?.(row)}
-            >
+    <div>
+      <div className="overflow-x-auto rounded-xl ring-1 ring-brand-100 dark:ring-dark-border">
+        <table className="w-full text-sm">
+          <thead className="bg-brand-50/80 dark:bg-dark-card-elevated">
+            <tr>
               {columns.map((c) => (
-                <td key={c.key} className="px-3 py-2 text-slate-700 align-top">
-                  {c.render ? c.render(row) : (row[c.key] ?? '—')}
-                </td>
+                <th key={c.key} className="text-left px-3 py-2 font-semibold text-slate-600 dark:text-dark-text-secondary">
+                  {c.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr
+                key={row.id || row.result_id || `${row.candidate_id}-${row.requisition_id}-${i}`}
+                className={onRowClick ? 'cursor-pointer hover:bg-brand-50/50 dark:hover:bg-dark-card-elevated border-t border-brand-50 dark:border-dark-border' : 'border-t border-brand-50 dark:border-dark-border'}
+                onClick={() => onRowClick?.(row)}
+                onKeyDown={(e) => {
+                  if (onRowClick && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault()
+                    onRowClick(row)
+                  }
+                }}
+                tabIndex={onRowClick ? 0 : undefined}
+                role={onRowClick ? 'button' : undefined}
+              >
+                {columns.map((c) => (
+                  <td key={c.key} className="px-3 py-2 text-slate-700 dark:text-dark-text align-top">
+                    {c.render ? c.render(row) : (row[c.key] ?? '—')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pagination?.has_more && onPageChange && (
+        <div className="mt-3 flex justify-center">
+          <Button variant="secondary" size="sm" onClick={() => onPageChange(pagination.offset + pagination.limit)}>
+            Load more ({pagination.total_count - pagination.offset - rows.length} remaining)
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
 
-function AttentionPanels({ attention, onDrill }) {
+function AttentionPanels({ attention, onDrill, onHmClick }) {
   const stale = attention?.stale_candidates || []
   const zeroPipeline = attention?.zero_pipeline_requisitions || []
   const pendingHm = attention?.pending_hm_review ?? 0
@@ -221,23 +268,28 @@ function AttentionPanels({ attention, onDrill }) {
       )}
       {pendingHm > 0 && (
         <Card className="p-4 border-brand-100 bg-brand-50/50">
-          <p className="text-xs font-bold text-brand-800 uppercase mb-2">HM review</p>
-          <p className="text-2xl font-black text-brand-900 tabular-nums">{pendingHm}</p>
-          <p className="text-sm text-slate-600 mt-1">submissions awaiting hiring manager outcome</p>
+          <button type="button" className="text-left w-full" onClick={onHmClick}>
+            <p className="text-xs font-bold text-brand-800 uppercase mb-2">{ANALYTICS.attentionHm}</p>
+            <p className="text-2xl font-black text-brand-900 tabular-nums">{pendingHm}</p>
+            <p className="text-sm text-slate-600 mt-1">{ANALYTICS.attentionHmHint}</p>
+          </button>
         </Card>
       )}
     </div>
   )
 }
 
-function HubFilters({ options, requisitionId, recruiterId, onRequisitionChange, onRecruiterChange }) {
+function HubFilters({
+  options, requisitionId, recruiterId, onRequisitionChange, onRecruiterChange,
+  showRequisition = true, showRecruiter = true,
+}) {
   const reqs = options?.requisitions || []
   const recruiters = options?.recruiters || []
-  if (!reqs.length && !recruiters.length) return null
+  if ((!showRequisition || !reqs.length) && (!showRecruiter || !recruiters.length)) return null
 
   return (
     <div className="flex flex-wrap gap-3">
-      {reqs.length > 0 && (
+      {showRequisition && reqs.length > 0 && (
         <select
           value={requisitionId ?? ''}
           onChange={(e) => onRequisitionChange(e.target.value ? Number(e.target.value) : null)}
@@ -250,7 +302,7 @@ function HubFilters({ options, requisitionId, recruiterId, onRequisitionChange, 
           ))}
         </select>
       )}
-      {recruiters.length > 0 && (
+      {showRecruiter && recruiters.length > 0 && (
         <select
           value={recruiterId ?? ''}
           onChange={(e) => onRecruiterChange(e.target.value ? Number(e.target.value) : null)}
@@ -337,7 +389,10 @@ const INTERVIEW_COLUMNS = [
   },
 ]
 
-function ScreeningSlice({ data, onDrill }) {
+function ScreeningSlice({
+  data, onDrill, onLoadMoreDrill, trendData, trendLoading, trendRoleCategory,
+  onTrendRoleCategoryChange, onComputeSnapshots, showAdminCompute,
+}) {
   const kpis = data?.kpis || {}
   const recDist = Object.entries(data?.recommendation_distribution || {}).map(([name, count]) => ({
     label: name,
@@ -351,10 +406,11 @@ function ScreeningSlice({ data, onDrill }) {
   return (
     <div className="space-y-4">
       <SliceHeader sliceId="screening" />
-      <div className="grid sm:grid-cols-3 gap-3">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile label="Total analyzed" value={kpis.total_analyzed ?? 0} />
         <KpiTile label="Avg fit score" value={kpis.avg_fit_score ?? 0} />
-        <KpiTile label="Shortlist rate" value={kpis.shortlist_rate ?? 0} suffix="%" />
+        <KpiTile label="AI recommend shortlist" value={kpis.recommendation_shortlist_rate ?? 0} suffix="%" />
+        <KpiTile label="Pipeline shortlist" value={kpis.pipeline_shortlist_rate ?? 0} suffix="%" />
       </div>
       <div className="grid lg:grid-cols-2 gap-3">
         <Card className="p-4">
@@ -384,8 +440,20 @@ function ScreeningSlice({ data, onDrill }) {
           columns={SCREENING_COLUMNS}
           onRowClick={(row) => onDrill?.('screening', row)}
           emptyMessage="No screenings in this period. Run an analysis to populate this table."
+          pagination={data?.drill_down_pagination}
+          onPageChange={onLoadMoreDrill}
         />
       </Card>
+      <ScreeningTrendsCharts
+        trends={data?.trends}
+        trendData={trendData}
+        trendLoading={trendLoading}
+        trendRoleCategory={trendRoleCategory}
+        onRoleCategoryChange={onTrendRoleCategoryChange}
+        onComputeSnapshots={onComputeSnapshots}
+        computing={false}
+        showAdminCompute={showAdminCompute}
+      />
     </div>
   )
 }
@@ -641,19 +709,29 @@ function AtsSlice({ data }) {
   )
 }
 
-function ReportsSlice({ period }) {
+function ReportsSlice({ period, requisitionId, recruiterId }) {
   const [templates, setTemplates] = useState([])
+  const [manifest, setManifest] = useState(null)
   const [running, setRunning] = useState(null)
   const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     getReportTemplates().then((d) => setTemplates(d.templates || [])).catch(() => setTemplates([]))
+    getBiExportManifest().then(setManifest).catch(() => setManifest(null))
   }, [])
 
   const run = async (templateId, format = 'json') => {
     setRunning(templateId)
+    setError(null)
     try {
-      const data = await runAnalyticsReport({ template_id: templateId, period, format })
+      const data = await runAnalyticsReport({
+        template_id: templateId,
+        period,
+        format,
+        requisition_id: requisitionId,
+        recruiter_id: recruiterId,
+      })
       setResult(data)
       if (format === 'csv' && data.csv) {
         const blob = new Blob([data.csv], { type: 'text/csv' })
@@ -676,6 +754,8 @@ function ReportsSlice({ period }) {
         a.click()
         URL.revokeObjectURL(url)
       }
+    } catch (err) {
+      setError(err.message || 'Export failed')
     } finally {
       setRunning(null)
     }
@@ -684,6 +764,22 @@ function ReportsSlice({ period }) {
   return (
     <div className="space-y-3">
       <SliceHeader sliceId="reports" />
+      {error && (
+        <Card className="p-3 border-red-200 bg-red-50 text-red-700 text-sm">{error}</Card>
+      )}
+      {manifest && (
+        <Card className="p-4">
+          <p className="text-xs font-bold text-slate-500 uppercase mb-2">{ANALYTICS.biManifestTitle}</p>
+          <p className="text-sm text-slate-600">{manifest.description || ANALYTICS.biManifestHint}</p>
+          {manifest.endpoints && (
+            <ul className="mt-2 text-xs text-slate-500 space-y-1">
+              {Object.entries(manifest.endpoints).map(([k, v]) => (
+                <li key={k}><span className="font-semibold">{k}:</span> {v}</li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
       {templates.map((t) => (
         <Card key={t.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -716,52 +812,132 @@ function ReportsSlice({ period }) {
   )
 }
 
-export default function AnalyticsHub({
+const AnalyticsHub = forwardRef(function AnalyticsHub({
   period = 'last_30_days',
+  startDate = null,
+  endDate = null,
+  compare = false,
+  requisitionId: controlledReqId = null,
+  recruiterId: controlledRecId = null,
   initialSlice = 'screening',
   activeSlice: controlledSlice,
   onSliceChange,
-}) {
+  onFilterChange,
+  onGeneratedAt,
+  permissions = {},
+  trendData,
+  trendLoading,
+  trendRoleCategory,
+  onTrendRoleCategoryChange,
+  onComputeSnapshots,
+}, ref) {
   const navigate = useNavigate()
   const [internalSlice, setInternalSlice] = useState(initialSlice)
   const slice = controlledSlice ?? internalSlice
+  const role = permissions.role || 'recruiter'
+  const visibleSlices = useMemo(
+    () => ALL_SLICES.filter((s) => (SLICES_BY_ROLE[role] || VALID_SLICE_IDS).has(s.id)),
+    [role],
+  )
 
   const setSlice = (next) => {
-    if (controlledSlice === undefined) {
-      setInternalSlice(next)
-    }
+    if (!visibleSlices.some((s) => s.id === next)) return
+    if (controlledSlice === undefined) setInternalSlice(next)
     onSliceChange?.(next)
   }
+
   const [hub, setHub] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [requisitionId, setRequisitionId] = useState(null)
-  const [recruiterId, setRecruiterId] = useState(null)
+  const [error, setError] = useState(null)
+  const [requisitionId, setRequisitionId] = useState(controlledReqId)
+  const [recruiterId, setRecruiterId] = useState(controlledRecId)
+  const [drillOffset, setDrillOffset] = useState(0)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    setRequisitionId(controlledReqId)
+    setRecruiterId(controlledRecId)
+  }, [controlledReqId, controlledRecId])
+
+  useEffect(() => {
+    setDrillOffset(0)
+  }, [period, startDate, endDate, requisitionId, recruiterId, slice])
+
+  const load = useCallback(async (offset = 0) => {
+    if (slice === 'reports') {
+      setLoading(false)
+      setHub(null)
+      setError(null)
+      return
+    }
     setLoading(true)
+    setError(null)
     try {
-      const params = { period }
+      const deps = SLICE_LOAD_DEPS[slice] || [slice]
+      const params = {
+        period,
+        slices: deps.join(','),
+        compare,
+        drill_limit: 50,
+        drill_offset: offset,
+      }
+      if (startDate && endDate) {
+        params.start_date = startDate
+        params.end_date = endDate
+      }
       if (requisitionId) params.requisition_id = requisitionId
       if (recruiterId) params.recruiter_id = recruiterId
       const data = await getAnalyticsHub(params)
-      setHub(data)
-    } catch {
+      setHub((prev) => {
+        if (offset > 0 && prev?.slices?.screening && data.slices?.screening) {
+          return {
+            ...data,
+            slices: {
+              ...data.slices,
+              screening: {
+                ...data.slices.screening,
+                drill_down: [
+                  ...(prev.slices.screening.drill_down || []),
+                  ...(data.slices.screening.drill_down || []),
+                ],
+              },
+            },
+          }
+        }
+        return data
+      })
+      onGeneratedAt?.(data.generated_at)
+    } catch (err) {
       setHub(null)
+      const detail = err?.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : err?.message || 'Could not load analytics hub')
     } finally {
       setLoading(false)
     }
-  }, [period, requisitionId, recruiterId])
+  }, [period, startDate, endDate, requisitionId, recruiterId, slice, compare, onGeneratedAt])
+
+  useImperativeHandle(ref, () => ({
+    reload: () => load(0),
+  }), [load])
 
   useEffect(() => {
-    load()
-  }, [load])
+    load(0)
+  }, [period, startDate, endDate, requisitionId, recruiterId, slice, compare])
 
   useEffect(() => {
     if (controlledSlice !== undefined) return
-    if (initialSlice && SLICES.some((s) => s.id === initialSlice)) {
+    if (initialSlice && VALID_SLICE_IDS.has(initialSlice)) {
       setInternalSlice(initialSlice)
     }
   }, [initialSlice, controlledSlice])
+
+  const handleRequisitionChange = (id) => {
+    setRequisitionId(id)
+    onFilterChange?.({ requisitionId: id, recruiterId })
+  }
+  const handleRecruiterChange = (id) => {
+    setRecruiterId(id)
+    onFilterChange?.({ requisitionId, recruiterId: id })
+  }
 
   const onDrill = (type, row) => {
     if (type === 'screening' && (row.result_id || row.id)) {
@@ -772,41 +948,102 @@ export default function AnalyticsHub({
       navigate(`/candidates/${row.candidate_id}`)
       return
     }
-    if (type === 'requisition' && row.requisition_id) {
-      navigate(`/requisitions/${row.requisition_id}?tab=pipeline`)
+    if (type === 'requisition' && (row.requisition_id || row.id)) {
+      navigate(`/requisitions/${row.requisition_id || row.id}?tab=pipeline`)
     }
   }
 
   const slices = hub?.slices || {}
+  const filterHint = slice === 'screening' || slice === 'funnel' || slice === 'hm'
+    ? ANALYTICS.filterAppliesHint
+    : slice === 'team'
+      ? ANALYTICS.filterRecruiterHint
+      : slice === 'interviews'
+        ? ANALYTICS.filterReqInterviewsHint
+        : null
 
   return (
     <div className="space-y-6">
-      <SegmentedControl
-        options={SLICES.map((s) => ({ value: s.id, label: s.label }))}
-        value={slice}
-        onChange={setSlice}
-      />
+      <div className="md:hidden">
+        <label className="text-xs font-semibold text-slate-500 uppercase" htmlFor="analytics-slice-mobile">
+          {ANALYTICS.viewLabel}
+        </label>
+        <select
+          id="analytics-slice-mobile"
+          value={slice}
+          onChange={(e) => setSlice(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card px-3 py-2 text-sm"
+        >
+          {visibleSlices.map((s) => (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="hidden md:block overflow-x-auto">
+        <SegmentedControl
+          role="tablist"
+          ariaLabel={ANALYTICS.tabsLabel}
+          options={visibleSlices.map((s) => ({ value: s.id, label: s.label }))}
+          value={slice}
+          onChange={setSlice}
+        />
+      </div>
 
       {loading ? (
         <div className="grid sm:grid-cols-3 gap-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
         </div>
+      ) : error ? (
+        <EmptyState
+          title={ANALYTICS.errorTitle}
+          description={error}
+          actionLabel={ANALYTICS.retryLabel}
+          onAction={() => load(0)}
+        />
+      ) : slice === 'reports' ? (
+        <ReportsSlice
+          period={period}
+          requisitionId={requisitionId}
+          recruiterId={recruiterId}
+        />
       ) : !hub ? (
-        <EmptyState title="Analytics unavailable" description="Could not load hub data." />
+        <EmptyState title={ANALYTICS.errorTitle} description={ANALYTICS.errorGeneric} onAction={() => load(0)} />
       ) : (
         <>
           <HubFilters
             options={hub.filter_options}
             requisitionId={requisitionId}
             recruiterId={recruiterId}
-            onRequisitionChange={setRequisitionId}
-            onRecruiterChange={setRecruiterId}
+            onRequisitionChange={handleRequisitionChange}
+            onRecruiterChange={handleRecruiterChange}
+            showRequisition={['screening', 'funnel', 'hm', 'interviews'].includes(slice)}
+            showRecruiter={slice === 'team' || slice === 'screening'}
           />
+          {filterHint && (
+            <p className="text-xs text-slate-500 dark:text-dark-text-secondary">{filterHint}</p>
+          )}
           {slice === 'screening' && (
-            <AttentionPanels attention={hub.attention} onDrill={onDrill} />
+            <AttentionPanels
+              attention={hub.attention}
+              onDrill={onDrill}
+              onHmClick={() => setSlice('hm')}
+            />
           )}
           {slice === 'screening' ? (
-            <ScreeningSlice data={slices.screening} onDrill={onDrill} />
+            <ScreeningSlice
+              data={slices.screening}
+              onDrill={onDrill}
+              onLoadMoreDrill={(nextOffset) => {
+                setDrillOffset(nextOffset)
+                load(nextOffset)
+              }}
+              trendData={trendData}
+              trendLoading={trendLoading}
+              trendRoleCategory={trendRoleCategory}
+              onTrendRoleCategoryChange={onTrendRoleCategoryChange}
+              onComputeSnapshots={onComputeSnapshots}
+              showAdminCompute={permissions.isAdmin}
+            />
           ) : slice === 'funnel' ? (
             <FunnelSlice data={slices.funnel} onDrill={onDrill} />
           ) : slice === 'interviews' ? (
@@ -819,11 +1056,11 @@ export default function AnalyticsHub({
             <LeadershipSlice data={slices.leadership} navigate={navigate} />
           ) : slice === 'ats' ? (
             <AtsSlice data={slices.ats} />
-          ) : (
-            <ReportsSlice period={period} />
-          )}
+          ) : null}
         </>
       )}
     </div>
   )
-}
+})
+
+export default AnalyticsHub

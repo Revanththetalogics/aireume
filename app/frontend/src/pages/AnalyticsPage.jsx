@@ -1,248 +1,97 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, AreaChart, Area,
-} from 'recharts'
-import { BarChart3, RefreshCw, TrendingUp } from 'lucide-react'
-import { getScreeningAnalytics, getSkillTrends, computeSkillTrends } from '../lib/api'
-import Skeleton from '../components/Skeleton'
-import SkillTrendChart from '../components/SkillTrendChart'
-import EmptyState from '../components/EmptyState'
-import AnalyticsHub from '../components/patterns/AnalyticsHub'
+import { BarChart3, RefreshCw } from 'lucide-react'
+import { getSkillTrends, computeSkillTrends } from '../lib/api'
+import AnalyticsHub, { VALID_SLICE_IDS } from '../components/patterns/AnalyticsHub'
+import usePermissions from '../hooks/usePermissions'
+import { ANALYTICS } from '../lib/uxLabels'
 
 const PERIOD_OPTIONS = [
-  { value: 'last_7_days', label: 'Last 7 Days' },
-  { value: 'last_30_days', label: 'Last 30 Days' },
-  { value: 'last_90_days', label: 'Last 90 Days' },
+  { value: 'last_7_days', label: 'Last 7 days' },
+  { value: 'last_30_days', label: 'Last 30 days' },
+  { value: 'last_90_days', label: 'Last 90 days' },
 ]
 
-const PIE_COLORS = { Shortlist: '#22c55e', Consider: '#f59e0b', Reject: '#ef4444' }
-
-function scoreColor(score) {
-  if (score >= 70) return 'text-green-600'
-  if (score >= 40) return 'text-amber-600'
-  return 'text-red-600'
+function parseSlice(raw) {
+  if (!raw || !VALID_SLICE_IDS.has(raw)) return 'screening'
+  return raw
 }
-
-function scoreBadgeBg(score) {
-  if (score >= 70) return 'bg-green-50 text-green-700 ring-green-200'
-  if (score >= 40) return 'bg-amber-50 text-amber-700 ring-amber-200'
-  return 'bg-red-50 text-red-700 ring-red-200'
-}
-
-// ─── Custom Tooltip ──────────────────────────────────────────────────────────
-
-function ChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-white/95 backdrop-blur-sm ring-1 ring-slate-200 rounded-xl shadow-lg px-3 py-2 text-xs">
-      <p className="font-bold text-slate-800 mb-1">{label}</p>
-      {payload.map(p => (
-        <p key={p.name} className="flex items-center gap-1.5 text-slate-600">
-          <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ background: p.color }} />
-          <span className="font-semibold">{p.name}:</span> {p.value}
-        </p>
-      ))}
-    </div>
-  )
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, suffix = '', colorClass = '' }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
-      <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
-      <p className={`text-3xl font-extrabold tracking-tight ${colorClass}`}>
-        {value}{suffix}
-      </p>
-    </div>
-  )
-}
-
-// ─── JD Effectiveness Table ──────────────────────────────────────────────────
-
-function JDEffectivenessTable({ data }) {
-  const [sortKey, setSortKey] = useState('avg_score')
-  const [sortDir, setSortDir] = useState('desc')
-
-  const sorted = [...(data || [])].sort((a, b) => {
-    const av = a[sortKey] ?? 0
-    const bv = b[sortKey] ?? 0
-    return sortDir === 'desc' ? bv - av : av - bv
-  })
-
-  function toggleSort(key) {
-    if (sortKey === key) {
-      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
-  }
-
-  function SortHeader({ label, field }) {
-    const active = sortKey === field
-    return (
-      <th
-        className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-brand-700 select-none"
-        onClick={() => toggleSort(field)}
-      >
-        {label}
-        {active && <span className="ml-1">{sortDir === 'desc' ? '↓' : '↑'}</span>}
-      </th>
-    )
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border p-6">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">JD Effectiveness</h3>
-        <p className="text-slate-400 text-sm">No JD data available for this period</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
-      <h3 className="text-lg font-bold text-slate-800 mb-4">JD Effectiveness</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100">
-              <SortHeader label="JD Name" field="jd_name" />
-              <SortHeader label="Candidates" field="candidates" />
-              <SortHeader label="Avg Score" field="avg_score" />
-              <SortHeader label="Shortlist Rate" field="shortlist_rate" />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row, i) => (
-              <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                <td className="px-4 py-3 font-medium text-slate-800">{row.jd_name}</td>
-                <td className="px-4 py-3 text-slate-600">{row.candidates}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${scoreBadgeBg(row.avg_score)}`}>
-                    {row.avg_score?.toFixed(1) ?? '—'}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-600">{(row.shortlist_rate * 100).toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ─── Pass-Through Funnel ─────────────────────────────────────────────────────
-
-function PassThroughFunnel({ totalAnalyzed, rates }) {
-  const analyzedToShortlisted = rates?.analyzed_to_shortlisted ?? 0
-  const shortlistedToHired = rates?.shortlisted_to_hired ?? 0
-
-  const shortlisted = Math.round(totalAnalyzed * analyzedToShortlisted)
-  const hired = Math.round(shortlisted * shortlistedToHired)
-
-  const stages = [
-    { label: 'Analyzed', count: totalAnalyzed, pct: 1, color: 'bg-violet-500' },
-    { label: 'Shortlisted', count: shortlisted, pct: analyzedToShortlisted || 0, color: 'bg-amber-500' },
-    { label: 'Hired', count: hired, pct: shortlistedToHired || 0, color: 'bg-green-500' },
-  ]
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
-      <h3 className="text-lg font-bold text-slate-800 mb-5">Pass-Through Funnel</h3>
-      <div className="space-y-3">
-        {stages.map((stage, i) => (
-          <div key={stage.label}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-semibold text-slate-700">{stage.label}</span>
-              <span className="text-sm font-bold text-slate-800">{stage.count}</span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-lg h-8 overflow-hidden">
-              <div
-                className={`h-8 rounded-lg ${stage.color} flex items-center justify-end pr-3 transition-all duration-700`}
-                style={{ width: `${Math.max(stage.pct * 100, 4)}%` }}
-              >
-                {stage.pct > 0 && (
-                  <span className="text-xs font-bold text-white">
-                    {i === 0 ? '' : `${(stage.pct * 100).toFixed(0)}%`}
-                  </span>
-                )}
-              </div>
-            </div>
-            {i < stages.length - 1 && (
-              <div className="flex justify-center my-1">
-                <span className="text-xs text-slate-400">
-                  ↓ {(i === 0 ? analyzedToShortlisted : shortlistedToHired) * 100}% conversion
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Main Analytics Page ─────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const hubSlice = searchParams.get('slice') || 'screening'
+  const permissions = usePermissions()
+  const hubRef = useRef(null)
+
+  const hubSlice = parseSlice(searchParams.get('slice'))
   const [activeSlice, setActiveSlice] = useState(hubSlice)
-  const [period, setPeriod] = useState('last_30_days')
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const showScreeningTrends = activeSlice === 'screening'
+  const [period, setPeriod] = useState(searchParams.get('period') || 'last_30_days')
+  const [startDate, setStartDate] = useState(searchParams.get('start_date') || '')
+  const [endDate, setEndDate] = useState(searchParams.get('end_date') || '')
+  const [compare, setCompare] = useState(searchParams.get('compare') === '1')
+  const [requisitionId, setRequisitionId] = useState(
+    searchParams.get('requisition_id') ? Number(searchParams.get('requisition_id')) : null,
+  )
+  const [recruiterId, setRecruiterId] = useState(
+    searchParams.get('recruiter_id') ? Number(searchParams.get('recruiter_id')) : null,
+  )
+  const [generatedAt, setGeneratedAt] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    setActiveSlice(hubSlice)
-  }, [hubSlice])
-
-  const handleSliceChange = (nextSlice) => {
-    setActiveSlice(nextSlice)
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev)
-      if (nextSlice === 'screening') {
-        params.delete('slice')
-      } else {
-        params.set('slice', nextSlice)
-      }
-      return params
-    }, { replace: true })
-  }
-
-  // ─── Skill Trends State ─────────────────────────────────────
   const [trendData, setTrendData] = useState(null)
-  const [trendLoading, setTrendLoading] = useState(true)
+  const [trendLoading, setTrendLoading] = useState(false)
   const [trendRoleCategory, setTrendRoleCategory] = useState(null)
   const [computing, setComputing] = useState(false)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await getScreeningAnalytics(period)
-      setData(result)
-    } catch (err) {
-      setError(err.message || 'Failed to load analytics')
-    } finally {
-      setLoading(false)
-    }
-  }, [period])
+  const useCustomRange = Boolean(startDate && endDate)
 
   useEffect(() => {
-    if (!showScreeningTrends) return
-    fetchData()
-  }, [fetchData, showScreeningTrends])
+    setActiveSlice(parseSlice(searchParams.get('slice')))
+    setPeriod(searchParams.get('period') || 'last_30_days')
+    setStartDate(searchParams.get('start_date') || '')
+    setEndDate(searchParams.get('end_date') || '')
+    setCompare(searchParams.get('compare') === '1')
+    setRequisitionId(searchParams.get('requisition_id') ? Number(searchParams.get('requisition_id')) : null)
+    setRecruiterId(searchParams.get('recruiter_id') ? Number(searchParams.get('recruiter_id')) : null)
+  }, [searchParams])
 
-  // ─── Skill Trends Fetch ─────────────────────────────────────
+  const syncUrl = useCallback((patch) => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      Object.entries(patch).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '' || (key === 'slice' && value === 'screening')) {
+          params.delete(key)
+        } else if (key === 'compare') {
+          if (value) params.set('compare', '1')
+          else params.delete('compare')
+        } else {
+          params.set(key, String(value))
+        }
+      })
+      return params
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleSliceChange = (nextSlice) => {
+    setActiveSlice(nextSlice)
+    syncUrl({ slice: nextSlice })
+  }
+
+  const handlePeriodChange = (nextPeriod) => {
+    setPeriod(nextPeriod)
+    setStartDate('')
+    setEndDate('')
+    syncUrl({ period: nextPeriod, start_date: null, end_date: null })
+  }
+
+  const handleFilterChange = ({ requisitionId: reqId, recruiterId: recId }) => {
+    setRequisitionId(reqId)
+    setRecruiterId(recId)
+    syncUrl({
+      requisition_id: reqId,
+      recruiter_id: recId,
+    })
+  }
+
   const fetchTrends = useCallback(async () => {
     setTrendLoading(true)
     try {
@@ -258,329 +107,137 @@ export default function AnalyticsPage() {
   }, [trendRoleCategory])
 
   useEffect(() => {
-    if (!showScreeningTrends) return
-    fetchTrends()
-  }, [fetchTrends, showScreeningTrends])
+    if (activeSlice === 'screening') fetchTrends()
+  }, [activeSlice, fetchTrends])
 
   const handleComputeSnapshots = async () => {
+    if (!permissions.isAdmin) return
     setComputing(true)
     try {
       await computeSkillTrends()
       await fetchTrends()
-    } catch {
-      // silently fail — user can retry
     } finally {
       setComputing(false)
     }
   }
 
-  // Prepare pie chart data from recommendation_distribution
-  const pieData = data?.recommendation_distribution
-    ? Object.entries(data.recommendation_distribution).map(([name, value]) => ({ name, value }))
-    : []
+  const handleRefreshAll = async () => {
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        hubRef.current?.reload?.(),
+        activeSlice === 'screening' ? fetchTrends() : Promise.resolve(),
+      ])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
-  // Prepare skill gaps data (top 10, sorted by frequency desc)
-  const skillGapsData = (data?.top_skill_gaps || [])
-    .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, 10)
-
-  // Shortlist / hired rates
-  const shortlistRate = data?.pass_through_rates?.analyzed_to_shortlisted ?? 0
-  const hiredRate = data?.pass_through_rates?.shortlisted_to_hired ?? 0
+  const hubQuery = useMemo(() => ({
+    period: useCustomRange ? period : period,
+    start_date: useCustomRange ? startDate : undefined,
+    end_date: useCustomRange ? endDate : undefined,
+    requisition_id: requisitionId,
+    recruiter_id: recruiterId,
+    compare,
+  }), [period, startDate, endDate, useCustomRange, requisitionId, recruiterId, compare])
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* ── Header ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-            <BarChart3 className="w-5 h-5 text-brand-600" />
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 text-brand-600" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-slate-900 dark:text-dark-text tracking-tight">
+              {ANALYTICS.pageTitle}
+            </h1>
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Analytics Hub</h1>
-          <p className="text-sm text-slate-500">Deep insights across screening, funnel, interviews, team, HM, ATS</p>
+          <p className="text-sm text-slate-500 dark:text-dark-text-secondary mt-2 max-w-2xl">
+            {ANALYTICS.pageSubtitle}
+          </p>
+          {generatedAt && (
+            <p className="text-xs text-slate-400 mt-1">
+              {ANALYTICS.lastUpdated}: {new Date(generatedAt).toLocaleString()}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={period}
-            onChange={e => setPeriod(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+            onChange={(e) => handlePeriodChange(e.target.value)}
+            className="rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card px-3 py-2 text-sm font-medium text-slate-700 dark:text-dark-text shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            aria-label={ANALYTICS.periodLabel}
+            disabled={useCustomRange}
           >
-            {PERIOD_OPTIONS.map(opt => (
+            {PERIOD_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setStartDate(e.target.value)
+              syncUrl({ start_date: e.target.value || null })
+            }}
+            className="rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card px-2 py-2 text-sm"
+            aria-label={ANALYTICS.startDateLabel}
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setEndDate(e.target.value)
+              syncUrl({ end_date: e.target.value || null })
+            }}
+            className="rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card px-2 py-2 text-sm"
+            aria-label={ANALYTICS.endDateLabel}
+          />
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-dark-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={compare}
+              onChange={(e) => {
+                setCompare(e.target.checked)
+                syncUrl({ compare: e.target.checked })
+              }}
+            />
+            {ANALYTICS.compareLabel}
+          </label>
           <button
-            onClick={fetchData}
-            disabled={loading}
-            className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-brand-600 hover:bg-brand-50 shadow-sm transition-colors disabled:opacity-50"
-            title="Refresh"
+            type="button"
+            onClick={handleRefreshAll}
+            disabled={refreshing}
+            className="p-2 rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card text-slate-500 hover:text-brand-600 hover:bg-brand-50 shadow-sm transition-colors disabled:opacity-50"
+            aria-label={ANALYTICS.refreshLabel}
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
       <AnalyticsHub
+        ref={hubRef}
         period={period}
+        startDate={useCustomRange ? startDate : null}
+        endDate={useCustomRange ? endDate : null}
+        compare={compare}
+        requisitionId={requisitionId}
+        recruiterId={recruiterId}
         initialSlice={hubSlice}
         activeSlice={activeSlice}
         onSliceChange={handleSliceChange}
+        onFilterChange={handleFilterChange}
+        onGeneratedAt={setGeneratedAt}
+        permissions={permissions}
+        trendData={trendData}
+        trendLoading={trendLoading}
+        trendRoleCategory={trendRoleCategory}
+        onTrendRoleCategoryChange={setTrendRoleCategory}
+        onComputeSnapshots={handleComputeSnapshots}
       />
-
-      {showScreeningTrends && (
-        <>
-      <div className="pt-2 pb-1">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-brand-600" />
-          Screening trends
-        </h2>
-        <p className="text-sm text-slate-500">Charts and historical trends for resume screening volume and quality.</p>
-      </div>
-
-      {/* ── Loading ─────────────────────────────────────────── */}
-      {loading && !data && (
-        <div className="space-y-6">
-          {/* KPI cards skeleton */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Skeleton variant="card" count={4} />
-          </div>
-          {/* Charts skeleton */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Skeleton variant="card" height="22rem" />
-            <Skeleton variant="card" height="22rem" />
-          </div>
-          {/* Skill gaps skeleton */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Skeleton variant="card" height="22rem" />
-            <div className="bg-white rounded-xl shadow-sm border p-6 animate-pulse space-y-3">
-              <div className="h-5 bg-slate-200 rounded w-2/3" />
-              <Skeleton variant="bar" width="90%" />
-              <Skeleton variant="bar" width="75%" />
-              <Skeleton variant="bar" width="60%" />
-              <Skeleton variant="bar" width="50%" />
-              <Skeleton variant="bar" width="40%" />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Error ───────────────────────────────────────────── */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-          <p className="text-red-700 font-medium mb-2">{error}</p>
-          <button
-            onClick={fetchData}
-            className="text-sm font-semibold text-red-600 hover:text-red-800 underline"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* ── Empty (loaded, but nothing analyzed in this period) ─ */}
-      {data && !error && (data.total_analyzed ?? 0) === 0 && (
-        <EmptyState
-          icon={BarChart3}
-          title="No analytics for this period"
-          description="Once you analyze resumes, hiring trends, score distributions, and skill gaps will show up here."
-          actionLabel="Analyze a resume"
-          actionHref="/analyze"
-          className="py-16"
-        />
-      )}
-
-      {/* ── Data ────────────────────────────────────────────── */}
-      {data && !error && (data.total_analyzed ?? 0) > 0 && (
-        <>
-          {/* Row 1 — KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard
-              label="Total Analyzed"
-              value={data.total_analyzed ?? 0}
-            />
-            <KpiCard
-              label="Avg Fit Score"
-              value={data.avg_fit_score?.toFixed(1) ?? '—'}
-              colorClass={scoreColor(data.avg_fit_score ?? 0)}
-            />
-            <KpiCard
-              label="Shortlist Rate"
-              value={`${(shortlistRate * 100).toFixed(1)}%`}
-              colorClass={shortlistRate >= 0.3 ? 'text-green-600' : shortlistRate >= 0.15 ? 'text-amber-600' : 'text-red-600'}
-            />
-            <KpiCard
-              label="Hired Rate"
-              value={`${(hiredRate * 100).toFixed(1)}%`}
-              colorClass={hiredRate >= 0.2 ? 'text-green-600' : hiredRate >= 0.05 ? 'text-amber-600' : 'text-red-600'}
-            />
-          </div>
-
-          {/* Row 2 — Trend + Pie */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Analyses Trend */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Analyses Trend</h3>
-              {(data.analyses_by_day?.length > 0) ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={data.analyses_by_day} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#7C3AED" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 11, fill: '#94A3B8' }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={v => {
-                        const d = new Date(v + 'T00:00:00')
-                        return `${d.getMonth() + 1}/${d.getDate()}`
-                      }}
-                    />
-                    <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="count"
-                      name="Analyses"
-                      stroke="#7C3AED"
-                      strokeWidth={2.5}
-                      fill="url(#areaGradient)"
-                      dot={false}
-                      activeDot={{ r: 5, fill: '#7C3AED', stroke: '#fff', strokeWidth: 2 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-400 text-sm">No data for this period</p>
-              )}
-            </div>
-
-            {/* Recommendation Distribution */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Recommendation Distribution</h3>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={3}
-                      dataKey="value"
-                      nameKey="name"
-                      stroke="none"
-                    >
-                      {pieData.map(entry => (
-                        <Cell key={entry.name} fill={PIE_COLORS[entry.name] || '#94A3B8'} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend
-                      verticalAlign="bottom"
-                      iconType="circle"
-                      iconSize={10}
-                      formatter={(value) => <span className="text-sm text-slate-600 font-medium">{value}</span>}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-400 text-sm">No data for this period</p>
-              )}
-            </div>
-          </div>
-
-          {/* Row 3 — Score Distribution + Skill Gaps */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Score Distribution */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Score Distribution</h3>
-              {(data.score_distribution?.length > 0) ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={data.score_distribution} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                    <XAxis dataKey="range" tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="count" name="Candidates" fill="#7C3AED" radius={[6, 6, 0, 0]} barSize={36} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-400 text-sm">No data for this period</p>
-              )}
-            </div>
-
-            {/* Top Skill Gaps */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Top Skill Gaps</h3>
-              {skillGapsData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart
-                    data={skillGapsData}
-                    layout="vertical"
-                    margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
-                    barSize={18}
-                    barCategoryGap="25%"
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <YAxis
-                      dataKey="skill"
-                      type="category"
-                      tick={{ fontSize: 11, fill: '#374151', fontWeight: 600 }}
-                      width={100}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="frequency" name="Frequency" radius={[0, 6, 6, 0]}>
-                      {skillGapsData.map((_, i) => (
-                        <Cell key={i} fill={i < 3 ? '#ef4444' : '#f97316'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-400 text-sm">No data for this period</p>
-              )}
-            </div>
-          </div>
-
-          {/* Row 4 — JD Effectiveness Table */}
-          <JDEffectivenessTable data={data.jd_effectiveness} />
-
-          {/* Row 5 — Pass-Through Funnel */}
-          <PassThroughFunnel
-            totalAnalyzed={data.total_analyzed ?? 0}
-            rates={data.pass_through_rates}
-          />
-
-          {/* Row 6 — Skill Trends */}
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-green-600" />
-              </div>
-              <h2 className="text-lg font-bold text-slate-800">Skill Trends</h2>
-            </div>
-            <SkillTrendChart
-              data={trendData}
-              loading={trendLoading}
-              roleCategory={trendRoleCategory}
-              onRoleCategoryChange={setTrendRoleCategory}
-              onCompute={handleComputeSnapshots}
-              computing={computing}
-            />
-          </div>
-        </>
-      )}
-        </>
-      )}
     </div>
   )
 }

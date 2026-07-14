@@ -142,6 +142,37 @@ export const TRUST = {
   aiSubprocessors: ['Ollama Cloud', 'Google Gemini (when configured)', 'LiveKit (voice screening)'],
 }
 
+export const ANALYTICS = {
+  pageTitle: 'Analytics Hub',
+  pageSubtitle: 'Screening, pipeline, interviews, team productivity, hiring manager workflow, and ATS health',
+  lastUpdated: 'Last updated',
+  periodLabel: 'Analytics period',
+  startDateLabel: 'Custom range start',
+  endDateLabel: 'Custom range end',
+  compareLabel: 'Compare to prior period',
+  refreshLabel: 'Refresh all analytics',
+  viewLabel: 'Analytics view',
+  tabsLabel: 'Analytics hub sections',
+  sliceScreening: 'Screening',
+  sliceFunnel: 'Pipeline',
+  sliceInterviews: 'Interviews',
+  sliceTeam: 'Team',
+  sliceHm: 'Hiring manager',
+  sliceExecutive: 'Executive',
+  sliceAts: 'ATS',
+  sliceReports: 'Reports',
+  attentionHm: 'Hiring manager review',
+  attentionHmHint: 'Submissions awaiting hiring manager outcome — click to view',
+  filterAppliesHint: 'Requisition filter applies to this view.',
+  filterRecruiterHint: 'Recruiter filter applies to team activity.',
+  filterReqInterviewsHint: 'Requisition filter scopes interviews to candidates on that req.',
+  errorTitle: 'Analytics unavailable',
+  errorGeneric: 'Could not load hub data.',
+  retryLabel: 'Retry',
+  biManifestTitle: 'BI export endpoints',
+  biManifestHint: 'Use these API endpoints for warehouse / BI tooling.',
+}
+
 /** Plan features that are deprecated or not offered — hidden in UI */
 export const DEPRECATED_PLAN_FEATURES = [
   'On-premise deployment option',

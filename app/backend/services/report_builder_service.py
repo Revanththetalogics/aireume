@@ -12,7 +12,8 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.backend.models.db_models import Requisition, RequisitionCandidate, ScreeningResult
-from app.backend.services.analytics_hub_service import build_analytics_hub, _since
+from app.backend.services.analytics_hub_service import build_analytics_hub
+from app.backend.services.screening_analytics_service import resolve_date_range
 
 REPORT_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -77,6 +78,7 @@ def run_report(
     template_id: str,
     period: str = "last_30_days",
     requisition_id: Optional[int] = None,
+    recruiter_id: Optional[int] = None,
     format: str = "json",
 ) -> dict[str, Any]:
     """Execute a report template and return data or export payload."""
@@ -93,6 +95,7 @@ def run_report(
             tenant_id,
             period=period,
             requisition_id=requisition_id,
+            recruiter_id=recruiter_id,
         )
         slice_key = template["slice"]
         payload = {
@@ -118,7 +121,7 @@ def _pipeline_detail_rows(
     period: str,
     requisition_id: Optional[int],
 ) -> list[dict[str, Any]]:
-    since = _since(period)
+    since, _until = resolve_date_range(period=period)
     q = (
         db.query(RequisitionCandidate, Requisition)
         .join(Requisition, Requisition.id == RequisitionCandidate.requisition_id)

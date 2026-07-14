@@ -996,6 +996,39 @@ class RecruiterAnalyticsOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ScreeningAnalyticsOut(BaseModel):
+    """Unified screening analytics payload."""
+    period: str
+    start_date: str
+    end_date: str
+    generated_at: str
+    total_analyzed: int = 0
+    avg_fit_score: float = 0
+    recommendation_distribution: Dict[str, int] = {}
+    recommendation_shortlist_rate: float = 0
+    pipeline_shortlist_rate: float = 0
+    hired_rate: float = 0
+    analyses_by_day: List[Dict[str, Any]] = []
+    top_skill_gaps: List[Dict[str, Any]] = []
+    score_distribution: List[Dict[str, Any]] = []
+    pass_through_rates: Dict[str, float] = {}
+    jd_effectiveness: List[Dict[str, Any]] = []
+    filters: Optional[Dict[str, Any]] = None
+    comparison: Optional[Dict[str, Any]] = None
+
+
+class AnalyticsHubOut(BaseModel):
+    """Analytics hub interactive payload."""
+    period: str
+    start_date: str
+    end_date: str
+    generated_at: str
+    filters: Dict[str, Any] = {}
+    filter_options: Dict[str, Any] = {}
+    attention: Dict[str, Any] = {}
+    slices: Dict[str, Any] = {}
+
+
 # ─── Screening Project schemas ───────────────────────────────────────────────
 
 class ScreeningProjectCreate(BaseModel):

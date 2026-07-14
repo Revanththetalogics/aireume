@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -21,17 +21,21 @@ from app.backend.models.db_models import (
     User,
     VoiceScreeningSession,
 )
+from app.backend.services.screening_analytics_service import (
+    aggregate_screening_rows,
+    build_screening_analytics,
+    extract_fit_score,
+    extract_recommendation,
+    iter_skill_gap_names,
+    resolve_date_range,
+    screening_base_query,
+)
 
-_PERIOD_DAYS = {
-    "last_7_days": 7,
-    "last_30_days": 30,
-    "last_90_days": 90,
-}
+VALID_SLICES = frozenset({
+    "screening", "funnel", "interviews", "team", "hm", "leadership", "ats",
+})
 
-
-def _since(period: str) -> datetime:
-    days = _PERIOD_DAYS.get(period, 30)
-    return datetime.now(timezone.utc) - timedelta(days=days)
+VALID_PERIODS = frozenset({"last_7_days", "last_30_days", "last_90_days"})
 
 
 def _parse_json(raw: Optional[str]) -> dict:
@@ -42,21 +46,6 @@ def _parse_json(raw: Optional[str]) -> dict:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, TypeError):
         return {}
-
-
-def _extract_recommendation(analysis: dict) -> Optional[str]:
-    """Normalize recommendation from analysis JSON (pipeline uses final_recommendation)."""
-    raw = (
-        analysis.get("final_recommendation")
-        or analysis.get("recommendation")
-        or analysis.get("consolidated_recommendation")
-    )
-    if raw is None:
-        return None
-    label = str(raw).strip()
-    if not label or label.lower() in ("unknown", "pending", "none"):
-        return None
-    return label
 
 
 def _candidate_label(candidate: Optional[Candidate], candidate_id: Optional[int]) -> str:
@@ -74,7 +63,6 @@ def _resolve_candidate_display(
     analysis: Optional[dict] = None,
     parsed: Optional[dict] = None,
 ) -> tuple[str, Optional[str]]:
-    """Resolve display name/email from candidate row or stored screening JSON."""
     analysis = analysis or {}
     parsed = parsed or {}
     name: Optional[str] = None
@@ -106,6 +94,16 @@ def _resolve_candidate_display(
     return display, email
 
 
+def _mask_email(email: Optional[str], *, include_pii: bool) -> Optional[str]:
+    if include_pii or not email:
+        return email
+    local, _, domain = email.partition("@")
+    if not domain:
+        return None
+    masked = f"{local[:1]}***@{domain}" if local else f"***@{domain}"
+    return masked
+
+
 def _load_candidates(
     db: Session, tenant_id: int, candidate_ids: set[int]
 ) -> dict[int, Candidate]:
@@ -132,6 +130,72 @@ def _load_requisitions(
     return {r.id: r for r in rows}
 
 
+def _latest_screening_by_candidate(
+    db: Session,
+    tenant_id: int,
+    candidate_ids: set[int],
+    *,
+    requisition_id: Optional[int] = None,
+) -> dict[int, ScreeningResult]:
+    if not candidate_ids:
+        return {}
+    q = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.tenant_id == tenant_id,
+            ScreeningResult.candidate_id.in_(candidate_ids),
+            ScreeningResult.is_active == True,  # noqa: E712
+        )
+        .order_by(ScreeningResult.timestamp.desc())
+    )
+    if requisition_id:
+        q = q.filter(ScreeningResult.requisition_id == requisition_id)
+    latest: dict[int, ScreeningResult] = {}
+    for row in q.all():
+        if row.candidate_id and row.candidate_id not in latest:
+            latest[row.candidate_id] = row
+    return latest
+
+
+def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def validate_hub_filters(
+    db: Session,
+    tenant_id: int,
+    *,
+    requisition_id: Optional[int] = None,
+    recruiter_id: Optional[int] = None,
+) -> None:
+    from fastapi import HTTPException
+
+    if requisition_id is not None:
+        req = (
+            db.query(Requisition)
+            .filter(Requisition.id == requisition_id, Requisition.tenant_id == tenant_id)
+            .first()
+        )
+        if not req:
+            raise HTTPException(status_code=404, detail="Requisition not found")
+    if recruiter_id is not None:
+        user = (
+            db.query(User)
+            .filter(
+                User.id == recruiter_id,
+                User.tenant_id == tenant_id,
+                User.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if not user:
+            raise HTTPException(status_code=404, detail="Recruiter not found")
+
+
 def _filter_options(db: Session, tenant_id: int) -> dict[str, list[dict]]:
     reqs = (
         db.query(Requisition)
@@ -153,6 +217,7 @@ def _filter_options(db: Session, tenant_id: int) -> dict[str, list[dict]]:
     return {
         "requisitions": [{"id": r.id, "title": r.title} for r in reqs],
         "recruiters": [{"id": u.id, "email": u.email} for u in recruiters],
+        "requisitions_truncated": len(reqs) >= 200,
     }
 
 
@@ -161,42 +226,85 @@ def build_analytics_hub(
     tenant_id: int,
     *,
     period: str = "last_30_days",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     requisition_id: Optional[int] = None,
     recruiter_id: Optional[int] = None,
+    slices: Optional[list[str]] = None,
+    drill_limit: int = 100,
+    drill_offset: int = 0,
+    include_pii: bool = True,
+    compare: bool = False,
+    user_role: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Build full analytics hub payload for interactive UI."""
-    since = _since(period)
+    """Build analytics hub payload for interactive UI."""
+    since, until = resolve_date_range(
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    requested = set(slices or VALID_SLICES)
+    requested.discard("reports")
 
-    screening = _screening_slice(db, tenant_id, since, requisition_id)
-    funnel = _funnel_slice(db, tenant_id, since, requisition_id)
-    interviews = _interviews_slice(db, tenant_id, since, requisition_id)
-    team = _team_slice(db, tenant_id, since, recruiter_id)
-    hm = _hm_slice(db, tenant_id, since, requisition_id)
-    leadership = _leadership_slice(db, tenant_id, since)
-    ats = _ats_slice(db, tenant_id, since)
+    result_slices: dict[str, Any] = {}
+    if "screening" in requested:
+        result_slices["screening"] = _screening_slice(
+            db,
+            tenant_id,
+            since,
+            until,
+            requisition_id,
+            drill_limit=drill_limit,
+            drill_offset=drill_offset,
+            include_pii=include_pii,
+            compare=compare,
+            period=period,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    if "funnel" in requested:
+        result_slices["funnel"] = _funnel_slice(
+            db, tenant_id, since, until, requisition_id, include_pii=include_pii
+        )
+    if "interviews" in requested:
+        result_slices["interviews"] = _interviews_slice(
+            db, tenant_id, since, until, requisition_id, include_pii=include_pii
+        )
+    if "team" in requested:
+        result_slices["team"] = _team_slice(db, tenant_id, since, until, recruiter_id)
+    if "hm" in requested:
+        result_slices["hm"] = _hm_slice(
+            db, tenant_id, since, until, requisition_id, include_pii=include_pii
+        )
+    if "leadership" in requested:
+        result_slices["leadership"] = _leadership_slice(db, tenant_id)
+    if "ats" in requested:
+        result_slices["ats"] = _ats_slice(db, tenant_id, since, until)
+
+    funnel = result_slices.get("funnel", {})
+    hm = result_slices.get("hm", {})
+    leadership = result_slices.get("leadership", {})
+
+    attention = {}
+    if user_role not in ("hiring_manager",):
+        attention = {
+            "stale_candidates": funnel.get("stale_candidates", [])[:10],
+            "zero_pipeline_requisitions": leadership.get("risk_flags", {}).get("zero_pipeline", [])[:10],
+            "pending_hm_review": hm.get("pending_hm_review", 0),
+        }
 
     return {
         "period": period,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "filters": {
             "requisition_id": requisition_id,
             "recruiter_id": recruiter_id,
         },
         "filter_options": _filter_options(db, tenant_id),
-        "attention": {
-            "stale_candidates": funnel.get("stale_candidates", [])[:10],
-            "zero_pipeline_requisitions": leadership.get("risk_flags", {}).get("zero_pipeline", [])[:10],
-            "pending_hm_review": hm.get("pending_hm_review", 0),
-        },
-        "slices": {
-            "screening": screening,
-            "funnel": funnel,
-            "interviews": interviews,
-            "team": team,
-            "hm": hm,
-            "leadership": leadership,
-            "ats": ats,
-        },
+        "attention": attention,
+        "slices": result_slices,
     }
 
 
@@ -204,19 +312,63 @@ def _screening_slice(
     db: Session,
     tenant_id: int,
     since: datetime,
+    until: datetime,
     requisition_id: Optional[int],
+    *,
+    drill_limit: int = 100,
+    drill_offset: int = 0,
+    include_pii: bool = True,
+    compare: bool = False,
+    period: str = "last_30_days",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> dict[str, Any]:
-    q = db.query(ScreeningResult).filter(
-        ScreeningResult.tenant_id == tenant_id,
-        ScreeningResult.is_active == True,  # noqa: E712
-        ScreeningResult.timestamp >= since,
+    base_q = screening_base_query(
+        db, tenant_id, since, until, requisition_id=requisition_id
     )
-    if requisition_id:
-        q = q.filter(ScreeningResult.requisition_id == requisition_id)
-    rows = q.all()
+    all_rows = base_q.order_by(ScreeningResult.timestamp.desc()).all()
+    total_count = len(all_rows)
+    metrics = aggregate_screening_rows(all_rows)
+    rows = all_rows[drill_offset: drill_offset + drill_limit]
 
-    total = len(rows)
-    scores: list[float] = []
+    from app.backend.services.screening_analytics_service import (
+        build_jd_effectiveness,
+        comparison_range,
+        score_to_bucket,
+    )
+    jd_effectiveness = build_jd_effectiveness(db, metrics.pop("jd_data"))
+    trends: dict[str, Any] = {
+        "period": period,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        **metrics,
+        "jd_effectiveness": jd_effectiveness,
+    }
+    if compare:
+        comp_since, comp_until = comparison_range(since, until)
+        comp_rows = screening_base_query(
+            db, tenant_id, comp_since, comp_until, requisition_id=requisition_id
+        ).all()
+        comp_metrics = aggregate_screening_rows(comp_rows, include_jd_effectiveness=False)
+        trends["comparison"] = {
+            "period_label": "prior period",
+            "start_date": comp_since.date().isoformat(),
+            "end_date": comp_until.date().isoformat(),
+            "total_analyzed": comp_metrics["total_analyzed"],
+            "avg_fit_score": comp_metrics["avg_fit_score"],
+            "pipeline_shortlist_rate": comp_metrics["pipeline_shortlist_rate"],
+            "deltas": {
+                "total_analyzed": metrics["total_analyzed"] - comp_metrics["total_analyzed"],
+                "avg_fit_score": round(
+                    metrics["avg_fit_score"] - comp_metrics["avg_fit_score"], 1
+                ),
+                "pipeline_shortlist_rate": round(
+                    metrics["pipeline_shortlist_rate"] - comp_metrics["pipeline_shortlist_rate"], 1
+                ),
+            },
+        }
+
     recs: Counter[str] = Counter()
     skill_gaps: Counter[str] = Counter()
     score_buckets: Counter[str] = Counter()
@@ -229,22 +381,15 @@ def _screening_slice(
 
     for r in rows:
         analysis = _parse_json(r.analysis_result)
-        score = r.deterministic_score if r.deterministic_score is not None else analysis.get("fit_score")
+        score = extract_fit_score(r, analysis)
         if score is not None:
-            try:
-                s = float(score)
-                scores.append(s)
-                bucket = f"{int(s // 10) * 10}-{int(s // 10) * 10 + 9}"
-                score_buckets[bucket] += 1
-            except (TypeError, ValueError):
-                pass
-        rec_label = _extract_recommendation(analysis)
+            score_buckets[score_to_bucket(score)] += 1
+        rec_label = extract_recommendation(r, analysis)
         rec_key = (rec_label or "unscored").lower()
         recs[rec_key] += 1
-        for gap in analysis.get("skill_gaps") or analysis.get("gaps") or analysis.get("missing_skills") or []:
-            name = gap if isinstance(gap, str) else gap.get("skill") or gap.get("name")
-            if name:
-                skill_gaps[str(name).lower()] += 1
+        for name in iter_skill_gap_names(analysis):
+            skill_gaps[name.lower()] += 1
+
         cand = candidates.get(r.candidate_id) if r.candidate_id else None
         req = requisitions.get(r.requisition_id) if r.requisition_id else None
         parsed = _parse_json(r.parsed_data)
@@ -259,7 +404,7 @@ def _screening_slice(
             "result_id": r.id,
             "candidate_id": r.candidate_id,
             "candidate_name": display_name,
-            "candidate_email": display_email,
+            "candidate_email": _mask_email(display_email, include_pii=include_pii),
             "requisition_id": r.requisition_id,
             "requisition_title": req.title if req else None,
             "role_title": (req.title if req else None) or analysis.get("job_role"),
@@ -268,28 +413,27 @@ def _screening_slice(
             "timestamp": r.timestamp.isoformat() if r.timestamp else None,
         })
 
-    drill_down.sort(
-        key=lambda row: row.get("timestamp") or "",
-        reverse=True,
-    )
-
-    avg_score = round(sum(scores) / len(scores), 1) if scores else 0
-    shortlist_n = sum(v for k, v in recs.items() if "shortlist" in k.lower())
-    shortlist_rate = round(100 * shortlist_n / total, 1) if total else 0
-
     return {
         "kpis": {
-            "total_analyzed": total,
-            "avg_fit_score": avg_score,
-            "shortlist_rate": shortlist_rate,
+            "total_analyzed": metrics["total_analyzed"],
+            "avg_fit_score": metrics["avg_fit_score"],
+            "recommendation_shortlist_rate": metrics["recommendation_shortlist_rate"],
+            "pipeline_shortlist_rate": metrics["pipeline_shortlist_rate"],
+            "hired_rate": metrics["hired_rate"],
         },
-        "recommendation_distribution": dict(recs),
-        "score_distribution": dict(score_buckets),
-        "top_skill_gaps": [
-            {"skill": k, "count": v}
-            for k, v in skill_gaps.most_common(15)
-        ],
-        "drill_down": drill_down[:100],
+        "recommendation_distribution": dict(recs) or metrics["recommendation_distribution"],
+        "score_distribution": dict(score_buckets) or {
+            row["range"]: row["count"] for row in metrics["score_distribution"]
+        },
+        "top_skill_gaps": metrics["top_skill_gaps"],
+        "drill_down": drill_down,
+        "drill_down_pagination": {
+            "total_count": total_count,
+            "limit": drill_limit,
+            "offset": drill_offset,
+            "has_more": drill_offset + drill_limit < total_count,
+        },
+        "trends": trends,
     }
 
 
@@ -297,12 +441,19 @@ def _funnel_slice(
     db: Session,
     tenant_id: int,
     since: datetime,
+    until: datetime,
     requisition_id: Optional[int],
+    *,
+    include_pii: bool = True,
 ) -> dict[str, Any]:
     q = (
         db.query(RequisitionCandidate, Requisition)
         .join(Requisition, Requisition.id == RequisitionCandidate.requisition_id)
-        .filter(Requisition.tenant_id == tenant_id, RequisitionCandidate.added_at >= since)
+        .filter(
+            Requisition.tenant_id == tenant_id,
+            RequisitionCandidate.added_at >= since,
+            RequisitionCandidate.added_at <= until,
+        )
     )
     if requisition_id:
         q = q.filter(RequisitionCandidate.requisition_id == requisition_id)
@@ -340,7 +491,10 @@ def _funnel_slice(
     for item in stale:
         cand = stale_candidates.get(item["candidate_id"])
         item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
-        item["candidate_email"] = cand.email if cand else None
+        item["candidate_email"] = _mask_email(
+            cand.email if cand else None,
+            include_pii=include_pii,
+        )
 
     req_funnels = []
     for rid, data in by_req.items():
@@ -375,19 +529,48 @@ def _interviews_slice(
     db: Session,
     tenant_id: int,
     since: datetime,
+    until: datetime,
     requisition_id: Optional[int],
+    *,
+    include_pii: bool = True,
 ) -> dict[str, Any]:
     q = db.query(VoiceScreeningSession).filter(
         VoiceScreeningSession.tenant_id == tenant_id,
         VoiceScreeningSession.created_at >= since,
+        VoiceScreeningSession.created_at <= until,
     )
-    rows = q.all()
+    if requisition_id:
+        candidate_ids_for_req = set(
+            db.query(RequisitionCandidate.candidate_id)
+            .filter(RequisitionCandidate.requisition_id == requisition_id)
+            .scalars()
+            .all()
+        )
+        candidate_ids_for_req.discard(None)
+        if not candidate_ids_for_req:
+            return {
+                "kpis": {"total_sessions": 0, "completion_rate": 0, "avg_duration_min": 0},
+                "status_breakdown": {},
+                "resume_vs_call_delta": [],
+            }
+        q = q.filter(VoiceScreeningSession.candidate_id.in_(candidate_ids_for_req))
 
+    rows = q.all()
     status_counts: Counter[str] = Counter()
     completed = 0
     durations: list[int] = []
     resume_vs_call: list[dict] = []
     interview_candidate_ids: set[int] = set()
+
+    session_candidate_ids = {
+        s.candidate_id for s in rows if s.candidate_id and s.assessment_json
+    }
+    latest_screenings = _latest_screening_by_candidate(
+        db,
+        tenant_id,
+        session_candidate_ids,
+        requisition_id=requisition_id,
+    )
 
     for s in rows:
         status_counts[s.status or "unknown"] += 1
@@ -395,27 +578,20 @@ def _interviews_slice(
             completed += 1
             if s.duration_seconds:
                 durations.append(s.duration_seconds)
-        if s.assessment_json:
+        if s.assessment_json and s.candidate_id:
             try:
                 assessment = json.loads(s.assessment_json)
                 call_score = assessment.get("overall_score") or assessment.get("score")
-                if call_score is not None and s.candidate_id:
-                    sr = (
-                        db.query(ScreeningResult)
-                        .filter(
-                            ScreeningResult.tenant_id == tenant_id,
-                            ScreeningResult.candidate_id == s.candidate_id,
-                        )
-                        .order_by(ScreeningResult.timestamp.desc())
-                        .first()
-                    )
-                    if sr and sr.deterministic_score is not None:
+                sr = latest_screenings.get(s.candidate_id)
+                if call_score is not None and sr:
+                    resume_score = extract_fit_score(sr)
+                    if resume_score is not None:
                         interview_candidate_ids.add(s.candidate_id)
                         resume_vs_call.append({
                             "candidate_id": s.candidate_id,
-                            "resume_score": sr.deterministic_score,
+                            "resume_score": int(resume_score),
                             "call_score": call_score,
-                            "delta": int(call_score) - int(sr.deterministic_score),
+                            "delta": int(call_score) - int(resume_score),
                         })
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -424,7 +600,10 @@ def _interviews_slice(
     for item in resume_vs_call:
         cand = interview_candidates.get(item["candidate_id"])
         item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
-        item["candidate_email"] = cand.email if cand else None
+        item["candidate_email"] = _mask_email(
+            cand.email if cand else None,
+            include_pii=include_pii,
+        )
 
     total = len(rows)
     return {
@@ -442,6 +621,7 @@ def _team_slice(
     db: Session,
     tenant_id: int,
     since: datetime,
+    until: datetime,
     recruiter_id: Optional[int],
 ) -> dict[str, Any]:
     analysis_actions = ["resume_analysis", "batch_analysis"]
@@ -454,6 +634,7 @@ def _team_slice(
         .filter(
             UsageLog.tenant_id == tenant_id,
             UsageLog.created_at >= since,
+            UsageLog.created_at <= until,
             UsageLog.action.in_(analysis_actions),
             UsageLog.user_id.isnot(None),
         )
@@ -465,7 +646,11 @@ def _team_slice(
 
     recruiters = (
         db.query(User)
-        .filter(User.tenant_id == tenant_id, User.is_active == True)  # noqa: E712
+        .filter(
+            User.tenant_id == tenant_id,
+            User.is_active == True,  # noqa: E712
+            User.role.in_(("admin", "recruiter")),
+        )
         .all()
     )
     activity = []
@@ -490,7 +675,10 @@ def _hm_slice(
     db: Session,
     tenant_id: int,
     since: datetime,
+    until: datetime,
     requisition_id: Optional[int],
+    *,
+    include_pii: bool = True,
 ) -> dict[str, Any]:
     q = (
         db.query(RequisitionCandidate)
@@ -501,7 +689,7 @@ def _hm_slice(
         q = q.filter(RequisitionCandidate.requisition_id == requisition_id)
     rows = q.all()
 
-    submitted = 0
+    submissions_in_period = 0
     outcomes: Counter[str] = Counter()
     pending_review = 0
     turnaround_hours: list[float] = []
@@ -509,20 +697,27 @@ def _hm_slice(
     pending_candidate_ids: set[int] = set()
 
     for rc in rows:
-        if rc.submission_status == "submitted":
-            submitted += 1
-            if not rc.hm_outcome:
-                pending_review += 1
-                pending_candidate_ids.add(rc.candidate_id)
-                pending_submissions.append({
-                    "candidate_id": rc.candidate_id,
-                    "requisition_id": rc.requisition_id,
-                    "submitted_at": rc.submitted_at.isoformat() if rc.submitted_at else None,
-                })
-        if rc.hm_outcome:
+        submitted_at = _ensure_aware(rc.submitted_at)
+        outcome_at = _ensure_aware(rc.outcome_at)
+        in_period = (
+            submitted_at is not None
+            and submitted_at >= since
+            and submitted_at <= until
+        )
+        if in_period and rc.submission_status in ("submitted", "reviewed"):
+            submissions_in_period += 1
+        if rc.submission_status == "submitted" and not rc.hm_outcome:
+            pending_review += 1
+            pending_candidate_ids.add(rc.candidate_id)
+            pending_submissions.append({
+                "candidate_id": rc.candidate_id,
+                "requisition_id": rc.requisition_id,
+                "submitted_at": rc.submitted_at.isoformat() if rc.submitted_at else None,
+            })
+        if rc.hm_outcome and outcome_at and since <= outcome_at <= until:
             outcomes[rc.hm_outcome] += 1
-        if rc.submitted_at and rc.outcome_at:
-            delta = (rc.outcome_at - rc.submitted_at).total_seconds() / 3600
+        if submitted_at and outcome_at and since <= submitted_at <= until and since <= outcome_at <= until:
+            delta = (outcome_at - submitted_at).total_seconds() / 3600
             turnaround_hours.append(delta)
 
     pending_candidates = _load_candidates(db, tenant_id, pending_candidate_ids)
@@ -532,7 +727,10 @@ def _hm_slice(
         cand = pending_candidates.get(item["candidate_id"])
         req = pending_reqs.get(item["requisition_id"])
         item["candidate_name"] = _candidate_label(cand, item["candidate_id"])
-        item["candidate_email"] = cand.email if cand else None
+        item["candidate_email"] = _mask_email(
+            cand.email if cand else None,
+            include_pii=include_pii,
+        )
         item["requisition_title"] = req.title if req else None
 
     pending_submissions.sort(
@@ -541,32 +739,44 @@ def _hm_slice(
     )
 
     return {
-        "submissions_sent": submitted,
+        "submissions_sent": submissions_in_period,
         "pending_hm_review": pending_review,
         "outcome_distribution": dict(outcomes),
         "pending_submissions": pending_submissions[:30],
         "avg_turnaround_hours": round(sum(turnaround_hours) / len(turnaround_hours), 1)
         if turnaround_hours
         else None,
+        "period_note": "Submissions and outcomes respect the selected date range; pending review is current snapshot.",
     }
 
 
-def _leadership_slice(db: Session, tenant_id: int, since: datetime) -> dict[str, Any]:
-    reqs = (
+def _leadership_slice(db: Session, tenant_id: int) -> dict[str, Any]:
+    open_reqs = (
         db.query(Requisition)
-        .filter(Requisition.tenant_id == tenant_id)
+        .filter(
+            Requisition.tenant_id == tenant_id,
+            Requisition.status.notin_(("filled", "closed", "cancelled")),
+        )
         .all()
     )
-    open_reqs = [r for r in reqs if r.status not in ("filled", "closed", "cancelled")]
+    open_req_ids = [r.id for r in open_reqs]
+    counts_by_req: dict[int, int] = {}
+    if open_req_ids:
+        rows = (
+            db.query(
+                RequisitionCandidate.requisition_id,
+                func.count(RequisitionCandidate.id),
+            )
+            .filter(RequisitionCandidate.requisition_id.in_(open_req_ids))
+            .group_by(RequisitionCandidate.requisition_id)
+            .all()
+        )
+        counts_by_req = {rid: int(count) for rid, count in rows}
+
     zero_pipeline = []
     calibrated_no_screens = []
-
     for r in open_reqs:
-        cand_count = (
-            db.query(func.count(RequisitionCandidate.id))
-            .filter(RequisitionCandidate.requisition_id == r.id)
-            .scalar()
-        ) or 0
+        cand_count = counts_by_req.get(r.id, 0)
         if cand_count == 0:
             zero_pipeline.append({"id": r.id, "title": r.title, "status": r.status})
         if r.calibrated_criteria_json and cand_count == 0:
@@ -574,6 +784,7 @@ def _leadership_slice(db: Session, tenant_id: int, since: datetime) -> dict[str,
 
     return {
         "open_requisitions": len(open_reqs),
+        "period_note": "Executive health reflects current open requisitions (not period-filtered).",
         "risk_flags": {
             "zero_pipeline": zero_pipeline[:20],
             "calibrated_no_candidates": calibrated_no_screens[:20],
@@ -581,15 +792,25 @@ def _leadership_slice(db: Session, tenant_id: int, since: datetime) -> dict[str,
     }
 
 
-def _ats_slice(db: Session, tenant_id: int, since: datetime) -> dict[str, Any]:
+def _ats_slice(
+    db: Session,
+    tenant_id: int,
+    since: datetime,
+    until: datetime,
+) -> dict[str, Any]:
     connections = (
         db.query(ATSConnection)
         .filter(ATSConnection.tenant_id == tenant_id)
         .all()
     )
+    conn_by_id = {c.id: c for c in connections}
     logs = (
         db.query(ATSSyncLog)
-        .filter(ATSSyncLog.tenant_id == tenant_id, ATSSyncLog.created_at >= since)
+        .filter(
+            ATSSyncLog.tenant_id == tenant_id,
+            ATSSyncLog.created_at >= since,
+            ATSSyncLog.created_at <= until,
+        )
         .order_by(ATSSyncLog.created_at.desc())
         .limit(500)
         .all()
@@ -601,7 +822,7 @@ def _ats_slice(db: Session, tenant_id: int, since: datetime) -> dict[str, Any]:
     errors: Counter[str] = Counter()
 
     for l in logs:
-        conn = next((c for c in connections if c.id == l.connection_id), None)
+        conn = conn_by_id.get(l.connection_id)
         provider = conn.provider if conn else "unknown"
         by_provider[provider] += 1
         if not l.success and l.error_message:

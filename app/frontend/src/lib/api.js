@@ -1855,8 +1855,8 @@ export async function computeSkillTrends() {
 
 // ─── Screening Analytics ────────────────────────────────────────────────────
 
-export async function getScreeningAnalytics(period = 'last_30_days') {
-  const response = await api.get('/analytics/screening', { params: { period } })
+export async function getScreeningAnalytics(params = {}) {
+  const response = await api.get('/analytics/screening', { params })
   return response.data
 }
 
