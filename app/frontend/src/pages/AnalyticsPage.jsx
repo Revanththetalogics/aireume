@@ -579,6 +579,8 @@ export default function AnalyticsPage() {
           </div>
         </>
       )}
+        </>
+      )}
     </div>
   )
 }
