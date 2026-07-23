@@ -9,7 +9,7 @@ import {
   StickyNote, CheckSquare, Square, Bell,
 } from 'lucide-react'
 import {
-  getVoiceSettings, updateVoiceSettings, getVoiceSessions, getVoiceSession,
+  getVoiceSettings, updateVoiceSettings, suggestInterviewOpening, getVoiceSessions, getVoiceSession,
   rescheduleVoiceCall, cancelVoiceSession,
   getVoiceAnalytics, bulkCancelVoiceSessions, exportVoiceSessions,
   getNextAvailableSlot, getCandidateNotes, addCandidateNote,
@@ -18,6 +18,9 @@ import VoiceScheduleModal from '../components/VoiceScheduleModal'
 import VoiceAssessmentPanel from '../components/VoiceAssessmentPanel'
 import VoiceTranscriptViewer from '../components/VoiceTranscriptViewer'
 import { StaggerContainer, StaggerItem } from '../components/motion'
+import usePermissions from '../hooks/usePermissions'
+
+const OPENING_PLACEHOLDERS = '{candidate_first_name}, {role_title}, {company_name}, {bot_name}'
 
 const STATUS_CONFIG = {
   scheduled:  { label: 'Scheduled',  color: 'bg-blue-100 text-blue-700',   icon: Calendar },
@@ -172,6 +175,7 @@ function DayPicker({ value, onChange }) {
 export default function VoiceScreeningPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { isAdmin } = usePermissions()
   const initialTab = searchParams.get('tab') === 'settings' ? 'settings' : 'sessions'
   const [settings, setSettings] = useState(null)
   const [sessions, setSessions] = useState([])
@@ -201,6 +205,7 @@ export default function VoiceScreeningPage() {
   const [quickNote, setQuickNote] = useState('')
   const [notesLoading, setNotesLoading] = useState(false)
   const [followUpCandidate, setFollowUpCandidate] = useState(null)
+  const [suggestingOpening, setSuggestingOpening] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -272,6 +277,11 @@ export default function VoiceScreeningPage() {
         assessment_detail_level: draft.assessment_detail_level,
         auto_update_status: draft.auto_update_status,
         follow_up_aggressiveness: draft.follow_up_aggressiveness,
+        ...(isAdmin ? {
+          use_custom_interview_opening: draft.use_custom_interview_opening ?? false,
+          interview_opening_script: draft.interview_opening_script || null,
+          company_about_blurb: draft.company_about_blurb || null,
+        } : {}),
       })
       setSettings(updated)
       setDraft(updated)
@@ -837,6 +847,75 @@ export default function VoiceScreeningPage() {
 
             {/* Compliance */}
             <Section title="Compliance" icon={Shield} description="Consent recording and custom scripts">
+              {isAdmin && (
+                <div className="mb-6 pb-6 border-b border-slate-100 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Custom interview opening</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Replaces the default voice and live-screen opener. Recording consent stays a separate step.
+                        Placeholders: {OPENING_PLACEHOLDERS}
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={draft.use_custom_interview_opening ?? false}
+                        onChange={e => setDraft({ ...draft, use_custom_interview_opening: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">Enabled</span>
+                    </label>
+                  </div>
+                  <Field label="Company context (optional, for AI draft)">
+                    <textarea
+                      value={draft.company_about_blurb || ''}
+                      onChange={e => setDraft({ ...draft, company_about_blurb: e.target.value || null })}
+                      placeholder="Brief description of your company for AI-assisted drafting..."
+                      rows={2}
+                      className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm transition-all outline-none resize-none"
+                    />
+                  </Field>
+                  <Field label="Opening script">
+                    <textarea
+                      value={draft.interview_opening_script || ''}
+                      onChange={e => setDraft({ ...draft, interview_opening_script: e.target.value || null })}
+                      placeholder={`Hi {candidate_first_name}, this is {bot_name} from {company_name} about the {role_title} role...`}
+                      rows={4}
+                      disabled={!(draft.use_custom_interview_opening ?? false)}
+                      className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm transition-all outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400"
+                    />
+                  </Field>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={suggestingOpening}
+                      onClick={async () => {
+                        try {
+                          setSuggestingOpening(true)
+                          const { script } = await suggestInterviewOpening({
+                            company_about: draft.company_about_blurb || undefined,
+                            tone: draft.greeting_style || 'professional',
+                          })
+                          setDraft(prev => ({
+                            ...prev,
+                            use_custom_interview_opening: true,
+                            interview_opening_script: script,
+                          }))
+                        } catch (err) {
+                          setError(err.message || 'Failed to suggest opening')
+                        } finally {
+                          setSuggestingOpening(false)
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {suggestingOpening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+                      Suggest draft with AI
+                    </button>
+                  </div>
+                </div>
+              )}
               <Field label="Custom Consent Script (optional)">
                 <textarea
                   value={draft.consent_script || ''}

@@ -512,8 +512,10 @@ async def _finalize_interview_kit(
     interview_questions: dict,
     llm_context: dict,
     python_result: dict,
+    tenant_id: int,
 ) -> tuple[dict, str, str | None]:
     """Personalize, lint, and normalize kit before persist."""
+    from app.backend.db.database import SessionLocal
     from app.backend.services.interview_kit_quality import lint_interview_kit
     from app.backend.services.recruiter_voice_personalizer import personalize_kit
     from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
@@ -522,6 +524,7 @@ async def _finalize_interview_kit(
         merge_ci_into_kit_context,
     )
     from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
+    from app.backend.services.interview_opening_service import apply_tenant_opening_to_kit
 
     ci = build_candidate_intelligence(
         analysis_result=python_result,
@@ -543,6 +546,23 @@ async def _finalize_interview_kit(
         )
 
     interview_questions = await personalize_kit(interview_questions, ctx)
+    db = SessionLocal()
+    try:
+        profile = python_result.get("candidate_profile") or {}
+        role_title = (
+            llm_context.get("role_title")
+            or python_result.get("jd_analysis", {}).get("title")
+            or profile.get("target_role")
+        )
+        interview_questions = apply_tenant_opening_to_kit(
+            interview_questions,
+            db,
+            tenant_id,
+            candidate_name=profile.get("name"),
+            role_title=role_title,
+        )
+    finally:
+        db.close()
     lint = lint_interview_kit(interview_questions)
     kit_error = None
     kit_status = "ready"
@@ -645,7 +665,7 @@ async def background_interview_kit(
             candidate_intelligence_status="ready",
         )
         interview_questions, kit_status, kit_error = await _finalize_interview_kit(
-            interview_questions, llm_context, python_result
+            interview_questions, llm_context, python_result, tenant_id
         )
         _merge_interview_kit(
             screening_result_id,

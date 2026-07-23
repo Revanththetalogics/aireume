@@ -1157,6 +1157,9 @@ class VoiceTenantConfig(Base):
     allowed_days              = Column(JSON, nullable=False, server_default="[1,2,3,4,5]")  # Mon=1 .. Sun=7
     timezone                  = Column(String(50), nullable=False, server_default="UTC")
     consent_script            = Column(Text, nullable=True)  # NULL = use default
+    interview_opening_script  = Column(Text, nullable=True)  # NULL = use default opening
+    use_custom_interview_opening = Column(Boolean, nullable=False, server_default="false", default=False)
+    company_about_blurb       = Column(Text, nullable=True)  # optional context for AI draft helper
     greeting_style            = Column(String(20), nullable=False, server_default="professional")  # professional / casual / friendly
     call_duration_min         = Column(Integer, nullable=False, server_default="5")
     call_duration_max         = Column(Integer, nullable=False, server_default="7")

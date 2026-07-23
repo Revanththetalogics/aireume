@@ -86,6 +86,9 @@ class OrchestratorContext:
 
     # Interview config
     total_duration_s: int = 1200  # 20 minutes default
+    consent_script: Optional[str] = None
+    use_custom_interview_opening: bool = False
+    interview_opening_script: Optional[str] = None
 
     # Runtime state
     current_stage: InterviewStage = InterviewStage.INTRODUCTION

@@ -685,6 +685,9 @@ class VoiceTenantConfigUpdate(BaseModel):
     allowed_days: Optional[List[int]] = None  # 1=Mon .. 7=Sun
     timezone: Optional[str] = None
     consent_script: Optional[str] = None  # null = use default
+    interview_opening_script: Optional[str] = None
+    use_custom_interview_opening: Optional[bool] = None
+    company_about_blurb: Optional[str] = None
     greeting_style: Optional[str] = None  # professional / casual / friendly
     call_duration_min: Optional[int] = None
     call_duration_max: Optional[int] = None
@@ -712,6 +715,9 @@ class VoiceTenantConfigOut(BaseModel):
     allowed_days: List[int]
     timezone: str
     consent_script: Optional[str] = None
+    interview_opening_script: Optional[str] = None
+    use_custom_interview_opening: bool = False
+    company_about_blurb: Optional[str] = None
     greeting_style: str
     call_duration_min: int
     call_duration_max: int
@@ -727,6 +733,16 @@ class VoiceTenantConfigOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class InterviewOpeningSuggestRequest(BaseModel):
+    """Body for POST /api/voice/settings/suggest-opening (admin only)."""
+    company_about: Optional[str] = None
+    tone: Optional[str] = "professional"
+
+
+class InterviewOpeningSuggestResponse(BaseModel):
+    script: str
 
 
 class VoiceTranscriptEntryOut(BaseModel):

@@ -44,24 +44,42 @@ class TestKitDrivenOrchestrator:
         assert "consent" in r1.lower() or "recorded" in r1.lower()
 
         r2 = await orch.handle_candidate_response("Yes.")
-        assert "hear me" in r2.lower()
+        assert "Excel" in r2
 
-        r3 = await orch.handle_candidate_response("Yes.")
-        assert "Excel" in r3
-
-        r4 = await orch.handle_candidate_response(
+        r3 = await orch.handle_candidate_response(
             "I built financial models in Excel for three years including pivot tables and macros."
         )
-        assert "deadline" in r4.lower()
+        assert "deadline" in r3.lower()
 
-        r5 = await orch.handle_candidate_response(
+        r4 = await orch.handle_candidate_response(
             "We had a month-end close due Friday and I prioritized reconciliation first."
         )
-        assert r5 is not None
-        assert "thank you" in r5.lower() or "touch" in r5.lower()
+        assert r4 is not None
+        assert "thank you" in r4.lower() or "touch" in r4.lower()
 
         assert len(ctx.questions_responses) == 2
         assert ctx.questions_responses[0]["question"] == "Describe your Excel experience."
+
+    @pytest.mark.asyncio
+    async def test_custom_opening_replaces_default_greeting(self):
+        ctx = OrchestratorContext(
+            session_id="100",
+            candidate_name="Alex",
+            jd_title="Analyst",
+            company_name="Acme",
+            bot_name="ARIA",
+            use_custom_interview_opening=True,
+            interview_opening_script=(
+                "Hello {candidate_first_name}, {bot_name} here from {company_name} "
+                "regarding {role_title}. Got a minute?"
+            ),
+            total_duration_s=900,
+        )
+        orch = KitDrivenOrchestrator(ctx, [{"id": "t1", "category": "technical", "text": "Q1?"}])
+        greeting = await orch.start()
+        assert "Hello Alex" in greeting
+        assert "Acme" in greeting
+        assert "Got a minute" in greeting
 
     @pytest.mark.asyncio
     async def test_no_filler_during_kit_questions(self):

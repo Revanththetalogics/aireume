@@ -947,6 +947,16 @@ def update_interview_config(
 
     if voice_data:
         update = VoiceTenantConfigUpdate(**voice_data).model_dump(exclude_unset=True)
+        from app.backend.services.interview_opening_service import (
+            guard_opening_admin_fields,
+            validate_opening_template,
+        )
+
+        guard_opening_admin_fields(current_user, update)
+        if update.get("use_custom_interview_opening"):
+            issues = validate_opening_template(update.get("interview_opening_script"))
+            if issues:
+                raise HTTPException(status_code=422, detail=issues[0])
         for field, value in update.items():
             setattr(voice_config, field, value)
 

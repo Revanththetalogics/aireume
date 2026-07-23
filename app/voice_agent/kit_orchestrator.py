@@ -140,26 +140,32 @@ class KitDrivenOrchestrator:
         return greeting
 
     def _intro_message(self, step: int) -> str:
-        name = self.ctx.candidate_name.split()[0] if self.ctx.candidate_name else "there"
-        duration_min = max(1, self.ctx.total_duration_s // 60)
-        role = self.ctx.jd_title or "open"
+        from app.backend.services.interview_opening_service import (
+            resolve_consent_for_call,
+            resolve_opening_for_call,
+        )
+
+        opening_config = {
+            "use_custom_interview_opening": self.ctx.use_custom_interview_opening,
+            "interview_opening_script": self.ctx.interview_opening_script,
+            "consent_script": self.ctx.consent_script,
+            "company_name": self.ctx.company_name,
+            "bot_name": self.ctx.bot_name,
+        }
 
         if step == 0:
-            return (
-                f"Hi, is this {name}? This is {self.ctx.bot_name} calling from "
-                f"{self.ctx.company_name} about the {role} position. "
-                f"Do you have a few minutes for a quick interview call?"
+            return resolve_opening_for_call(
+                opening_config,
+                candidate_name=self.ctx.candidate_name,
+                role_title=self.ctx.jd_title,
             )
         if step == 1:
-            return (
-                f"Great, thanks {name}. This will be a {duration_min}-minute structured interview. "
-                f"I'll ask questions about your background, technical skills, and experience. "
-                f"This call is being recorded for evaluation purposes. Do you consent to proceed?"
+            return resolve_consent_for_call(
+                opening_config,
+                candidate_name=self.ctx.candidate_name,
+                role_title=self.ctx.jd_title,
             )
-        return (
-            "Perfect. Before we begin, can you confirm you can hear me clearly? "
-            "Just say yes if you can."
-        )
+        return ""
 
     def _record_bot(self, text: str, stage: str) -> None:
         self.ctx.transcript.append(
@@ -202,10 +208,7 @@ class KitDrivenOrchestrator:
         if self._introduction_step == 1:
             if any(w in lower for w in self._CONSENT_POSITIVE):
                 self.ctx.consent_recorded = True
-                self._introduction_step = 2
-                msg = self._intro_message(2)
-                self._record_bot(msg, "introduction")
-                return msg
+                return await self._start_kit_questions()
             if any(w in lower for w in self._CONSENT_NEGATIVE):
                 self.ctx.current_stage = InterviewStage.ENDED
                 msg = (
@@ -216,7 +219,6 @@ class KitDrivenOrchestrator:
                 return msg
             return "I'm sorry, I didn't quite catch that. Do you consent to this call being recorded? Please say yes or no."
 
-        self._introduction_step = 3
         return await self._start_kit_questions()
 
     async def _start_kit_questions(self) -> Optional[str]:

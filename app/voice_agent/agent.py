@@ -1814,6 +1814,9 @@ async def dispatch_call(req: DispatchRequest):
             },
             screening_result=req.interview_strategy or {},
             total_duration_s=duration_s,
+            consent_script=tenant_config.get("consent_script"),
+            use_custom_interview_opening=bool(tenant_config.get("use_custom_interview_opening")),
+            interview_opening_script=tenant_config.get("interview_opening_script"),
         )
 
         kit_questions = []

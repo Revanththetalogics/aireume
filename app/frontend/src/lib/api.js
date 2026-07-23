@@ -2202,6 +2202,11 @@ export async function updateVoiceSettings(data) {
   return res.data
 }
 
+export async function suggestInterviewOpening(data = {}) {
+  const res = await api.post('/voice/settings/suggest-opening', data)
+  return res.data
+}
+
 export async function scheduleVoiceCall(candidateId, phoneNumber, jdId = null, scheduledAt = null) {
   const res = await api.post('/voice/schedule', {
     candidate_id: candidateId,

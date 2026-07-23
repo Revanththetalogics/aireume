@@ -25,14 +25,16 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user, require_internal_service
+from app.backend.middleware.auth import get_current_user, require_internal_service, require_admin
 from app.backend.models.db_models import (
     User, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry, Candidate, RoleTemplate,
-    ScreeningResult,
+    ScreeningResult, Tenant,
 )
 from app.backend.models.schemas import (
     VoiceTenantConfigUpdate,
     VoiceTenantConfigOut,
+    InterviewOpeningSuggestRequest,
+    InterviewOpeningSuggestResponse,
     VoiceScreeningSessionOut,
     VoiceTranscriptEntryOut,
     ScheduleVoiceCallRequest,
@@ -60,6 +62,12 @@ DEFAULT_CONSENT_SCRIPT = (
 
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
+
+def _guard_opening_admin_fields(user: User, update_data: dict) -> None:
+    from app.backend.services.interview_opening_service import guard_opening_admin_fields
+
+    guard_opening_admin_fields(user, update_data)
+
 
 @router.get("/settings", response_model=VoiceTenantConfigOut)
 def get_voice_settings(
@@ -98,12 +106,45 @@ def update_voice_settings(
 
     # Apply only non-None fields from the update body
     update_data = body.model_dump(exclude_unset=True)
+    _guard_opening_admin_fields(user, update_data)
+    if update_data.get("use_custom_interview_opening"):
+        from app.backend.services.interview_opening_service import validate_opening_template
+
+        issues = validate_opening_template(update_data.get("interview_opening_script"))
+        if issues:
+            raise HTTPException(status_code=422, detail=issues[0])
     for field, value in update_data.items():
         setattr(config, field, value)
 
     db.commit()
     db.refresh(config)
     return config
+
+
+@router.post("/settings/suggest-opening", response_model=InterviewOpeningSuggestResponse)
+async def suggest_interview_opening(
+    body: InterviewOpeningSuggestRequest,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: draft a custom interview opening with AI assist."""
+    from app.backend.services.interview_opening_service import (
+        load_tenant_opening_config,
+        suggest_interview_opening_draft,
+    )
+
+    config = db.execute(
+        select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == user.tenant_id)
+    ).scalar_one_or_none()
+    opening = load_tenant_opening_config(db, user.tenant_id)
+    company_about = body.company_about or opening.get("company_about_blurb")
+    script = await suggest_interview_opening_draft(
+        company_name=opening["company_name"],
+        bot_name=opening["bot_name"],
+        company_about=company_about,
+        tone=body.tone or "professional",
+    )
+    return InterviewOpeningSuggestResponse(script=script)
 
 
 # ─── Schedule Call ────────────────────────────────────────────────────────────
@@ -517,6 +558,9 @@ def get_voice_config_internal(
     if config is None:
         return {}
 
+    tenant = db.get(Tenant, tenant_id)
+    company_name = (tenant.brand_name or tenant.name if tenant else None) or "the company"
+
     return {
         "bot_name": config.bot_name,
         "bot_voice_gender": config.bot_voice_gender,
@@ -524,6 +568,9 @@ def get_voice_config_internal(
         "call_duration_max": config.call_duration_max,
         "call_duration_min": config.call_duration_min,
         "consent_script": config.consent_script,
+        "interview_opening_script": config.interview_opening_script,
+        "use_custom_interview_opening": bool(config.use_custom_interview_opening),
+        "company_name": company_name,
         "outbound_phone_number": config.outbound_phone_number,
         "caller_id_name": config.caller_id_name,
         "assessment_detail_level": config.assessment_detail_level,
