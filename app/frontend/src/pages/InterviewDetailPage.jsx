@@ -618,7 +618,10 @@ export default function InterviewDetailPage() {
                           <div key={i} className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl">
                             <span className="text-xs font-bold text-brand-600 mt-0.5">{i + 1}</span>
                             <div>
-                              <p className="text-sm text-slate-700">{q.question_text || q.question || q.text || q}</p>
+                              <p className="text-sm text-slate-700">{q.spoken_text || q.question_text || q.question || q.text || q}</p>
+                              {q.intent && (
+                                <p className="text-xs text-brand-700/80 mt-1">Intent: {q.intent}</p>
+                              )}
                               {(q.category || q.stage) && (
                                 <span className="text-xs text-slate-400 mt-1">{q.category || q.stage}</span>
                               )}

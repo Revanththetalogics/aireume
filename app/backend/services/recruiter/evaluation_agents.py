@@ -35,6 +35,17 @@ def _format_qa_pairs(questions_responses: list[dict[str, Any]]) -> str:
     return "\n\n".join(lines)
 
 
+def _format_hypotheses_block(jd_context: dict[str, Any]) -> str:
+    hypotheses = jd_context.get("hypotheses") or []
+    lines = []
+    for h in hypotheses[:6]:
+        if isinstance(h, dict) and h.get("label"):
+            lines.append(f"- {h.get('label')}")
+    if not lines:
+        return ""
+    return "HYPOTHESES TO VALIDATE:\n" + "\n".join(lines) + "\n"
+
+
 class TechnicalEvaluator:
     """Evaluates technical dimension from interview responses."""
 
@@ -49,9 +60,10 @@ class TechnicalEvaluator:
         """
         required_skills = jd_context.get("required_skills", [])
         qa_text = _format_qa_pairs(questions_responses)
+        hypothesis_block = _format_hypotheses_block(jd_context)
 
         prompt = f"""You are a technical interviewer evaluating a candidate.
-
+{hypothesis_block}
 REQUIRED SKILLS: {', '.join(str(s) for s in required_skills)}
 
 INTERVIEW Q&A:

@@ -265,7 +265,10 @@ def _build_orchestrator(metadata: dict[str, Any]):
             mode="kit",
             questions=len(kit_questions),
         )
-        return KitDrivenOrchestrator(orch_ctx, kit_questions), orch_ctx, "kit"
+        thread_transitions = interview_kit.get("thread_transitions") or {}
+        return KitDrivenOrchestrator(
+            orch_ctx, kit_questions, thread_transitions=thread_transitions
+        ), orch_ctx, "kit"
 
     log_step(
         logger,

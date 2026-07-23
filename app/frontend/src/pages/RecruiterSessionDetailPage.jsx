@@ -13,6 +13,8 @@ import {
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
 import InterviewStrategyPreview from '../components/InterviewStrategyPreview'
+import { flattenStrategyQuestions } from '../lib/liveScreenKitUtils'
+import { isInterviewKitReady } from '../lib/enrichmentUtils'
 
 const STATUS_CONFIG = {
   pending_strategy: { label: 'Preparing',   color: 'bg-slate-100 text-slate-700' },
@@ -52,20 +54,8 @@ function InfoField({ label, value, className = '' }) {
 }
 
 // Normalize the interview strategy payload into a flat questions array.
-// Handles: null, JSON string, object with { questions: [] }, or the array itself.
 function parseStrategyQuestions(strategy) {
-  if (!strategy) return []
-  let parsed = strategy
-  if (typeof strategy === 'string') {
-    try {
-      parsed = JSON.parse(strategy)
-    } catch {
-      return []
-    }
-  }
-  if (Array.isArray(parsed)) return parsed
-  if (parsed && Array.isArray(parsed.questions)) return parsed.questions
-  return []
+  return flattenStrategyQuestions(strategy)
 }
 
 export default function RecruiterSessionDetailPage() {
@@ -310,7 +300,16 @@ export default function RecruiterSessionDetailPage() {
         {/* Strategy Tab */}
         {!tabLoading && activeTab === 'strategy' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <InterviewStrategyPreview questions={parseStrategyQuestions(session.interview_strategy_json)} />
+            {['pending_strategy', 'strategy_ready'].includes(session.status) &&
+            !isInterviewKitReady(session.interview_strategy_json, session.interview_kit_status) ? (
+              <div className="text-center py-16 text-slate-400">
+                <Loader2 className="w-10 h-10 mx-auto mb-4 text-brand-500 animate-spin" />
+                <p className="text-sm font-medium text-slate-600">Generating personalized screen…</p>
+                <p className="text-xs mt-2">Interview kit is being tailored to this candidate.</p>
+              </div>
+            ) : (
+              <InterviewStrategyPreview questions={parseStrategyQuestions(session.interview_strategy_json)} />
+            )}
           </motion.div>
         )}
       </div>

@@ -88,17 +88,32 @@ class ScoreBreakdown(BaseModel):
 
 class ScoringCriteria(BaseModel):
     """Per-question scoring guidance for interviewer evaluation."""
-    strong: str = ""    # Deep, specific, evidence-backed answer with measurable outcomes
-    adequate: str = ""  # General understanding, some relevant experience but lacks specifics
-    weak: str = ""      # Surface-level, theoretical only, or unable to provide concrete examples
+    strong: str = ""
+    adequate: str = ""
+    weak: str = ""
+
+
+class ProbeTarget(BaseModel):
+    type: str = ""
+    skill: str = ""
+    company: str = ""
+    hypothesis_id: str = ""
+    probe_category: str = ""
 
 
 class InterviewQuestion(BaseModel):
     """Single interview question with evaluation guidance."""
     text: str
+    spoken_text: Optional[str] = None
+    intent: Optional[str] = None
+    probe_target: Optional[ProbeTarget] = None
     what_to_listen_for: List[str] = []
     follow_ups: List[str] = []
+    follow_up_intents: List[str] = []
     scoring_criteria: Optional[ScoringCriteria] = None
+
+    def spoken_line(self) -> str:
+        return (self.spoken_text or self.text or "").strip()
 
 class CandidateBriefing(BaseModel):
     """Pre-interview snapshot for the recruiter."""

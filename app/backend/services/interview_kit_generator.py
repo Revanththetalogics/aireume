@@ -29,7 +29,7 @@ from app.backend.services.profile_text_sanitizer import (
 )
 
 MAX_QUESTION_LEN = 200
-KIT_VERSION = 2
+KIT_VERSION = 3
 
 _DOMAIN_PATTERNS = {}  # kept for tests importing; detect moved to templates module
 
@@ -91,6 +91,9 @@ def _question_item(
     *,
     listen: List[str],
     follow_ups: Optional[List[str]] = None,
+    follow_up_intents: Optional[List[str]] = None,
+    intent: str = "",
+    probe_target: Optional[Dict[str, Any]] = None,
     strong: str = "",
     adequate: str = "",
     weak: str = "",
@@ -100,16 +103,26 @@ def _question_item(
     for fu in follow:
         if isinstance(fu, str):
             normalized_follow.append(fu)
-    return {
-        "text": _clamp_question(text),
+    spoken = _clamp_question(text)
+    intents = follow_up_intents or []
+    if not intents and normalized_follow:
+        intents = [f"If vague: {fu}" for fu in normalized_follow[:2]]
+    item = {
+        "text": spoken,
+        "spoken_text": spoken,
+        "intent": intent or f"Probe: {spoken[:120]}",
         "what_to_listen_for": listen[:4],
         "follow_ups": normalized_follow[:3],
+        "follow_up_intents": intents[:3],
         "scoring_criteria": {
             "strong": strong or "Specific example with personal contribution and outcome",
             "adequate": adequate or "Relevant but light on detail or personal role",
             "weak": weak or "Vague, theoretical, or cannot give a concrete example",
         },
     }
+    if probe_target:
+        item["probe_target"] = probe_target
+    return item
 
 
 def _is_probeable_skill(skill: str) -> bool:
@@ -172,19 +185,23 @@ def _build_hypotheses(
     role_title: str,
     role_family: str,
     years: float,
+    candidate_name: str = "",
+    company: str = "",
 ) -> List[Dict[str, Any]]:
     hypotheses: List[Dict[str, Any]] = []
     primary = matched[0] if matched else role_title or "core role requirements"
+    who = candidate_name or "Candidate"
+    where = f" at {company}" if company else ""
     hypotheses.append({
         "id": "H1",
-        "label": f"Can they own {primary} work end-to-end, not just support?",
+        "label": f"{who}{where} — do they personally own {primary}, not just support?",
         "priority": "must_have",
         "why": "Core role fit",
     })
     if missing:
         hypotheses.append({
             "id": "H2",
-            "label": f"Is {missing[0]} a real gap or hidden experience?",
+            "label": f"Is {missing[0]} a real gap for {who}, or experience not captured on the resume?",
             "priority": "risk",
             "why": "Top missing must-have from match report",
         })
@@ -220,14 +237,20 @@ def _build_briefing(
     *,
     hm_topics: Optional[List[Dict[str, str]]] = None,
     deal_breakers: Optional[List[str]] = None,
+    probe_areas: Optional[List[Dict[str, Any]]] = None,
+    company: str = "",
 ) -> Dict[str, Any]:
     name = profile.get("name") or "Candidate"
     role = profile.get("current_role") or "professional"
     years = profile.get("total_effective_years") or 0
-    strengths = [
-        f"Confirm depth on {s} with a concrete example"
-        for s in matched[:3]
-    ] or ["Open with recent role scope before drilling into skills"]
+    employer = company or profile.get("current_company") or "their latest role"
+    strengths = []
+    for s in matched[:3]:
+        strengths.append(
+            f"At {employer}, confirm hands-on depth on {s} — ask for their personal deliverable"
+        )
+    if not strengths:
+        strengths = [f"Open at {employer}: what {name.split()[0] if name else 'they'} owned day to day"]
     probes: List[str] = []
     for topic in (hm_topics or [])[:3]:
         q = (topic.get("question") or "").strip()
@@ -235,10 +258,15 @@ def _build_briefing(
             probes.append(f"HM focus: {q}")
     for db in (deal_breakers or [])[:2]:
         probes.append(f"Deal-breaker to verify: {db}")
+    for p in (probe_areas or [])[:4]:
+        if isinstance(p, dict) and p.get("reasoning"):
+            probes.append(str(p["reasoning"]))
     for s in missing[:3]:
-        if len(probes) >= 4:
+        if len(probes) >= 5:
             break
-        probes.append(f"Probe {s} — light on resume; ask for a concrete example")
+        probes.append(
+            f"I didn't see much {s} on the resume — ask where they've used it recently"
+        )
     if not probes:
         probes = ["Validate core role fit in the ownership thread"]
     notes = [
@@ -315,8 +343,14 @@ def generate_targeted_interview_kit(
     skill_analysis: Optional[Dict[str, Any]] = None,
     parsed_data: Optional[Dict[str, Any]] = None,
     kit_inputs: Optional[Dict[str, Any]] = None,
+    probe_areas: Optional[List[Dict[str, Any]]] = None,
+    candidate_intelligence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build a recruiter playbook with conversation threads (v2)."""
+    """Build a recruiter playbook with conversation threads (v3)."""
+    from app.backend.services.interview_kit_context import (
+        build_probe_areas_from_analysis,
+        build_resume_anchors,
+    )
     profile = sanitize_candidate_profile(profile or {})
     jd_analysis = dict(jd_analysis or {})
     jd_analysis["key_responsibilities"] = sanitize_jd_responsibilities(
@@ -380,9 +414,16 @@ def generate_targeted_interview_kit(
         role_title=role_title,
         role_family=role_family,
         years=years,
+        candidate_name=profile.get("name") or ctx.get("name", ""),
+        company=company,
     )
 
     kit_inputs = kit_inputs or {}
+    if candidate_intelligence:
+        probe_areas = probe_areas or candidate_intelligence.get("probe_areas")
+    if probe_areas is None:
+        probe_areas = build_probe_areas_from_analysis(matched=matched, missing=missing)
+    resume_anchors = build_resume_anchors(profile, parsed_data, probe_areas)
     hm_topics = kit_inputs.get("hm_screen_topics") or []
     deal_breakers = kit_inputs.get("deal_breakers") or []
     calibrated_must = kit_inputs.get("calibrated_must_haves") or []
@@ -448,10 +489,32 @@ def generate_targeted_interview_kit(
     briefing = _build_briefing(
         profile, matched, missing, role_family, screen_objective,
         hm_topics=hm_topics, deal_breakers=deal_breakers,
+        probe_areas=probe_areas, company=company,
     )
+
+    thread_transitions: Dict[str, str] = {}
+    if hm_topics and threads and len(threads) > 1:
+        thread_transitions["thread_hm_focus->thread_ownership"] = (
+            f"Thanks — that covers what the hiring manager wanted to hear. "
+            f"I'd like to dig into your work at {company or 'your latest company'} next."
+        )
+    if risk_skill:
+        thread_transitions["thread_ownership->thread_risk"] = (
+            f"That helps on your {primary_skill} work — I want to ask about {risk_skill} next."
+        )
+    thread_transitions["thread_risk->thread_judgment"] = (
+        "Last area — how you handle pressure with stakeholders."
+    )
+    if not risk_skill:
+        thread_transitions["thread_ownership->thread_judgment"] = (
+            "One more area — how you handle tough stakeholder situations."
+        )
 
     return {
         "kit_version": KIT_VERSION,
+        "kit_status": "ready",
+        "resume_anchors": resume_anchors,
+        "thread_transitions": thread_transitions,
         "screen_objective": screen_objective,
         "candidate_briefing": briefing,
         "hypotheses": hypotheses,
@@ -596,7 +659,8 @@ def count_kit_questions(interview_questions: Optional[Dict[str, Any]]) -> int:
 
 
 def is_playbook_kit(kit: Optional[Dict[str, Any]]) -> bool:
-    return bool(kit and kit.get("kit_version") == KIT_VERSION and kit.get("threads"))
+    version = (kit or {}).get("kit_version") or 0
+    return bool(kit and version >= 2 and kit.get("threads"))
 
 
 # Backward-compat alias used in tests

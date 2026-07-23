@@ -1362,3 +1362,31 @@ The recruiter-facing feature set needs **significant expansion** to make this a 
 
 *Audit completed: April 2026*
 *Report version: 1.0*
+
+---
+
+## Recruiter Voice Personalization (July 2026)
+
+**Status:** Implemented on branch `feature/recruiter-voice-personalization`
+
+### What changed
+
+- **Kit v3 schema:** Each step now carries `intent`, `spoken_text`, `follow_up_intents`, and optional `probe_target`. Legacy consumers fall back via `spoken_text || text`.
+- **CandidateIntelligenceService:** Persists a structured artifact (`candidate_intelligence_json`) after screening — resume anchors, probe priorities, claims to validate.
+- **RecruiterVoicePersonalizer:** Batch LLM pass rewrites skeleton questions into recruiter-quality spoken lines; deterministic minimal fallback when LLM fails.
+- **Anti-template lint:** `lint_interview_kit()` blocks repeated stems and forbidden phrases before persist.
+- **Hybrid voice model:** `KitDrivenOrchestrator` uses pre-generated lines; `TurnPersonalizer` phrases follow-ups and transitions in-call only.
+- **Placeholder UX:** Sync screening response no longer ships a full deterministic kit — UI shows “Generating personalized screen…” until enrichment completes.
+
+### Pipeline order
+
+```
+Screening → CandidateIntelligence → kit skeleton (v3)
+         → RecruiterVoicePersonalizer → lint → persist
+         → kit_strategy / voice dispatch → TurnPersonalizer (follow-ups only)
+         → hypothesis-aware post-call evaluators
+```
+
+### Operator note
+
+`PREBUILD_VOICE_STRATEGY` is deprecated in favor of kit v3 + personalizer as the single source of truth for voice question scripts.

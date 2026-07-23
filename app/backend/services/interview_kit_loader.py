@@ -25,23 +25,34 @@ CATEGORY_ORDER = (
 
 
 def _normalize_question_item(item: Any) -> dict[str, Any] | None:
+    from app.backend.services.interview_kit_quality import get_spoken_line
+
     if isinstance(item, str) and item.strip():
+        text = item.strip()
         return {
-            "text": item.strip(),
+            "text": text,
+            "spoken_text": text,
+            "intent": text,
             "what_to_listen_for": [],
             "follow_ups": [],
+            "follow_up_intents": [],
             "scoring_criteria": {},
+            "probe_target": {},
         }
     if isinstance(item, dict):
-        text = (item.get("text") or "").strip()
+        text = get_spoken_line(item)
         if not text:
             return None
         return {
             "text": text,
-            "intent": text,
+            "spoken_text": item.get("spoken_text") or text,
+            "intent": item.get("intent") or text,
             "what_to_listen_for": list(item.get("what_to_listen_for") or []),
             "follow_ups": list(item.get("follow_ups") or []),
+            "follow_up_intents": list(item.get("follow_up_intents") or []),
             "scoring_criteria": dict(item.get("scoring_criteria") or {}),
+            "probe_target": dict(item.get("probe_target") or {}),
+            "thread_id": item.get("thread_id") or "",
         }
     return None
 
@@ -77,6 +88,34 @@ def flatten_interview_kit(interview_questions: dict[str, Any]) -> list[dict[str,
                     **normalized,
                 }
             )
+
+    if not flat and isinstance(interview_questions.get("threads"), list):
+        kind_to_category = {
+            "ownership": "experience_deep_dive",
+            "risk": "technical",
+            "judgment": "behavioral",
+            "technical": "technical",
+        }
+        for thread in interview_questions["threads"]:
+            if not isinstance(thread, dict):
+                continue
+            tid = thread.get("id") or "thread"
+            kind = thread.get("kind") or "general"
+            category = kind_to_category.get(kind, "experience_deep_dive")
+            for index, raw in enumerate(thread.get("steps") or []):
+                normalized = _normalize_question_item(raw)
+                if not normalized:
+                    continue
+                normalized["thread_id"] = tid
+                flat.append(
+                    {
+                        "id": f"{tid}-{index}",
+                        "category": category,
+                        "category_key": tid,
+                        "index": index,
+                        **normalized,
+                    }
+                )
     return flat
 
 
@@ -92,8 +131,9 @@ def _extract_interview_questions_from_result(result: ScreeningResult) -> dict[st
         except json.JSONDecodeError:
             continue
         iq = payload.get("interview_questions")
-        if isinstance(iq, dict) and any(
-            isinstance(iq.get(k), list) and iq.get(k) for k in CATEGORY_ORDER
+        if isinstance(iq, dict) and (
+            any(isinstance(iq.get(k), list) and iq.get(k) for k in CATEGORY_ORDER)
+            or (isinstance(iq.get("threads"), list) and iq.get("threads"))
         ):
             logger.info(
                 "Interview kit loaded from screening_result=%s via %s",

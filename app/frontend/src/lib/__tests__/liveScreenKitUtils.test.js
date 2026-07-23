@@ -6,6 +6,9 @@ import {
   getKitReadiness,
   hasBriefingContent,
   flattenQuestions,
+  flattenStrategyQuestions,
+  getSpokenLine,
+  isKitV3,
   shouldWarnRoleMismatch,
   isPlaybookKit,
 } from '../liveScreenKitUtils'
@@ -73,5 +76,32 @@ describe('liveScreenKitUtils', () => {
   it('shouldWarnRoleMismatch below 40', () => {
     expect(shouldWarnRoleMismatch(0)).toBe(true)
     expect(shouldWarnRoleMismatch(75)).toBe(false)
+  })
+
+  it('isKitV3 detects v3 kits', () => {
+    expect(isKitV3({ kit_version: 3, threads: [] })).toBe(true)
+    expect(isKitV3({ kit_version: 2, threads: [] })).toBe(false)
+  })
+
+  it('getSpokenLine prefers spoken_text', () => {
+    expect(getSpokenLine({ spoken_text: 'Hi', text: 'Old' })).toBe('Hi')
+  })
+
+  it('flattenStrategyQuestions maps v3 threads', () => {
+    const questions = flattenStrategyQuestions({
+      kit_version: 3,
+      threads: [{
+        id: 'thread_ownership',
+        kind: 'ownership',
+        steps: [{
+          spoken_text: 'At Acme — what did you own?',
+          intent: 'Verify ownership',
+          what_to_listen_for: ['Personal scope'],
+        }],
+      }],
+    })
+    expect(questions).toHaveLength(1)
+    expect(questions[0].question_text).toContain('Acme')
+    expect(questions[0].intent).toBe('Verify ownership')
   })
 })

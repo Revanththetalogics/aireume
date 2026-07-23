@@ -274,6 +274,8 @@ class ScreeningResult(Base):
     narrative_error    = Column(Text, nullable=True)            # error details when failed (null when successful)
     interview_kit_status = Column(String(20), default="pending", server_default="pending")  # pending | processing | ready | fallback | skipped
     interview_kit_error = Column(Text, nullable=True)  # failure reason when interview_kit_status=fallback
+    candidate_intelligence_json = Column(Text, nullable=True)
+    candidate_intelligence_status = Column(String(32), nullable=True)  # pending | ready | failed
     voice_strategy_json = Column(Text, nullable=True)           # Pre-built AI voice interview plan (JSON)
     voice_strategy_status = Column(String(20), default="pending", server_default="pending")  # pending | processing | ready | fallback | skipped
     voice_strategy_config_hash = Column(String(64), nullable=True)  # Hash of duration/question config used

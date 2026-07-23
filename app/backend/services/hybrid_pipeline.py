@@ -1678,23 +1678,55 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     }
 
 
-def _placeholder_interview_kit(python_result: Dict[str, Any]) -> Dict[str, Any]:
-    """Deterministic kit placeholder for sync response while background kit LLM runs."""
-    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
+def _pending_interview_kit_shell() -> Dict[str, Any]:
+    """Minimal shell while background kit personalization runs."""
+    return {
+        "kit_version": 3,
+        "kit_status": "pending",
+        "threads": [],
+        "technical_questions": [],
+        "behavioral_questions": [],
+        "culture_fit_questions": [],
+        "experience_deep_dive_questions": [],
+        "candidate_briefing": {
+            "profile_snapshot": "Generating a personalized interview screen for this candidate…",
+            "strengths_to_confirm": [],
+            "areas_to_probe": [],
+            "context_notes": ["Interview kit is being personalized — refresh in a moment."],
+        },
+    }
 
-    return generate_targeted_interview_kit(
+
+def _placeholder_interview_kit(python_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic kit for sync fallback; prefer pending shell for immediate API response."""
+    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
+    from app.backend.services.candidate_intelligence_service import build_candidate_intelligence
+
+    ci = build_candidate_intelligence(
+        analysis_result=python_result,
+        parsed_data=python_result.get("parsed_data"),
+        gap_analysis=python_result.get("gap_analysis"),
+        fit_score=python_result.get("fit_score"),
+    )
+    kit = generate_targeted_interview_kit(
         profile=python_result.get("candidate_profile", {}),
         jd_analysis=python_result.get("jd_analysis", {}),
         skill_analysis=python_result.get("skill_analysis", {}),
         parsed_data=python_result.get("parsed_data"),
         kit_inputs=python_result.get("kit_inputs"),
+        candidate_intelligence=ci,
     )
+    return kit
+
+
+def _immediate_interview_kit_placeholder() -> Dict[str, Any]:
+    return _pending_interview_kit_shell()
 
 
 def _merge_immediate_pipeline_result(python_result: Dict[str, Any], narrative: Dict[str, Any]) -> Dict[str, Any]:
     """Merge narrative into python scoring; attach placeholder kit until background kit LLM completes."""
     merged = _merge_llm_into_result(python_result, narrative)
-    merged["interview_questions"] = _placeholder_interview_kit(python_result)
+    merged["interview_questions"] = _immediate_interview_kit_placeholder()
     return merged
 
 

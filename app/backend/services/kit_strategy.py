@@ -55,6 +55,7 @@ def strategy_from_kit(
     role_title: str = "",
     analysis: dict[str, Any] | None = None,
     parsed_data: dict[str, Any] | None = None,
+    candidate_intelligence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build recruiter-compatible strategy JSON from interview kit."""
     questions_flat = kit_questions_for_depth(
@@ -65,15 +66,25 @@ def strategy_from_kit(
     )
 
     briefing = interview_questions.get("candidate_briefing") or {}
+    priorities = (candidate_intelligence or {}).get("interview_priorities") or []
+    objective = (
+        "; ".join(priorities[:3])
+        if priorities
+        else (
+            f"Verify {candidate_name}'s fit for {role_title or 'the role'} "
+            "using personalized resume-driven screen questions."
+        )
+    )
     planned = []
     for idx, q in enumerate(questions_flat, start=1):
+        spoken = q.get("spoken_text") or q.get("text", "")
         planned.append(
             {
                 "sequence_number": idx,
                 "category": q.get("category", "technical"),
-                "question_text": q.get("text", ""),
+                "question_text": spoken,
                 "question_context": "; ".join(q.get("what_to_listen_for") or [])[:200],
-                "intent": q.get("intent") or q.get("text", ""),
+                "intent": q.get("intent") or spoken,
                 "scoring_criteria": q.get("scoring_criteria") or {},
                 "estimated_minutes": 2,
                 "target_skills": [],
@@ -84,12 +95,10 @@ def strategy_from_kit(
     return {
         "source": "interview_kit",
         "depth": depth,
-        "objective": (
-            f"Verify {candidate_name}'s fit for {role_title or 'the role'} "
-            "using JD- and resume-driven interview kit questions."
-        ),
+        "objective": objective,
         "focus_areas": list({q.get("category") for q in questions_flat if q.get("category")}),
         "candidate_briefing": briefing,
+        "thread_transitions": interview_questions.get("thread_transitions") or {},
         "planned_questions": planned,
         "questions": planned,
         "time_plan": {
@@ -130,6 +139,7 @@ def load_kit_strategy_for_screening(
     interview_questions: dict[str, Any] = {}
     analysis: dict[str, Any] = {}
     parsed: dict[str, Any] = {}
+    candidate_intelligence: dict[str, Any] | None = None
 
     if result:
         interview_questions = _extract_interview_questions_from_result(result)
@@ -141,6 +151,9 @@ def load_kit_strategy_for_screening(
             parsed = json.loads(result.parsed_data or "{}")
         except json.JSONDecodeError:
             parsed = {}
+        from app.backend.services.candidate_intelligence_service import ci_from_screening_row
+
+        candidate_intelligence = ci_from_screening_row(result)
         if not interview_questions:
             interview_questions = _build_analysis_fallback_kit(result, role_title=role_title)
 
@@ -151,4 +164,5 @@ def load_kit_strategy_for_screening(
         role_title=role_title,
         analysis=analysis,
         parsed_data=parsed,
+        candidate_intelligence=candidate_intelligence,
     )

@@ -50,19 +50,32 @@ function filterMissingSkills(missingSkills, roleTitle) {
 }
 
 export function normalizeQuestion(q) {
-  if (typeof q === 'string') return { text: q, what_to_listen_for: [], follow_ups: [] }
+  if (typeof q === 'string') return { text: q, spoken_text: q, intent: '', what_to_listen_for: [], follow_ups: [] }
   if (q && typeof q === 'object') {
+    const spoken = q.spoken_text || q.text || String(q)
     return {
-      text: q.text || String(q),
+      text: spoken,
+      spoken_text: spoken,
+      intent: q.intent || '',
       what_to_listen_for: q.what_to_listen_for || [],
       follow_ups: q.follow_ups || [],
+      follow_up_intents: q.follow_up_intents || [],
     }
   }
-  return { text: String(q), what_to_listen_for: [], follow_ups: [] }
+  return { text: String(q), spoken_text: String(q), intent: '', what_to_listen_for: [], follow_ups: [] }
+}
+
+export function getSpokenLine(step) {
+  if (!step) return ''
+  return (step.spoken_text || step.text || step.question_text || '').trim()
+}
+
+export function isKitV3(kit) {
+  return Boolean(kit && (kit.kit_version >= 3))
 }
 
 export function isPlaybookKit(kit) {
-  return Boolean(kit && kit.kit_version === 2 && Array.isArray(kit.threads) && kit.threads.length > 0)
+  return Boolean(kit && kit.kit_version >= 2 && Array.isArray(kit.threads) && kit.threads.length > 0)
 }
 
 const THREAD_KIND_TO_CATEGORY = {
@@ -368,6 +381,34 @@ export const THREAD_PRIORITY_META = {
   must_have: { label: 'Must-have', color: 'text-blue-700', bg: 'bg-blue-50', ring: 'ring-blue-200' },
   risk: { label: 'Risk / gap', color: 'text-amber-800', bg: 'bg-amber-50', ring: 'ring-amber-200' },
   nice_to_have: { label: 'Nice-to-have', color: 'text-slate-600', bg: 'bg-slate-50', ring: 'ring-slate-200' },
+}
+
+export function flattenStrategyQuestions(strategy) {
+  if (!strategy) return []
+  let parsed = strategy
+  if (typeof strategy === 'string') {
+    try {
+      parsed = JSON.parse(strategy)
+    } catch {
+      return []
+    }
+  }
+  if (Array.isArray(parsed)) return parsed
+  if (parsed && Array.isArray(parsed.questions)) return parsed.questions
+  if (parsed && Array.isArray(parsed.planned_questions)) return parsed.planned_questions
+  if (parsed && isPlaybookKit(parsed)) {
+    return flattenQuestions(parsed).map((item, idx) => ({
+      sequence_number: idx + 1,
+      category: item.category,
+      question_text: getSpokenLine(item.question),
+      spoken_text: getSpokenLine(item.question),
+      intent: item.question?.intent || '',
+      question_context: (item.question?.what_to_listen_for || []).join('; '),
+      what_to_listen_for: item.question?.what_to_listen_for || [],
+      follow_up_intents: item.question?.follow_up_intents || [],
+    }))
+  }
+  return []
 }
 
 export function flattenQuestions(interviewQuestions) {

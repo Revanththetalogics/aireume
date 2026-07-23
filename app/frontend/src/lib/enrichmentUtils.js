@@ -43,6 +43,19 @@ export function isKitPending(result) {
   return s === 'pending' || s === 'processing'
 }
 
+/** True when kit is ready to show (not generating). */
+export function isInterviewKitReady(kit, status) {
+  if (status === 'processing' || status === 'pending') return false
+  if (!kit) return false
+  if (kit.kit_status === 'pending') return false
+  const hasThreads = kit.kit_version >= 2 &&
+    Array.isArray(kit.threads) && kit.threads.length > 0
+  const hasLegacy = ['technical_questions', 'experience_deep_dive_questions', 'behavioral_questions'].some(
+    (k) => Array.isArray(kit[k]) && kit[k].length > 0,
+  )
+  return hasThreads || hasLegacy
+}
+
 /** True when kit status says done but question arrays are missing or empty in UI state. */
 export function needsKitHydration(result) {
   if (!result) return false

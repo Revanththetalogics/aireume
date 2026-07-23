@@ -1824,7 +1824,10 @@ async def dispatch_call(req: DispatchRequest):
             from app.voice_agent.kit_orchestrator import KitDrivenOrchestrator
             from app.voice_agent.tts_warmup import build_kit_warm_phrases
 
-            orchestrator = KitDrivenOrchestrator(orch_ctx, kit_questions)
+            thread_transitions = (req.interview_kit or {}).get("thread_transitions") or {}
+            orchestrator = KitDrivenOrchestrator(
+                orch_ctx, kit_questions, thread_transitions=thread_transitions
+            )
             logger.info(
                 "Using kit-driven orchestrator: session=%d questions=%d source=%s",
                 req.session_id,

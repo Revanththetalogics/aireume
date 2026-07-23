@@ -175,6 +175,30 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
     lang_instruction = lang_ctx.get("llm_instruction", "")
     lang_prefix = f"\n{lang_instruction}\n" if lang_instruction else ""
 
+    from app.backend.services.interview_kit_context import (
+        build_probe_areas_from_analysis,
+        build_resume_anchors,
+        format_resume_anchors_text,
+    )
+    probe_areas = context.get("probe_areas")
+    if probe_areas is None:
+        gap_analysis = context.get("gap_analysis") or {}
+        probe_areas = build_probe_areas_from_analysis(
+            matched=matched_must,
+            missing=missing_must,
+            gap_analysis=gap_analysis,
+            risk_signals=risk_flags_list,
+        )
+    resume_anchors = context.get("resume_anchors") or build_resume_anchors(
+        profile, context.get("parsed_data"), probe_areas
+    )
+    resume_anchors_text = format_resume_anchors_text(resume_anchors)
+    probe_areas_text = "\n".join(
+        f"  - [{p.get('priority', 'medium').upper()}] {p.get('category')}: {p.get('reasoning', '')}"
+        for p in (probe_areas or [])[:8]
+        if isinstance(p, dict)
+    ) or "  None"
+
     return {
         "role_title": role_title,
         "domain": domain,
@@ -209,6 +233,10 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "hm_notes": hm_notes,
         "success_criteria_90d": success_90d,
         "lang_prefix": lang_prefix,
+        "resume_anchors_text": resume_anchors_text,
+        "probe_areas_text": probe_areas_text,
+        "probe_areas": probe_areas,
+        "resume_anchors": resume_anchors,
     }
 
 
@@ -236,6 +264,12 @@ CALIBRATED MUST-HAVES: {ctx["calibrated_must_text"]}
 DEAL-BREAKERS TO VERIFY: {ctx["deal_breakers_text"]}
 HM NOTES: {ctx["hm_notes"]}
 90-DAY SUCCESS: {ctx["success_criteria_90d"]}
+
+RESUME ANCHORS (reference in every ownership/risk step):
+{ctx.get("resume_anchors_text", "")}
+
+PROBE AREAS (prioritize in thread order):
+{ctx.get("probe_areas_text", "")}
 
 Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this JSON:
 {{
@@ -293,6 +327,9 @@ RULES:
 - 8-12 total spoken steps across threads. Also populate technical_questions / experience_deep_dive_questions / behavioral_questions as flattened copies of thread steps for legacy UI.
 - Keep every spoken line under 200 characters — recruiters say these live on a call.
 - Sound like a senior recruiter: varied phrasing, no repeated stems, no "walk me through one project" more than once.
+- Reference candidate company/role from RESUME ANCHORS in ownership and risk steps.
+- FORBIDDEN: "This role needs", "The role calls for", "Describe a production scenario".
+- Each step needs intent (internal), spoken text (phone line), what_to_listen_for, follow_up_intents (1-2 coaching bullets).
 - Risk thread must target top MISSING must-have. Ownership thread anchors to candidate's latest company/role.
 - Behavioral/judgment: max 1 STAR-style question; never inject raw JD text into questions.
 - No placeholders, broken grammar, or "isn't on your resume" phrasing.
@@ -471,6 +508,60 @@ def _merge_interview_kit(
         return False
 
 
+async def _finalize_interview_kit(
+    interview_questions: dict,
+    llm_context: dict,
+    python_result: dict,
+) -> tuple[dict, str, str | None]:
+    """Personalize, lint, and normalize kit before persist."""
+    from app.backend.services.interview_kit_quality import lint_interview_kit
+    from app.backend.services.recruiter_voice_personalizer import personalize_kit
+    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
+    from app.backend.services.candidate_intelligence_service import (
+        build_candidate_intelligence,
+        merge_ci_into_kit_context,
+    )
+    from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
+
+    ci = build_candidate_intelligence(
+        analysis_result=python_result,
+        parsed_data=python_result.get("parsed_data"),
+        gap_analysis=python_result.get("gap_analysis"),
+        fit_score=python_result.get("fit_score"),
+        probe_areas=llm_context.get("probe_areas"),
+    )
+    ctx = merge_ci_into_kit_context({**llm_context, **python_result}, ci)
+
+    if not interview_questions or not interview_questions.get("threads"):
+        interview_questions = generate_targeted_interview_kit(
+            profile=python_result.get("candidate_profile", {}),
+            jd_analysis=python_result.get("jd_analysis", {}),
+            skill_analysis=python_result.get("skill_analysis", {}),
+            parsed_data=python_result.get("parsed_data"),
+            kit_inputs=python_result.get("kit_inputs"),
+            candidate_intelligence=ci,
+        )
+
+    interview_questions = await personalize_kit(interview_questions, ctx)
+    lint = lint_interview_kit(interview_questions)
+    kit_error = None
+    kit_status = "ready"
+
+    if not lint["ok"]:
+        log.warning("Kit lint failed after personalizer: %s", lint["issues"][:3])
+        interview_questions = _placeholder_interview_kit(python_result)
+        interview_questions = await personalize_kit(interview_questions, ctx)
+        lint = lint_interview_kit(interview_questions)
+        if not lint["ok"]:
+            kit_status = "fallback"
+            kit_error = "; ".join(i["message"] for i in lint["issues"][:3])
+
+    interview_questions["kit_version"] = interview_questions.get("kit_version") or 3
+    interview_questions["kit_status"] = kit_status
+    interview_questions["resume_anchors"] = ci.get("resume_anchors")
+    return interview_questions, kit_status, kit_error
+
+
 async def background_interview_kit(
     screening_result_id: int,
     tenant_id: int,
@@ -512,7 +603,6 @@ async def background_interview_kit(
                 generate_interview_kit_with_llm(llm_context),
                 timeout=INTERVIEW_KIT_TIMEOUT,
             )
-        interview_questions = kit
         if count_kit_questions(kit) <= 0:
             log.warning(
                 "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic kit",
@@ -520,6 +610,7 @@ async def background_interview_kit(
             )
             interview_questions = _placeholder_interview_kit(python_result)
         else:
+            interview_questions = kit
             log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
     except asyncio.TimeoutError:
         log.warning(
@@ -538,6 +629,24 @@ async def background_interview_kit(
         interview_questions = _placeholder_interview_kit(python_result)
 
     if interview_questions:
+        from app.backend.services.candidate_intelligence_service import build_candidate_intelligence
+
+        ci = build_candidate_intelligence(
+            analysis_result=python_result,
+            parsed_data=python_result.get("parsed_data"),
+            gap_analysis=python_result.get("gap_analysis"),
+            fit_score=python_result.get("fit_score"),
+            probe_areas=llm_context.get("probe_areas"),
+        )
+        _update_screening_fields(
+            screening_result_id,
+            tenant_id,
+            candidate_intelligence_json=json.dumps(ci, default=str),
+            candidate_intelligence_status="ready",
+        )
+        interview_questions, kit_status, kit_error = await _finalize_interview_kit(
+            interview_questions, llm_context, python_result
+        )
         _merge_interview_kit(
             screening_result_id,
             tenant_id,

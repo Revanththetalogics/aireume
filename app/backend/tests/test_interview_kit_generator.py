@@ -35,9 +35,9 @@ class TestGenerateTargetedInterviewKit:
         defaults.update(kwargs)
         return generate_targeted_interview_kit(**defaults)
 
-    def test_playbook_v2_structure(self):
+    def test_playbook_v3_structure(self):
         kit = self._kit()
-        assert kit["kit_version"] == 2
+        assert kit["kit_version"] == 3
         assert is_playbook_kit(kit)
         assert kit["screen_objective"]
         assert len(kit["hypotheses"]) >= 3
@@ -73,6 +73,8 @@ class TestGenerateTargetedInterviewKit:
         assert 4 <= len(all_steps) <= 12
         for step in all_steps:
             assert len(step["text"]) <= 200
+            assert step.get("intent")
+            assert step.get("spoken_text") or step.get("text")
 
     def test_no_duplicate_question_stems(self):
         kit = self._kit()
@@ -189,7 +191,7 @@ class TestGenerateTargetedInterviewKit:
         }
         refresh_interview_questions_in_analysis(analysis, force=True)
         iq = analysis["interview_questions"]
-        assert iq["kit_version"] == 2
+        assert iq["kit_version"] == 3
         assert iq["culture_fit_questions"] == []
         assert "isn't on your resume" not in iq["technical_questions"][0]["text"]
 

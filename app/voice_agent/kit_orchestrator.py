@@ -1,8 +1,8 @@
 """
 Kit-Driven Interview Orchestrator — asks pre-generated interview kit questions.
 
-No live LLM question generation during the call. Answers are recorded for
-post-call evaluation against kit scoring_criteria.
+Pre-generated spoken lines from kit v3; light in-call LLM only for follow-ups
+and thread transitions (TurnPersonalizer).
 """
 from __future__ import annotations
 
@@ -43,9 +43,13 @@ class KitQuestion:
     id: str
     category: str
     text: str
+    spoken_text: str = ""
     intent: str = ""
+    thread_id: str = ""
     what_to_listen_for: list[str] = field(default_factory=list)
     follow_ups: list[str] = field(default_factory=list)
+    follow_up_intents: list[str] = field(default_factory=list)
+    probe_target: dict[str, Any] = field(default_factory=dict)
     scoring_criteria: dict[str, str] = field(default_factory=dict)
 
 
@@ -56,27 +60,43 @@ class KitDrivenOrchestrator:
     _CONSENT_NEGATIVE = {"no", "nope", "don't", "not now", "i don't consent"}
     _RESCHEDULE_MARKERS = ["not a good time", "can we reschedule", "call back later", "busy right now"]
 
-    def __init__(self, ctx: OrchestratorContext, kit_questions: list[dict[str, Any]]):
+    def __init__(
+        self,
+        ctx: OrchestratorContext,
+        kit_questions: list[dict[str, Any]],
+        *,
+        thread_transitions: dict[str, str] | None = None,
+    ):
         self.ctx = ctx
         self.questions = [self._to_kit_question(q) for q in kit_questions if q.get("text")]
+        self.thread_transitions = thread_transitions or {}
         self._introduction_step = 0
         self._question_index = 0
         self._awaiting_follow_up = False
         self._current_follow_up: Optional[str] = None
+        self._pending_follow_up_generation = False
         self._last_category: Optional[str] = None
+        self._last_thread_id: Optional[str] = None
         self._current_question: Optional[KitQuestion] = None
+        self._last_answer_snippet: str = ""
         self.ctx.current_stage = InterviewStage.INTRODUCTION
 
     @staticmethod
     def _to_kit_question(raw: dict[str, Any]) -> KitQuestion:
-        text = str(raw.get("text", "")).strip()
+        spoken = str(raw.get("spoken_text") or raw.get("text", "")).strip()
+        text = spoken or str(raw.get("text", "")).strip()
+        intents = [str(i) for i in (raw.get("follow_up_intents") or []) if str(i).strip()]
         return KitQuestion(
             id=str(raw.get("id", "")),
             category=str(raw.get("category", "technical")),
             text=text,
+            spoken_text=spoken or text,
             intent=str(raw.get("intent") or text).strip(),
+            thread_id=str(raw.get("thread_id") or raw.get("category_key") or ""),
             what_to_listen_for=list(raw.get("what_to_listen_for") or []),
             follow_ups=[f for f in (raw.get("follow_ups") or []) if str(f).strip()],
+            follow_up_intents=intents,
+            probe_target=dict(raw.get("probe_target") or {}),
             scoring_criteria=dict(raw.get("scoring_criteria") or {}),
         )
 
@@ -106,8 +126,7 @@ class KitDrivenOrchestrator:
         }
 
     def should_play_filler(self) -> bool:
-        # Kit responses are deterministic — filler only adds dead air.
-        return False
+        return self._pending_follow_up_generation
 
     def pick_filler(self) -> str:
         from app.voice_agent.speech_pipeline import pick_immediate_ack
@@ -224,7 +243,16 @@ class KitDrivenOrchestrator:
         self._current_follow_up = None
 
         prefix = ""
-        if question.category != self._last_category:
+        if question.thread_id and question.thread_id != self._last_thread_id:
+            key = f"{self._last_thread_id}->{question.thread_id}" if self._last_thread_id else ""
+            transition = self.thread_transitions.get(key, "")
+            if transition:
+                prefix = transition + " "
+            elif question.category != self._last_category:
+                prefix = _CATEGORY_INTROS.get(question.category, "")
+            self._last_thread_id = question.thread_id
+            self._last_category = question.category
+        elif question.category != self._last_category:
             prefix = _CATEGORY_INTROS.get(question.category, "")
             self._last_category = question.category
         elif self._question_index > 0:
@@ -235,8 +263,8 @@ class KitDrivenOrchestrator:
         return response
 
     def _spoken_question(self, question: KitQuestion) -> str:
-        """Natural phrasing — same intent as kit text, slight spoken variation."""
-        text = question.text
+        """Prefer pre-personalized spoken_text from kit v3."""
+        text = question.spoken_text or question.text
         swaps = (
             ("Walk me through", "Can you walk me through"),
             ("You list", "I see you list"),
@@ -246,6 +274,28 @@ class KitDrivenOrchestrator:
             if text.startswith(src):
                 return dst + text[len(src):]
         return text
+
+    async def _resolve_follow_up(self, question: KitQuestion, answer: str) -> Optional[str]:
+        from app.voice_agent.turn_personalizer import answer_has_specifics, phrase_follow_up
+
+        if answer_has_specifics(answer):
+            return None
+        intents = question.follow_up_intents or question.follow_ups
+        if not intents:
+            return None
+        intent = str(intents[0])
+        self._pending_follow_up_generation = True
+        try:
+            follow_up = await phrase_follow_up(
+                intent=intent,
+                last_question=question.spoken_text or question.text,
+                last_answer=answer,
+                candidate_name=self.ctx.candidate_name,
+                probe_target=question.probe_target or None,
+            )
+        finally:
+            self._pending_follow_up_generation = False
+        return follow_up or intent
 
     async def _handle_kit_answer(self, text: str) -> Optional[str]:
         question = self._current_question
@@ -282,15 +332,17 @@ class KitDrivenOrchestrator:
         if hasattr(self.ctx, "answer_scores"):
             self.ctx.answer_scores.append(evaluation["score"])
 
-        if (
-            not self._awaiting_follow_up
-            and is_thin
-            and question.follow_ups
-        ):
-            self._awaiting_follow_up = True
-            self._current_follow_up = question.follow_ups[0]
-            self._record_bot(self._current_follow_up, question.category)
-            return self._current_follow_up
+        self._last_answer_snippet = text[:200]
+
+        if not self._awaiting_follow_up:
+            needs_follow_up = is_thin or not self._answer_is_specific(text)
+            if needs_follow_up:
+                follow_up = await self._resolve_follow_up(question, text)
+                if follow_up:
+                    self._awaiting_follow_up = True
+                    self._current_follow_up = follow_up
+                    self._record_bot(follow_up, question.category)
+                    return follow_up
 
         self._awaiting_follow_up = False
         self._current_follow_up = None
@@ -361,3 +413,9 @@ class KitDrivenOrchestrator:
         if telemetry is not None and hasattr(telemetry, "as_result_payload"):
             result["turn_telemetry"] = telemetry.as_result_payload()
         return result
+
+    @staticmethod
+    def _answer_is_specific(text: str) -> bool:
+        from app.voice_agent.turn_personalizer import answer_has_specifics
+
+        return answer_has_specifics(text)

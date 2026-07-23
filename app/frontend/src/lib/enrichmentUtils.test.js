@@ -11,6 +11,7 @@ import {
   needsKitHydration,
   needsEnrichmentRefetch,
   isReportCacheable,
+  isInterviewKitReady,
 } from './enrichmentUtils'
 
 describe('enrichmentUtils', () => {
@@ -142,5 +143,16 @@ describe('enrichmentUtils', () => {
     expect(phases.narrative).toBe('complete')
     expect(phases.interview_kit).toBe('active')
     expect(phases.voice_strategy).toBe('pending')
+  })
+
+  it('isInterviewKitReady false while processing', () => {
+    expect(isInterviewKitReady({ threads: [] }, 'processing')).toBe(false)
+  })
+
+  it('isInterviewKitReady true for v3 playbook kit', () => {
+    expect(isInterviewKitReady({
+      kit_version: 3,
+      threads: [{ steps: [{ spoken_text: 'At Acme — what did you own?' }] }],
+    }, 'ready')).toBe(true)
   })
 })

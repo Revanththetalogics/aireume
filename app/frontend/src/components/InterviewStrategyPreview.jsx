@@ -85,10 +85,27 @@ export default function InterviewStrategyPreview({ questions }) {
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 leading-relaxed">
-                        {q.question_text || '—'}
+                        {q.question_text || q.spoken_text || '—'}
                       </p>
+                      {q.intent && (
+                        <p className="text-xs text-brand-700/80 mt-1">
+                          Intent: {q.intent}
+                        </p>
+                      )}
                       {q.question_context && (
-                        <p className="text-xs text-slate-500 italic mt-1.5">{q.question_context}</p>
+                        <p className="text-xs text-slate-500 italic mt-1.5">Listen for: {q.question_context}</p>
+                      )}
+                      {Array.isArray(q.what_to_listen_for) && q.what_to_listen_for.length > 0 && (
+                        <ul className="text-xs text-slate-500 mt-1.5 list-disc list-inside space-y-0.5">
+                          {q.what_to_listen_for.map((item, j) => (
+                            <li key={j}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {Array.isArray(q.follow_up_intents) && q.follow_up_intents[0] && (
+                        <p className="text-xs text-amber-700/90 mt-1.5">
+                          If vague: {q.follow_up_intents[0]}
+                        </p>
                       )}
                     </div>
                   </div>

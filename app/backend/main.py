@@ -152,7 +152,7 @@ from app.backend.routes import queue_api
 from app.backend.routes import admin
 from app.backend.routes import upload
 from app.backend.routes import billing
-from app.backend.routes import interview_kit
+from app.backend.routes import interview_kit, interview_kit_regeneration
 from app.backend.routes import dashboard
 from app.backend.routes import onboarding
 from app.backend.routes import sso
@@ -561,6 +561,7 @@ app.include_router(nps.router)
 app.include_router(upload.router)
 app.include_router(billing.router)
 app.include_router(interview_kit.router)
+app.include_router(interview_kit_regeneration.router)
 app.include_router(dashboard.router)
 app.include_router(onboarding.router)
 app.include_router(sso.sso_router)

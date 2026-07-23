@@ -327,7 +327,32 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **Overall Assessments**: Recruiter recommendations
 - **Export Ready**: Formatted for hiring manager review
 
-### 8. Team Collaboration
+#### 7.4 Interview Kit v3 (Recruiter Voice Personalization)
+
+**Kit version:** `kit_version: 3` (v2 kits remain supported via `spoken_text || text` fallback)
+
+**Step fields:**
+
+| Field | Purpose |
+|-------|---------|
+| `intent` | Internal coaching — what the recruiter is trying to validate |
+| `spoken_text` | Exact line for live screen / voice bot (15–35 words) |
+| `follow_up_intents` | Coaching bullets when answers are vague |
+| `probe_target` | Link to probe area / skill being validated |
+| `what_to_listen_for` | Scoring signals for recruiter and evaluators |
+
+**Kit-level fields:** `threads`, `hypotheses`, `thread_transitions`, `candidate_briefing`, `resume_anchors`
+
+**Generation pipeline:**
+
+1. Python screening produces probe areas and `CandidateIntelligenceService` artifact
+2. Deterministic thread skeleton from hypotheses + gaps
+3. `RecruiterVoicePersonalizer` batch LLM rewrite
+4. `lint_interview_kit()` quality gate before persist
+5. Voice bot: pre-generated `spoken_text` + `TurnPersonalizer` for follow-ups/transitions only
+
+**API:** `POST /api/interview-kit/{screening_result_id}/regenerate-step` — re-personalize one step (recruiter/admin, tenant-scoped)
+
 
 #### 8.1 Multi-User Tenants
 - **Role-Based Access Control (RBAC)**:

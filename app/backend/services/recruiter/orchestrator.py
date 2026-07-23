@@ -292,9 +292,19 @@ class RecruiterOrchestrator:
         communication_eval = CommunicationEvaluator()
         cultural_eval = CulturalFitEvaluator()
 
+        strategy = self._load_json(interview_session.interview_strategy_json, {})
+        hypotheses = []
+        screening = context.get("screening_result", {}) or {}
+        analysis = screening.get("analysis_result") or {}
+        if isinstance(analysis, dict):
+            iq = analysis.get("interview_questions") or {}
+            if isinstance(iq, dict):
+                hypotheses = iq.get("hypotheses") or []
+
         jd_context = {
             "required_skills": context.get("role", {}).get("required_skills", []),
             "title": context.get("role", {}).get("title", ""),
+            "hypotheses": hypotheses,
         }
         company_context = {
             "title": context.get("role", {}).get("title", ""),
