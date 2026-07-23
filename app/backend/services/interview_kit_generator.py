@@ -228,6 +228,13 @@ def _build_hypotheses(
     return hypotheses
 
 
+def _clamp_briefing_line(text: str, max_len: int = 79) -> str:
+    text = " ".join((text or "").split())
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
 def _build_briefing(
     profile: Dict[str, Any],
     matched: List[str],
@@ -252,20 +259,28 @@ def _build_briefing(
     if not strengths:
         strengths = [f"Open at {employer}: what {name.split()[0] if name else 'they'} owned day to day"]
     probes: List[str] = []
+    probed_skills: set[str] = set()
     for topic in (hm_topics or [])[:3]:
         q = (topic.get("question") or "").strip()
         if q:
-            probes.append(f"HM focus: {q}")
+            probes.append(_clamp_briefing_line(f"HM focus: {q}"))
     for db in (deal_breakers or [])[:2]:
-        probes.append(f"Deal-breaker to verify: {db}")
+        probes.append(_clamp_briefing_line(f"Deal-breaker to verify: {db}"))
     for p in (probe_areas or [])[:4]:
         if isinstance(p, dict) and p.get("reasoning"):
-            probes.append(str(p["reasoning"]))
+            probes.append(_clamp_briefing_line(str(p["reasoning"])))
+            skill = p.get("skill")
+            if isinstance(skill, str) and skill.strip():
+                probed_skills.add(skill.strip().lower())
     for s in missing[:3]:
         if len(probes) >= 5:
             break
+        if isinstance(s, str) and s.lower() in probed_skills:
+            continue
         probes.append(
-            f"I didn't see much {s} on the resume — ask where they've used it recently"
+            _clamp_briefing_line(
+                f"I didn't see much {s} on the resume — ask where they've used it recently"
+            )
         )
     if not probes:
         probes = ["Validate core role fit in the ownership thread"]
