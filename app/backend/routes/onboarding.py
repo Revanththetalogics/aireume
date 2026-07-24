@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan, User
+from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan, User, OnboardingFunnelEvent
 from app.backend.services.metadata_utils import safe_parse_metadata
 
 VALID_INDUSTRIES = [
@@ -39,27 +39,67 @@ class ChecklistUpdateRequest(BaseModel):
     completed: bool = True
 
 
+class OnboardingEventRequest(BaseModel):
+    event: str
+    properties: dict | None = None
+
+
+ALLOWED_FUNNEL_EVENTS = {
+    "wizard_step_completed",
+    "wizard_skipped",
+    "wizard_completed",
+    "sample_data_loaded",
+    "checklist_item_completed",
+    "checklist_dismissed",
+    "readiness_completed",
+    "feature_guide_seen",
+    "invited_welcome_dismissed",
+    "login_success",
+    "preferences_updated",
+}
+
+
 DEFAULT_CHECKLIST = {
     "createdJob": False,
     "analyzedResume": False,
     "shortlistedCandidate": False,
     "invitedTeamMember": False,
     "sharedWithHM": False,
+    "reviewedSubscription": False,
+    "configuredRequisitionWorkflow": False,
+    "configuredInterviewSettings": False,
 }
 
 
 def _load_checklist(user) -> dict:
+    checklist, _ = _load_checklist_with_meta(user)
+    return checklist
+
+
+def _load_checklist_with_meta(user) -> tuple[dict, bool]:
     raw = getattr(user, "getting_started_progress", None) or "{}"
     try:
         data = json.loads(raw) if isinstance(raw, str) else (raw or {})
     except Exception:
         data = {}
-    merged = {**DEFAULT_CHECKLIST, **data}
-    return merged
+    dismissed = bool(data.get("_dismissed", False))
+    item_data = {k: v for k, v in data.items() if k in DEFAULT_CHECKLIST}
+    merged = {**DEFAULT_CHECKLIST, **item_data}
+    return merged, dismissed
 
 
-def _save_checklist(user, checklist: dict, db: Session):
-    user.getting_started_progress = json.dumps(checklist)
+def _save_checklist(user, checklist: dict, db: Session, *, dismissed: bool | None = None):
+    raw = getattr(user, "getting_started_progress", None) or "{}"
+    try:
+        existing = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception:
+        existing = {}
+    payload = {k: checklist.get(k, False) for k in DEFAULT_CHECKLIST}
+    if dismissed is not None:
+        payload["_dismissed"] = dismissed
+    elif existing.get("_dismissed"):
+        payload["_dismissed"] = True
+    user.getting_started_progress = json.dumps(payload)
     db.commit()
 
 
@@ -94,10 +134,13 @@ async def get_onboarding_status(
 
     completed_at = tenant.onboarding_completed_at.isoformat() if tenant.onboarding_completed_at else None
 
+    checklist, checklist_dismissed = _load_checklist_with_meta(current_user)
+
     return {
         "completed": tenant.onboarding_completed,
         "completed_at": completed_at,
-        "checklist": _load_checklist(current_user),
+        "checklist": checklist,
+        "checklist_dismissed": checklist_dismissed,
         "steps": {
             "organization": bool(metadata.get("industry") or metadata.get("company_size")),
             "plan_selected": tenant.plan_id is not None,
@@ -238,6 +281,8 @@ async def complete_onboarding(
 
     db.commit()
 
+    _record_funnel_event(db, current_user, "wizard_completed")
+
     return {
         "completed": True,
         "redirect_to": "/",
@@ -261,6 +306,8 @@ async def skip_onboarding(
     tenant.onboarding_completed = True
     tenant.onboarding_completed_at = datetime.now(timezone.utc)
     db.commit()
+
+    _record_funnel_event(db, current_user, "wizard_skipped")
 
     return {"completed": True, "skipped": True}
 
@@ -347,7 +394,8 @@ async def get_checklist(
     db: Session = Depends(get_db),
 ):
     db.refresh(current_user)
-    return {"checklist": _load_checklist(current_user)}
+    checklist, checklist_dismissed = _load_checklist_with_meta(current_user)
+    return {"checklist": checklist, "checklist_dismissed": checklist_dismissed}
 
 
 @router.patch("/checklist")
@@ -361,7 +409,46 @@ async def update_checklist_item(
     checklist = _load_checklist(current_user)
     checklist[body.key] = body.completed
     _save_checklist(current_user, checklist, db)
-    return {"checklist": checklist}
+    if body.completed:
+        _record_funnel_event(db, current_user, "checklist_item_completed", {"key": body.key})
+    checklist, checklist_dismissed = _load_checklist_with_meta(current_user)
+    return {"checklist": checklist, "checklist_dismissed": checklist_dismissed}
+
+
+@router.post("/checklist/dismiss")
+async def dismiss_checklist(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist workspace readiness checklist dismissal for the current user."""
+    checklist = _load_checklist(current_user)
+    _save_checklist(current_user, checklist, db, dismissed=True)
+    _record_funnel_event(db, current_user, "checklist_dismissed")
+    return {"checklist_dismissed": True}
+
+
+def _record_funnel_event(db: Session, user: User, event_name: str, properties: dict | None = None):
+    if event_name not in ALLOWED_FUNNEL_EVENTS:
+        return
+    db.add(OnboardingFunnelEvent(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        event_name=event_name,
+        properties_json=json.dumps(properties or {}),
+    ))
+    db.commit()
+
+
+@router.post("/events")
+async def record_onboarding_event(
+    body: OnboardingEventRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if body.event not in ALLOWED_FUNNEL_EVENTS:
+        raise HTTPException(status_code=400, detail=f"Invalid event: {body.event}")
+    _record_funnel_event(db, current_user, body.event, body.properties)
+    return {"recorded": True}
 
 
 def _build_parsed_data(name: str, email: str, skills: list, work_exp: list, education: list) -> str:
@@ -477,6 +564,11 @@ async def seed_sample_data(
                 "fit_score": analysis.get("fit_score"),
                 "status": r.status,
             })
+        checklist = _load_checklist(current_user)
+        checklist["analyzedResume"] = True
+        if any(c.get("status") == "shortlisted" for c in candidates):
+            checklist["shortlistedCandidate"] = True
+        _save_checklist(current_user, checklist, db)
         return {
             "success": True,
             "jd": {"id": existing_jd.id, "title": existing_jd.name},
@@ -620,6 +712,12 @@ async def seed_sample_data(
             "fit_score": spec["fit_score"],
             "status": spec["status"],
         })
+
+    checklist = _load_checklist(current_user)
+    checklist["analyzedResume"] = True
+    checklist["shortlistedCandidate"] = True
+    _save_checklist(current_user, checklist, db)
+    _record_funnel_event(db, current_user, "sample_data_loaded")
 
     return {
         "success": True,

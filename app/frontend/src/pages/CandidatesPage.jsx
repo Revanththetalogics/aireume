@@ -13,6 +13,8 @@ import ScoreBadge from '../components/ScoreBadge'
 import RecommendationBadge from '../components/RecommendationBadge'
 import QuickActions from '../components/QuickActions'
 import { useOnboarding } from '../contexts/OnboardingContext'
+import useFeatureGuide from '../hooks/useFeatureGuide'
+import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
 import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { StaggerContainer, StaggerItem } from '../components/motion'
@@ -341,6 +343,7 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
 export default function CandidatesPage() {
   const navigate = useNavigate()
   const { completeChecklistItem } = useOnboarding()
+  const candidatesGuide = useFeatureGuide('candidates')
   const { canWrite } = usePermissions()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialStatus = searchParams.get('status') || ''
@@ -1010,6 +1013,11 @@ export default function CandidatesPage() {
       </main>
       {selectedId && <CandidateDetail candidateId={selectedId} onClose={() => setSelectedId(null)} />}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      <FeatureGuideModal
+        open={candidatesGuide.open}
+        guide={candidatesGuide.guide}
+        onDismiss={candidatesGuide.dismiss}
+      />
     </div>
   )
 }

@@ -3,9 +3,11 @@ import { Loader2, Shield } from 'lucide-react'
 import { getRequisitionSettings, updateRequisitionSettings } from '../../lib/api'
 import { Button } from '../ui'
 import usePermissions from '../../hooks/usePermissions'
+import { useOnboarding } from '../../contexts/OnboardingContext'
 
 export default function RequisitionSettingsPanel() {
   const { isAdmin } = usePermissions()
+  const { completeChecklistItem } = useOnboarding()
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -40,6 +42,7 @@ export default function RequisitionSettingsPanel() {
         },
       })
       setSettings(updated)
+      completeChecklistItem('configuredRequisitionWorkflow')
     } catch {
       window.alert('Failed to save requisition settings')
     } finally {

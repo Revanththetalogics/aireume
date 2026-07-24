@@ -112,6 +112,7 @@ class User(Base):
 
     # Per-user getting-started checklist (JSON object of step -> bool)
     getting_started_progress = Column(Text, nullable=False, default="{}")
+    preferences_json         = Column(Text, nullable=False, default="{}")
 
     tenant       = relationship("Tenant", back_populates="users")
     team_member  = relationship("TeamMember", back_populates="user", uselist=False)
@@ -128,6 +129,21 @@ class User(Base):
     def is_platform_admin_compat(self) -> bool:
         """Backward compatibility: any non-null platform_role counts as platform admin."""
         return self.is_platform_admin or (self.platform_role is not None)
+
+
+class OnboardingFunnelEvent(Base):
+    """Product onboarding funnel events for analytics."""
+    __tablename__ = "onboarding_funnel_events"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    tenant_id       = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    event_name      = Column(String(100), nullable=False, index=True)
+    properties_json = Column(Text, nullable=False, default="{}")
+    created_at      = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    tenant = relationship("Tenant")
+    user   = relationship("User")
 
 
 class UserOAuthIdentity(Base):

@@ -3,15 +3,28 @@
 const ATTENTION_STATUSES = new Set(['in_progress', 'ringing', 'failed', 'no_answer'])
 const UPCOMING_STATUSES = new Set(['scheduled', 'pending_strategy', 'strategy_ready'])
 
+/** Sessions stuck in_progress after the call ended should not block the hub. */
+export function effectiveSessionStatus(session) {
+  if (
+    session.status === 'in_progress' &&
+    (session.duration_seconds > 0 || session.score != null)
+  ) {
+    return 'completed'
+  }
+  return session.status
+}
+
 export function bucketSessions(sessions) {
   const attention = []
   const upcoming = []
   const recent = []
 
   for (const s of sessions) {
-    if (ATTENTION_STATUSES.has(s.status)) attention.push(s)
-    else if (UPCOMING_STATUSES.has(s.status)) upcoming.push(s)
-    else recent.push(s)
+    const status = effectiveSessionStatus(s)
+    const normalized = status === s.status ? s : { ...s, status }
+    if (ATTENTION_STATUSES.has(status)) attention.push(normalized)
+    else if (UPCOMING_STATUSES.has(status)) upcoming.push(normalized)
+    else recent.push(normalized)
   }
 
   const byDate = (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)

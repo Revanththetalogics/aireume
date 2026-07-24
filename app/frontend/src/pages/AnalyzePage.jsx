@@ -26,6 +26,8 @@ import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 import { usePlanLimits } from '../components/PlanLockedInline'
 import { useNotification } from '../contexts/NotificationContext'
 import { useOnboarding } from '../contexts/OnboardingContext'
+import useFeatureGuide from '../hooks/useFeatureGuide'
+import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
 import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
 import UniversalWeightsPanel, { isValidWeightTotal } from '../components/UniversalWeightsPanel'
 import SkillClassificationEditor from '../components/SkillClassificationEditor'
@@ -150,6 +152,7 @@ export default function AnalyzePage() {
     trackQueueBatch,
   } = useNotification()
   const { completeChecklistItem } = useOnboarding()
+  const analyzeGuide = useFeatureGuide('analyze')
 
   // Step 1: Job Description
   const [jdText, setJdText] = useState('')
@@ -2054,6 +2057,11 @@ export default function AnalyzePage() {
           )}
         </div>
       )}
+      <FeatureGuideModal
+        open={analyzeGuide.open}
+        guide={analyzeGuide.guide}
+        onDismiss={analyzeGuide.dismiss}
+      />
     </div>
   )
 }

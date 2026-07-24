@@ -301,3 +301,41 @@ class TestInviteTeamOnboarding:
         data = response.json()
         assert data["invited_count"] >= 0
         assert len(data["results"]) == 1
+
+
+class TestChecklistDismiss:
+    def test_dismiss_persists_in_status(self, auth_client):
+        response = auth_client.post("/api/onboarding/checklist/dismiss")
+        assert response.status_code == 200
+        assert response.json()["checklist_dismissed"] is True
+
+        status = auth_client.get("/api/onboarding/status").json()
+        assert status["checklist_dismissed"] is True
+
+    def test_new_checklist_keys_accepted(self, auth_client):
+        for key in (
+            "reviewedSubscription",
+            "configuredRequisitionWorkflow",
+            "configuredInterviewSettings",
+        ):
+            response = auth_client.patch("/api/onboarding/checklist", json={"key": key, "completed": True})
+            assert response.status_code == 200
+            assert response.json()["checklist"][key] is True
+
+    def test_invalid_checklist_key_rejected(self, auth_client):
+        response = auth_client.patch("/api/onboarding/checklist", json={"key": "notARealKey", "completed": True})
+        assert response.status_code == 400
+
+
+class TestOnboardingEvents:
+    def test_record_event(self, auth_client):
+        response = auth_client.post("/api/onboarding/events", json={
+            "event": "feature_guide_seen",
+            "properties": {"modal_id": "analyze"},
+        })
+        assert response.status_code == 200
+        assert response.json()["recorded"] is True
+
+    def test_invalid_event_rejected(self, auth_client):
+        response = auth_client.post("/api/onboarding/events", json={"event": "not_real"})
+        assert response.status_code == 400

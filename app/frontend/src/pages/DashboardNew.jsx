@@ -72,7 +72,7 @@ function StackedStatusBar({ breakdown = {}, total = 0 }) {
   if (!segments.length) return null
 
   return (
-    <div className="flex w-full h-2.5 rounded-full overflow-hidden bg-slate-100">
+    <div className="flex w-full h-2.5 rounded-full overflow-hidden bg-slate-100 dark:bg-white/10">
       {segments.map(([status, count]) => (
         <div
           key={status}
@@ -102,7 +102,9 @@ function ScoreRingGauge({ score, size = 80, strokeWidth = 6 }) {
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2} cy={size / 2} r={radius}
-          fill="none" stroke="#e2e8f0" strokeWidth={strokeWidth}
+          fill="none"
+          className="stroke-slate-200 dark:stroke-white/15"
+          strokeWidth={strokeWidth}
         />
         <circle
           cx={size / 2} cy={size / 2} r={radius}
@@ -113,7 +115,7 @@ function ScoreRingGauge({ score, size = 80, strokeWidth = 6 }) {
           className="transition-all duration-700"
         />
       </svg>
-      <span className="absolute text-lg font-extrabold text-slate-900">
+      <span className="absolute text-lg font-extrabold text-slate-900 dark:text-dark-text-primary">
         {Math.round(score)}
       </span>
     </div>
@@ -254,10 +256,10 @@ function DashboardContent() {
   if (error && !summary) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-xl shadow-sm border border-red-100 p-12 text-center">
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-red-100 dark:border-red-900/40 p-12 text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-slate-900 mb-2">Failed to load dashboard</h2>
-          <p className="text-sm text-slate-500 mb-6">{safeStr(error)}</p>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-dark-text-primary mb-2">Failed to load dashboard</h2>
+          <p className="text-sm text-slate-500 dark:text-dark-text-secondary mb-6">{safeStr(error)}</p>
           <button
             onClick={fetchData}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors"
@@ -316,7 +318,7 @@ function DashboardContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* ── Getting Started Checklist ───────────────────────────────────── */}
+      {/* ── Workspace Readiness ───────────────────────────────────────────── */}
       <div className="mb-8">
         <GettingStarted />
       </div>
@@ -325,7 +327,7 @@ function DashboardContent() {
 
       {/* ── Improvement #4 & #6: Compact Header + Quick Actions ──────────── */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-brand-900 whitespace-nowrap">
+        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-brand-900 dark:text-brand-100 whitespace-nowrap">
           Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
@@ -343,7 +345,7 @@ function DashboardContent() {
           {canWrite && hasRequisitions ? (
           <button
             onClick={() => navigate('/requisitions')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-white/15 bg-white dark:bg-dark-card text-slate-700 dark:text-dark-text-primary rounded-lg hover:bg-slate-50 dark:hover:bg-dark-card-elevated hover:border-brand-300 dark:hover:border-brand-500/40 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
             Create Requisition
@@ -355,7 +357,7 @@ function DashboardContent() {
           {hasCompare ? (
           <button
             onClick={() => navigate('/compare')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-white/15 bg-white dark:bg-dark-card text-slate-700 dark:text-dark-text-primary rounded-lg hover:bg-slate-50 dark:hover:bg-dark-card-elevated hover:border-brand-300 dark:hover:border-brand-500/40 transition-colors font-medium text-sm"
           >
             <GitCompare className="w-4 h-4" />
             Compare Candidates
@@ -372,10 +374,10 @@ function DashboardContent() {
         {/* Pending Review */}
         <button
           onClick={() => navigate('/candidates?status=pending')}
-          className={`bg-amber-50 hover:bg-amber-100 border rounded-xl shadow-sm p-5 text-left transition-colors group ${
+          className={`bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50 border rounded-xl shadow-sm p-5 text-left transition-colors group ${
             pendingCount > 50
-              ? 'border-amber-300 ring-2 ring-orange-400'
-              : 'border-amber-200'
+              ? 'border-amber-300 dark:border-amber-700 ring-2 ring-orange-400 dark:ring-orange-600'
+              : 'border-amber-200 dark:border-amber-800'
           }`}
         >
           <div className="flex items-center justify-between">
@@ -384,7 +386,7 @@ function DashboardContent() {
               <p className="text-sm font-semibold text-amber-600 mt-1">Pending Review</p>
             </div>
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-              pendingCount > 50 ? 'bg-orange-200/60' : 'bg-amber-200/60'
+              pendingCount > 50 ? 'bg-orange-200/60 dark:bg-orange-900/35' : 'bg-amber-200/60 dark:bg-amber-900/35'
             }`}>
               <Clock className={`w-5 h-5 ${pendingCount > 50 ? 'text-orange-700' : 'text-amber-700'}`} />
             </div>
@@ -404,14 +406,14 @@ function DashboardContent() {
         {/* In Progress */}
         <button
           onClick={() => navigate('/candidates?narrative_status=processing')}
-          className="bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+          className="bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-xl shadow-sm p-5 text-left transition-colors group"
         >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-extrabold text-blue-700">{inProgressCount}</p>
               <p className="text-sm font-semibold text-blue-600 mt-1">In Progress</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-blue-200/60 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-blue-200/60 dark:bg-blue-900/35 flex items-center justify-center">
               <HourglassIcon className="w-5 h-5 text-blue-700" />
             </div>
           </div>
@@ -424,14 +426,14 @@ function DashboardContent() {
         {/* Shortlisted */}
         <button
           onClick={() => navigate('/candidates?status=shortlisted')}
-          className="bg-green-50 hover:bg-green-100 border border-green-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+          className="bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/50 border border-green-200 dark:border-green-800 rounded-xl shadow-sm p-5 text-left transition-colors group"
         >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-extrabold text-green-700">{shortlistedCount}</p>
               <p className="text-sm font-semibold text-green-600 mt-1">Shortlisted</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-green-200/60 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-green-200/60 dark:bg-green-900/35 flex items-center justify-center">
               <UserCheck className="w-5 h-5 text-green-700" />
             </div>
           </div>
@@ -444,14 +446,14 @@ function DashboardContent() {
         {/* Hired */}
         <button
           onClick={() => navigate('/candidates?status=hired')}
-          className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+          className="bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl shadow-sm p-5 text-left transition-colors group"
         >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-extrabold text-indigo-700">{hiredCount}</p>
               <p className="text-sm font-semibold text-indigo-600 mt-1">Hired</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-indigo-200/60 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-indigo-200/60 dark:bg-indigo-900/35 flex items-center justify-center">
               <Award className="w-5 h-5 text-indigo-700" />
             </div>
           </div>
@@ -464,14 +466,14 @@ function DashboardContent() {
         {/* Rejected */}
         <button
           onClick={() => navigate('/candidates?status=rejected')}
-          className="bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+          className="bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-xl shadow-sm p-5 text-left transition-colors group"
         >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-extrabold text-red-700">{rejectedCount}</p>
               <p className="text-sm font-semibold text-red-600 mt-1">Rejected</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-red-200/60 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-red-200/60 dark:bg-red-900/35 flex items-center justify-center">
               <XCircle className="w-5 h-5 text-red-700" />
             </div>
           </div>
@@ -484,7 +486,7 @@ function DashboardContent() {
 
       {/* ── Pipeline Summary (Improvements #1 & #2 — progress bars, urgency, sorting) */}
       <div className="mb-8">
-        <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-4">Requisitions</h2>
+        <h2 className="text-xl font-bold tracking-tight text-brand-900 dark:text-dark-text-primary mb-4">Requisitions</h2>
         {!hasRequisitions ? (
           <PlanUpgradeCard
             feature="requisitions"
@@ -505,10 +507,10 @@ function DashboardContent() {
               return (
                 <StaggerItem key={jd.requisition_id || jd.jd_id}>
                 <div
-                  className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 hover:shadow-md transition-shadow"
+                  className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-100 dark:border-white/10 p-5 hover:shadow-md dark:hover:ring-1 dark:hover:ring-white/10 transition-shadow"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 flex-1 mr-2">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-dark-text-primary leading-snug line-clamp-2 flex-1 mr-2">
                       {safeStr(jd.title || jd.jd_name) || 'Untitled requisition'}
                     </h3>
                     {avgScore != null && (
@@ -518,7 +520,7 @@ function DashboardContent() {
                     )}
                   </div>
 
-                  <p className="text-xs text-slate-500 mb-3">
+                  <p className="text-xs text-slate-500 dark:text-dark-text-secondary mb-3">
                     {total} candidate{total !== 1 ? 's' : ''}
                   </p>
 
@@ -526,7 +528,7 @@ function DashboardContent() {
                   <StackedStatusBar breakdown={breakdown} total={total} />
 
                   {/* Improvement #1: Compact legend with · separator */}
-                  <div className="mt-2 text-xs text-slate-500 flex flex-wrap items-center">
+                  <div className="mt-2 text-xs text-slate-500 dark:text-dark-text-secondary flex flex-wrap items-center">
                     {segments.flatMap(([status, count], i) => {
                       const el = (
                         <span key={status} className="inline-flex items-center gap-1">
@@ -542,7 +544,7 @@ function DashboardContent() {
 
                   {/* Improvement #2: Urgency indicator */}
                   {pendingInJd > 0 && (
-                    <p className="text-xs font-medium text-orange-600 mt-2 flex items-center gap-1">
+                    <p className="text-xs font-medium text-orange-600 dark:text-orange-300 mt-2 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       {pendingInJd} pending review
                     </p>
@@ -551,14 +553,14 @@ function DashboardContent() {
                   <div className="flex items-center gap-4 mt-4">
                     <Link
                       to={`/requisitions/${jd.requisition_id || jd.jd_id}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-300 hover:text-brand-700 dark:hover:text-brand-200"
                     >
                       Open requisition
                       <ChevronRight className="w-3 h-3" />
                     </Link>
                     <Link
                       to={`/requisitions/${jd.requisition_id || jd.jd_id}?tab=pipeline`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-200"
                     >
                       <Columns className="w-3 h-3" />
                       View Pipeline
@@ -571,10 +573,10 @@ function DashboardContent() {
             </StaggerContainer>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-10 text-center">
-            <LayoutTemplate className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-500">No active job descriptions.</p>
-            <p className="text-xs text-slate-400 mt-1 mb-4">Create one in JD Library to start screening candidates.</p>
+          <div className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-100 dark:border-white/10 p-10 text-center">
+            <LayoutTemplate className="w-10 h-10 text-slate-300 dark:text-dark-text-secondary mx-auto mb-3" />
+            <p className="text-sm font-medium text-slate-500 dark:text-dark-text-secondary">No active job descriptions.</p>
+            <p className="text-xs text-slate-400 dark:text-dark-text-secondary mt-1 mb-4">Create one in JD Library to start screening candidates.</p>
             <Link
               to="/requisitions"
               className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors"
@@ -589,12 +591,12 @@ function DashboardContent() {
       {/* ── Two-Column Layout: Activity + Metrics ──────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Left — Activity Feed (Improvement #5 — time groupings, clickable, action type) */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-100 dark:border-white/10 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold tracking-tight text-brand-900">Recent Activity</h2>
+            <h2 className="text-xl font-bold tracking-tight text-brand-900 dark:text-brand-100">Recent Activity</h2>
             <Link
               to="/candidates"
-              className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1"
+              className="text-xs font-semibold text-brand-600 dark:text-brand-300 hover:text-brand-700 dark:hover:text-brand-200 flex items-center gap-1"
             >
               View all
               <ArrowRight className="w-3 h-3" />
@@ -605,7 +607,7 @@ function DashboardContent() {
             <div className="space-y-0 max-h-96 overflow-y-auto pr-1">
               {activityGroups.map(group => (
                 <div key={group.label}>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1 sticky top-0 bg-white z-10">
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest px-3 pt-3 pb-1 sticky top-0 bg-white dark:bg-dark-card z-10">
                     {group.label}
                   </p>
                   {group.items.map((item, idx) => {
@@ -622,7 +624,7 @@ function DashboardContent() {
                           }
                         }}
                         className={`w-full text-left flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                          hasLink ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
+                          hasLink ? 'hover:bg-slate-50 dark:hover:bg-dark-card-elevated cursor-pointer' : 'cursor-default'
                         }`}
                       >
                         {/* Icon with action-based color */}
@@ -633,10 +635,10 @@ function DashboardContent() {
                         {/* Content */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-dark-text-secondary">
                               {actionLabel}
                             </span>
-                            <span className="text-sm font-semibold text-slate-900 truncate">
+                            <span className="text-sm font-semibold text-slate-900 dark:text-dark-text-primary truncate">
                               {safeStr(item.candidate_name) || 'Candidate'}
                             </span>
                             {item.fit_score != null && (
@@ -646,9 +648,9 @@ function DashboardContent() {
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-slate-400 truncate">{safeStr(item.jd_name) || 'JD'}</span>
-                            <span className="text-xs text-slate-300">·</span>
-                            <span className="text-xs text-slate-400 shrink-0">{timeAgo(item.timestamp)}</span>
+                            <span className="text-xs text-slate-400 dark:text-dark-text-secondary truncate">{safeStr(item.jd_name) || 'JD'}</span>
+                            <span className="text-xs text-slate-300 dark:text-dark-text-secondary">·</span>
+                            <span className="text-xs text-slate-400 dark:text-dark-text-secondary shrink-0">{timeAgo(item.timestamp)}</span>
                           </div>
                         </div>
 
@@ -664,21 +666,21 @@ function DashboardContent() {
             </div>
           ) : (
             <div className="text-center py-12">
-              <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm font-medium text-slate-500">No recent activity</p>
-              <p className="text-xs text-slate-400 mt-1">Analyses will appear here as they complete</p>
+              <Clock className="w-10 h-10 text-slate-300 dark:text-dark-text-secondary mx-auto mb-3" />
+              <p className="text-sm font-medium text-slate-500 dark:text-dark-text-secondary">No recent activity</p>
+              <p className="text-xs text-slate-400 dark:text-dark-text-secondary mt-1">Analyses will appear here as they complete</p>
             </div>
           )}
         </div>
 
         {/* Right — Weekly Metrics (Improvements #3 & #7 — ring gauge, trend indicators) */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-          <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-5">Weekly Metrics</h2>
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-100 dark:border-white/10 p-6">
+          <h2 className="text-xl font-bold tracking-tight text-brand-900 dark:text-brand-100 mb-5">Weekly Metrics</h2>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
             {/* Analyses This Week — Improvement #7: color-coded */}
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Analyses This Week</p>
+            <div className="bg-slate-50 dark:bg-dark-card-elevated rounded-xl p-4">
+              <p className="text-xs font-semibold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Analyses This Week</p>
               <p className={`text-3xl font-extrabold ${
                 (weeklyMetrics.analyses_this_week ?? 0) > 0 ? 'text-green-700' : 'text-slate-400'
               }`}>
@@ -687,14 +689,14 @@ function DashboardContent() {
             </div>
 
             {/* Improvement #3: Avg Fit Score — Ring Gauge */}
-            <div className="bg-slate-50 rounded-xl p-4 flex flex-col items-center justify-center">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Avg Fit Score</p>
+            <div className="bg-slate-50 dark:bg-dark-card-elevated rounded-xl p-4 flex flex-col items-center justify-center">
+              <p className="text-xs font-semibold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide mb-2">Avg Fit Score</p>
               <ScoreRingGauge score={weeklyMetrics.avg_fit_score} />
             </div>
 
             {/* Improvement #7: Shortlist Rate — color-coded */}
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shortlist Rate</p>
+            <div className="bg-slate-50 dark:bg-dark-card-elevated rounded-xl p-4">
+              <p className="text-xs font-semibold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Shortlist Rate</p>
               <p className={`text-3xl font-extrabold ${
                 weeklyMetrics.shortlist_rate == null ? 'text-slate-400' :
                 weeklyMetrics.shortlist_rate >= 40 ? 'text-green-700' :
@@ -708,8 +710,8 @@ function DashboardContent() {
             </div>
 
             {/* Active Pipeline mini-summary */}
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+            <div className="bg-slate-50 dark:bg-dark-card-elevated rounded-xl p-4">
+              <p className="text-xs font-semibold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">
                 Active Pipeline
               </p>
               {(() => {
@@ -729,11 +731,11 @@ function DashboardContent() {
                 const pipelineSegments = Object.entries(totals).filter(([, c]) => c > 0)
                 return (
                   <>
-                    <p className="text-2xl font-extrabold text-brand-900 mb-2">
-                      {grandTotal} <span className="text-sm font-semibold text-slate-400">candidates</span>
+                    <p className="text-2xl font-extrabold text-brand-900 dark:text-brand-100 mb-2">
+                      {grandTotal} <span className="text-sm font-semibold text-slate-400 dark:text-dark-text-secondary">candidates</span>
                     </p>
                     {grandTotal > 0 && (
-                      <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-200 mb-2">
+                      <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-200 dark:bg-white/10 mb-2">
                         {pipelineSegments.map(([status, count]) => (
                           <div
                             key={status}
@@ -746,7 +748,7 @@ function DashboardContent() {
                     )}
                     <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
                       {Object.entries(totals).map(([status, count]) => (
-                        <span key={status} className="flex items-center gap-1 text-[10px] text-slate-500">
+                        <span key={status} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-dark-text-secondary">
                           <span className={`w-1.5 h-1.5 rounded-full inline-block ${STATUS_BG[status] || 'bg-slate-300'}`} />
                           {STATUS_LABELS[status] || status} {count}
                         </span>
@@ -754,7 +756,7 @@ function DashboardContent() {
                     </div>
                     <Link
                       to="/pipeline"
-                      className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-indigo-600 hover:text-indigo-700"
+                      className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-200"
                     >
                       View Full Pipeline <ArrowRight className="w-2.5 h-2.5" />
                     </Link>
@@ -767,7 +769,7 @@ function DashboardContent() {
           {/* Top Skill Gaps */}
           {weeklyMetrics.top_skill_gaps && weeklyMetrics.top_skill_gaps.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Top Skill Gaps</p>
+              <p className="text-xs font-semibold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide mb-2">Top Skill Gaps</p>
               <div className="flex flex-wrap gap-2">
                 {weeklyMetrics.top_skill_gaps.map((skill, i) => (
                   <span
@@ -790,17 +792,17 @@ function DashboardContent() {
       {/* ── AI Interviews Widget ─────────────────────────────────────────── */}
       {hasAiInterviews && (
       <div className="mb-8">
-        <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 p-6">
+        <div className="bg-white dark:bg-dark-card rounded-2xl shadow-sm border border-neutral-200 dark:border-white/10 p-6">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
-                <Mic className="w-5 h-5 text-brand-600" />
+              <div className="w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-950/40 flex items-center justify-center">
+                <Mic className="w-5 h-5 text-brand-600 dark:text-brand-300" />
               </div>
-              <h2 className="text-xl font-bold tracking-tight text-neutral-900">AI Interviews</h2>
+              <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-dark-text-primary">AI Interviews</h2>
             </div>
             <Link
               to="/ai-interviews"
-              className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1"
+              className="text-xs font-semibold text-brand-600 dark:text-brand-300 hover:text-brand-700 dark:hover:text-brand-200 flex items-center gap-1"
             >
               View all
               <ArrowRight className="w-3 h-3" />
@@ -809,26 +811,26 @@ function DashboardContent() {
 
           {interviewStats ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-neutral-50 rounded-xl p-4">
-                <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Total Interviews</p>
-                <p className="text-2xl font-extrabold text-neutral-900">
+              <div className="bg-neutral-50 dark:bg-dark-card-elevated rounded-xl p-4">
+                <p className="text-xs font-semibold text-neutral-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Total Interviews</p>
+                <p className="text-2xl font-extrabold text-neutral-900 dark:text-dark-text-primary">
                   {(interviewStats.voice?.total ?? 0) + (interviewStats.recruiter?.total ?? 0)}
                 </p>
               </div>
-              <div className="bg-neutral-50 rounded-xl p-4">
-                <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Completed</p>
+              <div className="bg-neutral-50 dark:bg-dark-card-elevated rounded-xl p-4">
+                <p className="text-xs font-semibold text-neutral-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Completed</p>
                 <p className="text-2xl font-extrabold text-green-700">
                   {interviewStats.voice?.completed ?? 0}
                 </p>
               </div>
-              <div className="bg-neutral-50 rounded-xl p-4">
-                <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Quick</p>
+              <div className="bg-neutral-50 dark:bg-dark-card-elevated rounded-xl p-4">
+                <p className="text-xs font-semibold text-neutral-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Quick</p>
                 <p className="text-2xl font-extrabold text-blue-700">
                   {interviewStats.voice?.quick_count ?? 0}
                 </p>
               </div>
-              <div className="bg-neutral-50 rounded-xl p-4">
-                <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Standard / Deep</p>
+              <div className="bg-neutral-50 dark:bg-dark-card-elevated rounded-xl p-4">
+                <p className="text-xs font-semibold text-neutral-500 dark:text-dark-text-secondary uppercase tracking-wide mb-1">Standard / Deep</p>
                 <p className="text-2xl font-extrabold text-purple-700">
                   {interviewStats.voice?.deep_count ?? 0}
                 </p>
@@ -836,8 +838,8 @@ function DashboardContent() {
             </div>
           ) : (
             <div className="text-center py-8">
-              <Mic className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-              <p className="text-sm font-medium text-neutral-500">No AI interviews yet</p>
+              <Mic className="w-10 h-10 text-neutral-300 dark:text-dark-text-secondary mx-auto mb-3" />
+              <p className="text-sm font-medium text-neutral-500 dark:text-dark-text-secondary">No AI interviews yet</p>
               <Link
                 to="/ai-interviews"
                 className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-all duration-200 shadow-sm"

@@ -38,7 +38,7 @@ export default function Sheet({ isOpen, onClose, children, maxWidth = 'max-w-2xl
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-            className={`hidden md:block absolute right-0 top-0 bottom-0 w-full ${maxWidth} bg-white dark:bg-dark-card shadow-2xl overflow-y-auto ml-auto`}
+            className={`hidden md:flex md:flex-col absolute right-0 top-0 bottom-0 w-full ${maxWidth} bg-white dark:bg-dark-card shadow-2xl overflow-hidden ml-auto`}
           >
             {children}
           </motion.div>

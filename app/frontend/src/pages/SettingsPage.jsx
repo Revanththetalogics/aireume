@@ -29,8 +29,12 @@ import {
   Plug,
   Mic,
   Palette,
+  ListChecks,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useOnboarding } from '../contexts/OnboardingContext'
+import { useUserPreferences } from '../contexts/UserPreferencesContext'
+import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useSubscription } from '../hooks/useSubscription'
 import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice, getTenantBranding, updateTenantBranding } from '../lib/api'
 import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
@@ -38,6 +42,7 @@ import { formatPlanPrice, isSalesLedPlan, SALES_CONTACT_EMAIL } from '../lib/pla
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
 import RequisitionSettingsPanel from '../components/settings/RequisitionSettingsPanel'
+import WorkspaceSetupPanel from '../components/settings/WorkspaceSetupPanel'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -300,6 +305,8 @@ export default function SettingsPage() {
     isFeatureAvailable,
     getRemainingAnalyses,
   } = useSubscription()
+  const { completeChecklistItem } = useOnboarding()
+  const { preferences, updatePreferences } = useUserPreferences()
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab') || 'subscription'
   const [activeTab, setActiveTab] = useState(initialTab)
@@ -367,6 +374,12 @@ export default function SettingsPage() {
   }, [activeTab, fetchInvoices])
 
   useEffect(() => {
+    if (activeTab === 'subscription' && isAdmin) {
+      completeChecklistItem('reviewedSubscription')
+    }
+  }, [activeTab, isAdmin, completeChecklistItem])
+
+  useEffect(() => {
     if (activeTab !== 'branding' || !isAdmin) return
     setBrandingLoading(true)
     getTenantBranding()
@@ -397,21 +410,36 @@ export default function SettingsPage() {
     }
   }
 
-  // Profile form state
+  // Profile / notification form state (synced from persisted preferences)
   const [profile, setProfile] = useState({
     name: user?.email?.split('@')[0] || '',
     email: user?.email || '',
     notifications: {
       emailOnComplete: true,
       emailOnBatchComplete: true,
-      marketing: false
-    }
+      marketing: false,
+    },
   })
+
+  useEffect(() => {
+    if (preferences?.notifications) {
+      setProfile((prev) => ({
+        ...prev,
+        notifications: { ...prev.notifications, ...preferences.notifications },
+      }))
+    }
+  }, [preferences?.notifications])
 
   const handleSaveProfile = async () => {
     setSaving(true)
-    await new Promise(r => setTimeout(r, 500))
-    setSaving(false)
+    try {
+      await updatePreferences({ notifications: profile.notifications })
+      trackOnboardingEvent('preferences_updated')
+    } catch (err) {
+      window.alert(getUserFriendlyError(err) || 'Failed to save notification preferences')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleResetUsage = async () => {
@@ -447,6 +475,7 @@ export default function SettingsPage() {
   }
 
   const tabs = [
+    ...(isAdmin ? [{ id: 'setup', label: 'Setup', icon: ListChecks }] : []),
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
@@ -506,6 +535,10 @@ export default function SettingsPage() {
 
         {/* Main Content */}
         <div className="flex-1 space-y-6">
+          {activeTab === 'setup' && isAdmin && (
+            <WorkspaceSetupPanel />
+          )}
+
           {/* Subscription Tab */}
           {activeTab === 'subscription' && (
             <>

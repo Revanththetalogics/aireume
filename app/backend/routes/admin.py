@@ -1617,6 +1617,20 @@ def get_platform_metrics_overview(
         UsageLog.action.in_(["resume_analysis", "batch_analysis"])
     ).scalar() or 0
 
+    from app.backend.models.db_models import OnboardingFunnelEvent
+    funnel_event_counts = {}
+    for event_name in (
+        "wizard_completed",
+        "wizard_skipped",
+        "sample_data_loaded",
+        "checklist_dismissed",
+        "readiness_completed",
+        "feature_guide_seen",
+    ):
+        funnel_event_counts[event_name] = db.query(sa_func.count(OnboardingFunnelEvent.id)).filter(
+            OnboardingFunnelEvent.event_name == event_name
+        ).scalar() or 0
+
     return {
         # Flat fields for AdminOverviewPage
         "active_users": total_users,
@@ -1640,6 +1654,7 @@ def get_platform_metrics_overview(
             "verified_users": verified_users,
             "tenants_with_first_analysis": tenants_with_analysis,
             "completion_rate_pct": round((onboarding_completed / total_tenants * 100) if total_tenants else 0, 1),
+            "events": funnel_event_counts,
         },
     }
 

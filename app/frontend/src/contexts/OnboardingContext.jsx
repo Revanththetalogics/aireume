@@ -1,19 +1,21 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { getOnboardingStatus, completeOnboarding as completeOnboardingAPI, skipOnboarding as skipOnboardingAPI, getOnboardingChecklist, updateOnboardingChecklistItem } from '../lib/api'
+import {
+  getOnboardingStatus,
+  completeOnboarding as completeOnboardingAPI,
+  skipOnboarding as skipOnboardingAPI,
+  updateOnboardingChecklistItem,
+  dismissOnboardingChecklist,
+} from '../lib/api'
+import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useAuth } from './AuthContext'
+import { DEFAULT_READINESS_CHECKLIST } from '../lib/workspaceReadiness'
 
 const OnboardingContext = createContext(null)
 
 const STORAGE_KEY = 'aria_onboarding'
 const CHECKLIST_KEY = 'aria_getting_started'
 
-const DEFAULT_CHECKLIST = {
-  createdJob: false,
-  analyzedResume: false,
-  shortlistedCandidate: false,
-  invitedTeamMember: false,
-  sharedWithHM: false,
-}
+const DEFAULT_CHECKLIST = DEFAULT_READINESS_CHECKLIST
 
 function loadFromStorage(key, fallback) {
   try {
@@ -56,6 +58,9 @@ export function OnboardingProvider({ children }) {
           setIsOnboardingComplete(data.completed)
           if (data.checklist) {
             setChecklist((prev) => ({ ...prev, ...data.checklist }))
+          }
+          if (typeof data.checklist_dismissed === 'boolean') {
+            setChecklistDismissed(data.checklist_dismissed)
           }
           setStatusLoading(false)
         }
@@ -134,8 +139,14 @@ export function OnboardingProvider({ children }) {
     return Object.values(checklist).every(Boolean)
   }, [checklist])
 
-  const dismissChecklist = useCallback(() => {
+  const dismissChecklist = useCallback(async () => {
     setChecklistDismissed(true)
+    try {
+      await dismissOnboardingChecklist()
+      trackOnboardingEvent('checklist_dismissed')
+    } catch {
+      // Keep local dismiss even if API fails
+    }
   }, [])
 
   // Mark onboarding as complete on the backend and locally

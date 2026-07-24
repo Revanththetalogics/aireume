@@ -6,6 +6,7 @@ import {
 import { getVoiceSettings, updateVoiceSettings, getRecruiterConfig, updateRecruiterConfig } from '../../lib/api'
 import { Button, Card } from '../ui'
 import { INTERVIEW } from '../../lib/uxLabels'
+import { useOnboarding } from '../../contexts/OnboardingContext'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -28,6 +29,7 @@ const inputClass = 'w-full px-3.5 py-2.5 bg-white dark:bg-dark-card rounded-xl r
 
 export default function InterviewSettingsPanel() {
   const navigate = useNavigate()
+  const { completeChecklistItem } = useOnboarding()
   const [config, setConfig] = useState(null)
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -64,6 +66,7 @@ export default function InterviewSettingsPanel() {
       const updated = { voice: results.voice || draft.voice, recruiter: results.recruiter || draft.recruiter }
       setConfig(updated)
       setDraft(updated)
+      completeChecklistItem('configuredInterviewSettings')
     } catch (err) {
       setError(err.message || 'Failed to save')
     } finally {

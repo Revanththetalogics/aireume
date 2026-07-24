@@ -138,12 +138,23 @@ async def suggest_interview_opening(
     ).scalar_one_or_none()
     opening = load_tenant_opening_config(db, user.tenant_id)
     company_about = body.company_about or opening.get("company_about_blurb")
-    script = await suggest_interview_opening_draft(
-        company_name=opening["company_name"],
-        bot_name=opening["bot_name"],
-        company_about=company_about,
-        tone=body.tone or "professional",
-    )
+    try:
+        script = await suggest_interview_opening_draft(
+            company_name=opening["company_name"],
+            bot_name=opening["bot_name"],
+            company_about=company_about,
+            tone=body.tone or "professional",
+        )
+    except Exception as exc:
+        logger.exception("suggest-opening failed for tenant %s: %s", user.tenant_id, exc)
+        from app.backend.services.interview_opening_service import default_opening_text
+
+        script = default_opening_text(
+            candidate_name="there",
+            role_title="open role",
+            company_name=opening["company_name"],
+            bot_name=opening["bot_name"],
+        )
     return InterviewOpeningSuggestResponse(script=script)
 
 
@@ -243,6 +254,18 @@ def list_voice_sessions(
 
     query = query.order_by(VoiceScreeningSession.created_at.desc()).limit(limit).offset(offset)
     sessions = db.execute(query).scalars().all()
+
+    # Heal stale rows: calls that finished but never got status=completed
+    stale_fixed = False
+    for s in sessions:
+        if s.status != "in_progress":
+            continue
+        if s.assessment_json or (s.duration_seconds and s.duration_seconds > 0):
+            s.status = "completed"
+            s.ended_at = s.ended_at or s.started_at or datetime.now(timezone.utc)
+            stale_fixed = True
+    if stale_fixed:
+        db.commit()
 
     # Compute call_count per candidate in batch
     candidate_ids = list({s.candidate_id for s in sessions})

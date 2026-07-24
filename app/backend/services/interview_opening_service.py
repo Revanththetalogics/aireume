@@ -34,7 +34,7 @@ Requirements:
 - Mention the role title
 - Ask if the candidate has a few minutes
 - Do NOT mention recording or consent (that comes in a separate step)
-- Use exactly these placeholders where appropriate: {candidate_first_name}, {role_title}, {company_name}, {bot_name}
+- Use exactly these placeholders where appropriate: {{candidate_first_name}}, {{role_title}}, {{company_name}}, {{bot_name}}
 - English only
 
 Company: {company_name}

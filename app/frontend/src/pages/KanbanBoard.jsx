@@ -5,6 +5,8 @@ import EmptyState from '../components/EmptyState'
 import { getCandidatePipeline, updateResultStatus } from '../lib/api'
 import { getScoreColor, PIPELINE_STAGES } from '../lib/constants'
 import usePermissions from '../hooks/usePermissions'
+import useFeatureGuide from '../hooks/useFeatureGuide'
+import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 
 /** Coerce any value to a render-safe string. */
@@ -132,6 +134,7 @@ function ConfirmDialog({ candidateName, targetLabel, onConfirm, onCancel }) {
 export default function KanbanBoard() {
   const navigate = useNavigate()
   const { canWrite } = usePermissions()
+  const pipelineGuide = useFeatureGuide('pipeline')
   const [columns, setColumns] = useState({})
   const [counts, setCounts] = useState({})
   const [loading, setLoading] = useState(true)
@@ -416,6 +419,11 @@ export default function KanbanBoard() {
           onDone={() => setToast(null)}
         />
       )}
+      <FeatureGuideModal
+        open={pipelineGuide.open}
+        guide={pipelineGuide.guide}
+        onDismiss={pipelineGuide.dismiss}
+      />
     </div>
   )
 }

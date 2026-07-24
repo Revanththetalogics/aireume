@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 
 import { useOnboarding } from '../contexts/OnboardingContext'
+import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useAuth } from '../contexts/AuthContext'
 import {
   updateOrganization,
@@ -472,13 +473,23 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
 
 /* ─── Step 4: Get Started ──────────────────────────────────────── */
 
-function StepGetStarted({ onComplete, onExploreSample }) {
+function StepGetStarted({ onComplete, onExploreSample, onUploadFirst }) {
   const [loading, setLoading] = useState(false)
+  const [sampleLoading, setSampleLoading] = useState(false)
 
   const handleComplete = async () => {
     setLoading(true)
     await onComplete()
-    // Navigation is handled by the parent after onComplete
+  }
+
+  const handleSample = async () => {
+    setSampleLoading(true)
+    await onExploreSample()
+  }
+
+  const handleUpload = async () => {
+    setLoading(true)
+    await onUploadFirst()
   }
 
   return (
@@ -498,40 +509,45 @@ function StepGetStarted({ onComplete, onExploreSample }) {
         <PartyPopper className="w-16 h-16 text-amber-500 mx-auto" />
       </motion.div>
 
-      <h2 className="text-2xl font-bold text-slate-900 mb-2">You're all set!</h2>
-      <p className="text-slate-500 mb-8">Your workspace is ready. Start screening candidates in minutes.</p>
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">You&apos;re all set!</h2>
+      <p className="text-slate-500 mb-8">Choose how you want to start — we recommend sample data for a quick tour.</p>
 
       <div className="w-full max-w-sm space-y-3 mb-8">
         <button
-          onClick={onExploreSample}
-          className="w-full flex items-center gap-3 p-4 rounded-xl border border-slate-200 hover:border-brand-300 hover:bg-brand-50/50 transition-all text-left"
+          onClick={handleSample}
+          disabled={sampleLoading || loading}
+          className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-brand-300 bg-brand-50/50 hover:bg-brand-50 transition-all text-left relative"
         >
+          <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide text-brand-600 bg-white px-2 py-0.5 rounded-full ring-1 ring-brand-200">
+            Recommended
+          </span>
           <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
             <FileText className="w-5 h-5 text-amber-600" />
           </div>
           <div>
             <p className="font-medium text-slate-800">Explore sample data</p>
-            <p className="text-sm text-slate-500">Try ARIA with pre-loaded examples</p>
+            <p className="text-sm text-slate-500">Sample JD + 3 screened candidates</p>
           </div>
         </button>
 
         <button
-          onClick={handleComplete}
+          onClick={handleUpload}
+          disabled={sampleLoading || loading}
           className="w-full flex items-center gap-3 p-4 rounded-xl border border-slate-200 hover:border-brand-300 hover:bg-brand-50/50 transition-all text-left"
         >
           <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
             <Upload className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <p className="font-medium text-slate-800">Upload your first JD</p>
-            <p className="text-sm text-slate-500">Start with your own job description</p>
+            <p className="font-medium text-slate-800">Start with your own JD</p>
+            <p className="text-sm text-slate-500">Go to Analyze or Requisitions</p>
           </div>
         </button>
       </div>
 
       <button
         onClick={handleComplete}
-        disabled={loading}
+        disabled={loading || sampleLoading}
         className="w-full max-w-xs flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700 transition-colors shadow-brand disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {loading ? (
@@ -552,10 +568,13 @@ function StepGetStarted({ onComplete, onExploreSample }) {
 export default function OnboardingWizard() {
   const { isOnboardingComplete, markOnboardingComplete, skipOnboarding } = useOnboarding()
   const { tenant } = useAuth()
+  const { isFeatureAvailable } = useSubscription()
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [sampleSeeded, setSampleSeeded] = useState(false)
   const [error, setError] = useState(null)
+
+  const hasRequisitions = isFeatureAvailable('requisitions')
 
   // If onboarding is already complete, don't render
   if (isOnboardingComplete) return null
@@ -564,17 +583,23 @@ export default function OnboardingWizard() {
     setError(null)
     try {
       await skipOnboarding()
+      trackOnboardingEvent('wizard_skipped')
       navigate('/')
     } catch {
       setError('Could not skip onboarding. Please try again.')
     }
   }
 
+  const finishOnboarding = async (redirectTo = '/') => {
+    await markOnboardingComplete()
+    trackOnboardingEvent('wizard_completed')
+    navigate(redirectTo)
+  }
+
   const handleComplete = async () => {
     setError(null)
     try {
-      await markOnboardingComplete()
-      navigate('/')
+      await finishOnboarding('/')
     } catch (err) {
       setError(err?.response?.data?.detail || 'Could not complete onboarding.')
     }
@@ -585,11 +610,26 @@ export default function OnboardingWizard() {
       try {
         await seedSampleData()
         setSampleSeeded(true)
+        trackOnboardingEvent('sample_data_loaded')
       } catch {
-        // Continue anyway
+        // Continue anyway — user can still use the app
       }
     }
-    await handleComplete()
+    setError(null)
+    try {
+      await finishOnboarding('/')
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not complete onboarding.')
+    }
+  }
+
+  const handleUploadFirst = async () => {
+    setError(null)
+    try {
+      await finishOnboarding(hasRequisitions ? '/requisitions' : '/analyze')
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not complete onboarding.')
+    }
   }
 
   return (
@@ -635,6 +675,7 @@ export default function OnboardingWizard() {
               key="start"
               onComplete={handleComplete}
               onExploreSample={handleExploreSample}
+              onUploadFirst={handleUploadFirst}
             />
           )}
         </AnimatePresence>

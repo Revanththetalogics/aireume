@@ -403,8 +403,11 @@ async def process_completed_call(db: Session, session_id: int):
         except json.JSONDecodeError:
             kit_qa = []
 
-    if not transcript:
-        logger.warning("Session %d has no transcript — skipping assessment", session_id)
+    if not transcript and not kit_qa:
+        logger.warning("Session %d has no transcript or kit Q&A — skipping assessment", session_id)
+        voice_session.status = "completed"
+        voice_session.ended_at = voice_session.ended_at or datetime.now(timezone.utc)
+        db.commit()
         return
 
     # Generate assessment

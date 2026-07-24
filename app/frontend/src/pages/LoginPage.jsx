@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight, Building2 } from 'lucide-react'
-import { TRUST } from '../lib/uxLabels'
+import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useAuth } from '../contexts/AuthContext'
 import OAuthButtons from '../components/OAuthButtons'
 import { getSSOConfig } from '../lib/api'
@@ -47,7 +47,14 @@ export default function LoginPage() {
     try {
       const data = await login(email, password, tenantSlug.trim() || undefined)
       const isAdmin = data.user?.is_platform_admin === true || !!data.user?.platform_role
-      navigate(isAdmin ? '/admin' : '/')
+      if (isAdmin) {
+        navigate('/admin')
+      } else if (data.tenant?.onboarding_completed === false) {
+        navigate('/onboarding')
+      } else {
+        trackOnboardingEvent('login_success')
+        navigate('/')
+      }
     } catch (err) {
       const detail = err.response?.data?.detail
       if (detail && typeof detail === 'object' && detail.error_code === 'SSO_ENFORCED') {

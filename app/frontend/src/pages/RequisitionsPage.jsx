@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle } from 'lucide-react'
-import { listRequisitions, createRequisition, getTeamMembers } from '../lib/api'
+import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { listRequisitions, createRequisition, getTeamMembers, deleteRequisition } from '../lib/api'
 import { useOnboarding } from '../contexts/OnboardingContext'
+import useFeatureGuide from '../hooks/useFeatureGuide'
+import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
 import { Button } from '../components/ui'
 import { PageHeaderCard } from '../components/patterns/PageHeader'
 import usePermissions from '../hooks/usePermissions'
@@ -25,6 +27,7 @@ const FILTERS = ['all', 'draft', 'intake_in_progress', 'calibrated', 'sourcing',
 export default function RequisitionsPage() {
   const navigate = useNavigate()
   const { completeChecklistItem } = useOnboarding()
+  const requisitionsGuide = useFeatureGuide('requisitions')
   const { canWrite, isHiringManager } = usePermissions()
   const [reqs, setReqs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -33,6 +36,22 @@ export default function RequisitionsPage() {
   const [filter, setFilter] = useState('all')
   const [form, setForm] = useState({ title: '', jd_text: '', client_name: '', location: '', primary_hiring_manager_id: '' })
   const [teamMembers, setTeamMembers] = useState([])
+  const [deletingId, setDeletingId] = useState(null)
+
+  const handleDelete = async (e, req) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!window.confirm(`Delete requisition "${req.title}"? This cannot be undone.`)) return
+    setDeletingId(req.id)
+    try {
+      await deleteRequisition(req.id)
+      setReqs((prev) => prev.filter((r) => r.id !== req.id))
+    } catch (err) {
+      window.alert(err.response?.data?.detail || err.message || 'Failed to delete requisition')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -209,39 +228,79 @@ export default function RequisitionsPage() {
       ) : (
         <div className="space-y-3">
           {reqs.map((r) => (
-            <Link
+            <div
               key={r.id}
-              to={`/requisitions/${r.id}`}
-              className="flex items-center gap-4 bg-white/90 rounded-2xl ring-1 ring-brand-100 p-4 hover:ring-brand-300 transition-all group"
+              className="flex items-center gap-4 bg-white/90 dark:bg-dark-card rounded-2xl ring-1 ring-brand-100 dark:ring-white/10 p-4 hover:ring-brand-300 dark:hover:ring-brand-500/40 transition-all group"
             >
-              <div className="flex-1 min-w-0">
+              <Link to={`/requisitions/${r.id}`} className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-bold text-brand-900 truncate">{r.title}</h3>
+                  <h3 className="font-bold text-brand-900 dark:text-dark-text-primary truncate">{r.title}</h3>
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 capitalize ${STATUS_STYLES[r.status] || STATUS_STYLES.draft}`}>
                     {(r.status || 'draft').replace(/_/g, ' ')}
                   </span>
                   {!r.is_calibrated && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full ring-1 ring-amber-200">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full ring-1 ring-amber-200 dark:ring-amber-800">
                       <AlertTriangle className="w-3 h-3" />
                       Needs calibration
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                <p className="text-xs text-slate-500 dark:text-dark-text-secondary mt-0.5 truncate">
                   {[r.client_name, r.location].filter(Boolean).join(' · ') || 'No client set'}
                 </p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-sm text-slate-500">
+              </Link>
+              <div className="flex items-center gap-2 shrink-0 text-sm text-slate-500 dark:text-dark-text-secondary">
                 <span className="inline-flex items-center gap-1">
                   <Users className="w-4 h-4" />
                   {r.candidate_count ?? 0}
                 </span>
-                <ChevronRight className="w-4 h-4 text-brand-400 group-hover:translate-x-0.5 transition-transform" />
+                {canWrite && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        navigate(`/requisitions/${r.id}`)
+                      }}
+                      className="p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-dark-card-elevated transition-colors"
+                      title="Edit requisition"
+                      aria-label={`Edit ${r.title}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDelete(e, r)}
+                      disabled={deletingId === r.id}
+                      className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+                      title="Delete requisition"
+                      aria-label={`Delete ${r.title}`}
+                    >
+                      {deletingId === r.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </>
+                )}
+                <Link
+                  to={`/requisitions/${r.id}`}
+                  className="p-1 text-brand-400 hover:text-brand-600 dark:text-brand-300"
+                  aria-label={`Open ${r.title}`}
+                >
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
+      <FeatureGuideModal
+        open={requisitionsGuide.open}
+        guide={requisitionsGuide.guide}
+        onDismiss={requisitionsGuide.dismiss}
+      />
     </div>
   )
 }

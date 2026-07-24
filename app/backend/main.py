@@ -155,6 +155,7 @@ from app.backend.routes import billing
 from app.backend.routes import interview_kit, interview_kit_regeneration
 from app.backend.routes import dashboard
 from app.backend.routes import onboarding
+from app.backend.routes import users
 from app.backend.routes import sso
 from app.backend.routes import webhook_docs
 from app.backend.routes import voice
@@ -564,6 +565,7 @@ app.include_router(interview_kit.router)
 app.include_router(interview_kit_regeneration.router)
 app.include_router(dashboard.router)
 app.include_router(onboarding.router)
+app.include_router(users.router)
 app.include_router(sso.sso_router)
 app.include_router(webhook_docs.router)
 app.include_router(voice.router, dependencies=_plan_gate("ai_interviews"))

@@ -1760,6 +1760,31 @@ export async function updateOnboardingChecklistItem(key, completed = true) {
   return response.data
 }
 
+export async function dismissOnboardingChecklist() {
+  const response = await api.post('/onboarding/checklist/dismiss')
+  return response.data
+}
+
+export async function recordOnboardingEvent(event, properties = {}) {
+  const response = await api.post('/onboarding/events', { event, properties })
+  return response.data
+}
+
+export async function getUserPreferences() {
+  const response = await api.get('/users/me/preferences')
+  return response.data
+}
+
+export async function patchUserPreferences(patch) {
+  const response = await api.patch('/users/me/preferences', patch)
+  return response.data
+}
+
+export async function markModalSeen(modalId) {
+  const response = await api.post('/users/me/preferences/seen-modal', { modal_id: modalId })
+  return response.data
+}
+
 export async function getOAuthProviders() {
   const response = await api.get('/auth/oauth/providers')
   return response.data

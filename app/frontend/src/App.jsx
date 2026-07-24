@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { BrandingProvider } from './contexts/BrandingContext'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext'
+import InvitedUserWelcome from './components/onboarding/InvitedUserWelcome'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import VerifyEmailGate from './components/VerifyEmailGate'
@@ -99,8 +101,9 @@ function LegacyHandoffRedirect() {
 }
 
 function HomePage() {
-  const { isHiringManager } = usePermissions()
+  const { isHiringManager, isViewer } = usePermissions()
   if (isHiringManager) return <Navigate to="/requisitions" replace />
+  if (isViewer) return <Navigate to="/candidates" replace />
   return (
     <Shell>
       <OnboardingGate>
@@ -117,6 +120,7 @@ function Shell({ children }) {
       <VerifyEmailGate>
       <SubscriptionProvider>
         <AppShell>
+          <InvitedUserWelcome />
           <ErrorBoundary key={location.pathname}>
             {children}
           </ErrorBoundary>
@@ -156,6 +160,7 @@ function App() {
     <AuthProvider>
         <BrandingProvider>
         <NotificationProvider>
+          <UserPreferencesProvider>
           <OnboardingProvider>
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
@@ -254,6 +259,7 @@ function App() {
               </Suspense>
             </ErrorBoundary>
           </OnboardingProvider>
+          </UserPreferencesProvider>
         </NotificationProvider>
         </BrandingProvider>
     </AuthProvider>

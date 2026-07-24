@@ -1465,9 +1465,23 @@ async def on_interview_complete(
         voice_session.transcript_json = json.dumps(kit_payload, default=str)
         db.commit()
 
+    # Always finalize call state when the agent reports completion. Post-call
+    # assessment is best-effort — a failure there must not leave sessions stuck
+    # in in_progress (common when transcript rows exist but assessment LLM fails).
+    voice_session.status = "completed"
+    voice_session.ended_at = voice_session.ended_at or datetime.now(timezone.utc)
+    db.commit()
+
     if voice_session.interview_depth == "quick":
         from app.backend.services.voice_screening_service import process_completed_call
-        await process_completed_call(db, voice_session_id)
+        try:
+            await process_completed_call(db, voice_session_id)
+        except Exception as e:
+            logger.exception(
+                "Post-call assessment failed for voice session %s: %s",
+                voice_session_id,
+                e,
+            )
 
         # Adaptive depth escalation: auto-schedule standard interview if score exceeds threshold
         try:

@@ -24,7 +24,6 @@ from app.backend.routes.auth import (
     _get_client_ip,
 )
 from app.backend.services.security_event_service import record_login_success, record_login_failure
-from app.backend.services.trial_service import start_trial
 
 logger = logging.getLogger(__name__)
 
@@ -151,11 +150,7 @@ def _get_or_create_oauth_user(
     db.add(tenant)
     db.flush()
 
-    try:
-        start_trial(db, tenant, plan_name="growth")
-    except ValueError:
-        pass
-
+    # Plan selection happens in onboarding wizard (parity with email signup).
     user = User(
         tenant_id=tenant.id,
         email=email,

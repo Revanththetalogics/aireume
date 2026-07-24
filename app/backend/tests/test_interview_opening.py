@@ -96,6 +96,20 @@ class TestOpeningAdminFields:
         assert "use_custom_interview_opening" in OPENING_ADMIN_FIELDS
 
 
+class TestSuggestOpeningPrompt:
+    def test_prompt_format_does_not_raise(self):
+        from app.backend.services.interview_opening_service import SUGGEST_OPENING_PROMPT
+
+        formatted = SUGGEST_OPENING_PROMPT.format(
+            company_name="Acme",
+            bot_name="ARIA",
+            company_about="Hiring platform",
+            tone="professional",
+        )
+        assert "Acme" in formatted
+        assert "{candidate_first_name}" in formatted or "{{candidate_first_name}}" not in formatted
+
+
 class TestOpeningAdminRbac:
     def test_recruiter_cannot_update_opening(self, client, sample_user):
         login = client.post(
