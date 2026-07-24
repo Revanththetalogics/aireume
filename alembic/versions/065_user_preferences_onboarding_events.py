@@ -3,7 +3,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "065_user_preferences_onboarding_events"
+revision = "065_user_prefs_events"
 down_revision = "064_interview_opening_script"
 branch_labels = None
 depends_on = None

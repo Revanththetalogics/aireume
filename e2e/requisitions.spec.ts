@@ -51,3 +51,105 @@ test.describe('Requisitions', () => {
   });
 
   test('requisition detail tabs are navigable', async ({ page }) => {
+    await page.goto('/requisitions');
+    await page.waitForLoadState('networkidle');
+
+    const firstCard = page.locator('a[href^="/requisitions/"]').first();
+    if (!(await firstCard.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    await firstCard.click();
+    await expect(page).toHaveURL(/\/requisitions\/\d+/);
+
+    for (const tab of [/overview/i, /intake/i, /criteria/i, /pipeline/i]) {
+      const tabBtn = page.getByRole('button', { name: tab });
+      if (await tabBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await tabBtn.click();
+        await expect(tabBtn).toBeVisible();
+      }
+    }
+  });
+
+  test('screen candidate CTA opens analyze with requisition context', async ({ page }) => {
+    await page.goto('/requisitions');
+    await page.waitForLoadState('networkidle');
+
+    const firstCard = page.locator('a[href^="/requisitions/"]').first();
+    if (!(await firstCard.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    const href = await firstCard.getAttribute('href');
+    const reqId = href?.match(/\/requisitions\/(\d+)/)?.[1];
+    if (!reqId) {
+      test.skip();
+      return;
+    }
+
+    await page.goto(`/requisitions/${reqId}`);
+    const screenBtn = page.getByRole('button', { name: /screen candidate/i });
+    if (!(await screenBtn.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    await screenBtn.click();
+
+    await expect(page).toHaveURL(new RegExp(`/analyze\\?requisition_id=${reqId}`));
+    await expect(page.getByRole('button', { name: /load from requisitions/i })).toBeVisible({
+      timeout: 15000,
+    });
+  });
+});
+
+test.describe('Legacy route redirects', () => {
+  test('/jd-library redirects to requisitions', async ({ page }) => {
+    await page.goto('/jd-library');
+    await expect(page).toHaveURL(/\/requisitions/, { timeout: 15000 });
+  });
+
+  test('/projects redirects to requisitions', async ({ page }) => {
+    await page.goto('/projects');
+    await expect(page).toHaveURL(/\/requisitions/, { timeout: 15000 });
+  });
+
+  test('/jd-library/:id redirects to requisition detail', async ({ page }) => {
+    await page.goto('/requisitions');
+    await page.waitForLoadState('networkidle');
+
+    const firstCard = page.locator('a[href^="/requisitions/"]').first();
+    if (!(await firstCard.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    const href = await firstCard.getAttribute('href');
+    const reqId = href?.match(/\/requisitions\/(\d+)/)?.[1];
+    if (!reqId) {
+      test.skip();
+      return;
+    }
+
+    await page.goto(`/jd-library/${reqId}`);
+    await expect(page).toHaveURL(new RegExp(`/requisitions/${reqId}$`));
+  });
+
+  test('/jd-library/:id/candidates redirects to pipeline tab', async ({ page }) => {
+    await page.goto('/requisitions');
+    await page.waitForLoadState('networkidle');
+
+    const firstCard = page.locator('a[href^="/requisitions/"]').first();
+    if (!(await firstCard.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    const href = await firstCard.getAttribute('href');
+    const reqId = href?.match(/\/requisitions\/(\d+)/)?.[1];
+    if (!reqId) {
+      test.skip();
+      return;
+    }
+
+    await page.goto(`/jd-library/${reqId}/candidates`);
+    await expect(page).toHaveURL(new RegExp(`/requisitions/${reqId}\\?tab=pipeline`));
+  });
+});
