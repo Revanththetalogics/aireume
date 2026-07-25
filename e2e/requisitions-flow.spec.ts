@@ -1,4 +1,10 @@
 import { test, expect } from '@playwright/test';
+import {
+  enableAdHocScreeningIfAvailable,
+  expectRequisitionPicker,
+  gotoAnalyze,
+  selectFirstRequisitionOnAnalyze,
+} from './helpers';
 
 /**
  * End-to-end recruiter flow: requisition → analyze entry point.
@@ -6,13 +12,12 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('Requisition-first analyze flow', () => {
   test('analyze page uses requisition picker vocabulary', async ({ page }) => {
-    await page.goto('/analyze');
-    await page.waitForLoadState('networkidle');
+    await gotoAnalyze(page);
 
-    await expect(page.getByText(/step 1.*job description|role.*skill/i).first()).toBeVisible({
+    await expect(page.getByText(/step 1.*opening|opening.*skill|job description/i).first()).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByRole('button', { name: /load from requisitions/i })).toBeVisible();
+    await expectRequisitionPicker(page);
   });
 
   test('analyze loads requisition from query param', async ({ page }) => {
@@ -34,19 +39,26 @@ test.describe('Requisition-first analyze flow', () => {
     await page.goto(`/analyze?requisition_id=${reqId}`);
     await page.waitForLoadState('networkidle');
 
-    const jdTextarea = page.locator('textarea').first();
-    await expect(jdTextarea).toBeVisible({ timeout: 15000 });
-    const value = await jdTextarea.inputValue();
-    expect(value.trim().length).toBeGreaterThan(20);
+    await expect(page.getByText(/screening for/i).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/job description/i).first()).toBeVisible({ timeout: 15000 });
   });
 
-  test('full analyze step 1: paste JD → skills gate', async ({ page }) => {
-    await page.goto('/analyze');
-    await page.waitForLoadState('networkidle');
+  test('full analyze step 1: ad-hoc paste JD → skills gate when allowed', async ({ page }) => {
+    await gotoAnalyze(page);
+
+    const adHocEnabled = await enableAdHocScreeningIfAvailable(page);
+    if (!adHocEnabled) {
+      const selected = await selectFirstRequisitionOnAnalyze(page);
+      if (!selected) {
+        test.skip();
+        return;
+      }
+      await expect(page.getByText(/must.have|confirm.*skills|upload.*resume|step 2|skills loaded/i).first())
+        .toBeVisible({ timeout: 90000 });
+      return;
+    }
 
     const jdTextarea = page.locator('textarea').first();
-    await expect(jdTextarea).toBeVisible({ timeout: 15000 });
-
     const sampleJD = `Senior Software Engineer - Platform
 
 Must-have Skills:

@@ -36,14 +36,8 @@ test.describe('AI Interview hub', () => {
     await page.goto('/ai-interviews');
     await page.waitForLoadState('networkidle');
 
-    // Open the config/settings tab if present
-    const configTab = page.getByRole('button', { name: /config|settings/i }).first();
-    if (await configTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await configTab.click();
-    }
-
-    // Advanced settings section links to the two engine pages
-    const advanced = page.getByText(/advanced settings|voice call settings|recruiter automation/i).first();
-    await expect(advanced).toBeVisible({ timeout: 15000 });
+    const settingsLink = page.getByRole('link', { name: /interview settings/i }).first();
+    await expect(settingsLink).toBeVisible({ timeout: 15000 });
+    await expect(settingsLink).toHaveAttribute('href', /settings\?tab=interviews/);
   });
 });

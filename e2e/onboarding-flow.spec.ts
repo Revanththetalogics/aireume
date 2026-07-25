@@ -1,18 +1,21 @@
 import { test, expect } from '@playwright/test';
+import { apiBaseUrl, isE2eTestApiAvailable } from './helpers';
 
 /**
  * Full self-serve onboarding: register → verify (test helper) → login → wizard → analyze.
  *
- * Requires:
- *   - Frontend dev server on :5173 (started by playwright config)
- *   - Backend API on :8000 with E2E_TEST_MODE=1
+ * Requires backend API with E2E_TEST_MODE=1 (staging or local with PLAYWRIGHT_API_URL).
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const API_BASE = process.env.PLAYWRIGHT_API_URL || 'http://localhost:8000';
-
 test.describe('Onboarding flow (register → verify → wizard → analyze)', () => {
   test('new workspace can register, verify, skip wizard, and reach analyze', async ({ page, request }) => {
+    const apiAvailable = await isE2eTestApiAvailable(request);
+    if (!apiAvailable) {
+      test.skip(true, 'E2E test API not available (needs E2E_TEST_MODE on backend)');
+      return;
+    }
+
     const stamp = Date.now();
     const companyName = `E2E Corp ${stamp}`;
     const email = `e2e-${stamp}@example.com`;
@@ -28,8 +31,8 @@ test.describe('Onboarding flow (register → verify → wizard → analyze)', ()
 
     await expect(page).toHaveURL(/\/check-email/, { timeout: 15000 });
 
-    // Verify via E2E test endpoint (backend must have E2E_TEST_MODE=1)
-    const verifyResp = await request.post(`${API_BASE}/api/auth/test/verify-email`, {
+    // Verify via E2E test endpoint
+    const verifyResp = await request.post(`${apiBaseUrl()}/api/auth/test/verify-email`, {
       data: { email },
     });
     expect(verifyResp.ok(), `verify-email failed: ${await verifyResp.text()}`).toBeTruthy();
@@ -54,7 +57,11 @@ test.describe('Onboarding flow (register → verify → wizard → analyze)', ()
     // First analysis entry point
     await page.goto('/analyze');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/step 1|role.*skills|job description/i).first()).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('textarea').first()).toBeVisible();
+    await expect(page.getByText(/step 1|opening.*skills|job description/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(
+      page.getByText(/select an opening to start|quick screen without a requisition/i).first()
+    ).toBeVisible();
   });
 });

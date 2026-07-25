@@ -62,8 +62,9 @@ test.describe('Requisitions', () => {
     await firstCard.click();
     await expect(page).toHaveURL(/\/requisitions\/\d+/);
 
-    for (const tab of [/overview/i, /intake/i, /criteria/i, /pipeline/i]) {
-      const tabBtn = page.getByRole('button', { name: tab });
+    for (const tabName of ['Overview', 'Intake', 'Criteria', 'Pipeline']) {
+      const tabBar = page.locator('div.flex.gap-1.mb-6');
+      const tabBtn = tabBar.getByRole('button', { name: tabName, exact: true });
       if (await tabBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
         await tabBtn.click();
         await expect(tabBtn).toBeVisible();
@@ -96,7 +97,7 @@ test.describe('Requisitions', () => {
     await screenBtn.click();
 
     await expect(page).toHaveURL(new RegExp(`/analyze\\?requisition_id=${reqId}`));
-    await expect(page.getByRole('button', { name: /load from requisitions/i })).toBeVisible({
+    await expect(page.getByText(/screening for/i).first()).toBeVisible({
       timeout: 15000,
     });
   });

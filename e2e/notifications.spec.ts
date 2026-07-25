@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoDashboard } from './helpers';
 
 /**
  * Notification system (new NotificationBell + context). The bell lives in the
@@ -7,8 +8,7 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('Notification bell', () => {
   test('bell is present in the navigation and opens a dropdown', async ({ page }) => {
-    await page.goto('/home');
-    await page.waitForLoadState('networkidle');
+    await gotoDashboard(page);
 
     const bell = page.getByRole('button', { name: /notifications/i }).first();
     await expect(bell).toBeVisible({ timeout: 15000 });
@@ -23,8 +23,7 @@ test.describe('Notification bell', () => {
   });
 
   test('dropdown closes on Escape', async ({ page }) => {
-    await page.goto('/home');
-    await page.waitForLoadState('networkidle');
+    await gotoDashboard(page);
 
     const bell = page.getByRole('button', { name: /notifications/i }).first();
     await bell.click();

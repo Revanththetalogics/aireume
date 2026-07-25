@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { expectAppShell, gotoDashboard } from './helpers';
 
 /**
  * Accessibility smoke checks for the a11y remediations: icon-only modal close
@@ -30,8 +31,7 @@ test.describe('Accessibility', () => {
   });
 
   test('main navigation is reachable and labelled', async ({ page }) => {
-    await page.goto('/home');
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('nav, header').first()).toBeVisible({ timeout: 15000 });
+    await gotoDashboard(page);
+    await expectAppShell(page);
   });
 });

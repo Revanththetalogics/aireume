@@ -18,11 +18,8 @@ setup('authenticate', async ({ page }) => {
   await page.getByPlaceholder('••••••••').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: /sign in|log in|login/i }).click();
 
-  // Wait for redirect to dashboard/home
-  await page.waitForURL('**/home**', { timeout: 15000 }).catch(() => {
-    // Might redirect to /analyze or / instead
-    return page.waitForURL('**/', { timeout: 5000 });
-  });
+  // Wait for redirect to dashboard (/) or another authenticated route
+  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
 
   // Verify logged in - look for user avatar or nav element
   await expect(page.locator('nav, header').first()).toBeVisible();

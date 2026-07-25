@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { gotoDashboard } from './helpers';
 
 test.describe('Dashboard', () => {
   test('should load dashboard after login', async ({ page }) => {
-    await page.goto('/home');
+    await gotoDashboard(page);
 
     // Dashboard should show key sections
     await expect(page.getByText(/pipeline summary|dashboard/i).first()).toBeVisible({ timeout: 10000 });
@@ -14,8 +15,7 @@ test.describe('Dashboard', () => {
   });
 
   test('should navigate to candidates from status cards', async ({ page }) => {
-    await page.goto('/home');
-    await page.waitForLoadState('networkidle');
+    await gotoDashboard(page);
 
     // Click "View candidates" on any card
     const viewLink = page.getByText(/view candidates/i).first();
@@ -27,8 +27,7 @@ test.describe('Dashboard', () => {
   });
 
   test('Pipeline Summary should be scrollable', async ({ page }) => {
-    await page.goto('/home');
-    await page.waitForLoadState('networkidle');
+    await gotoDashboard(page);
 
     // Find pipeline summary section
     const pipelineSection = page.getByText(/pipeline summary/i).locator('..');

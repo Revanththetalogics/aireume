@@ -54,6 +54,7 @@ jobs:
       env:
         # Optional per-run base URL override from workflow_dispatch input.
         PLAYWRIGHT_BASE_URL: ${{ github.event.inputs.base_url }}
+        PLAYWRIGHT_API_URL: ${{ github.event.inputs.base_url || 'https://airesume-staging.thetalogics.com' }}
 
     - name: Upload Playwright report
       if: always()
