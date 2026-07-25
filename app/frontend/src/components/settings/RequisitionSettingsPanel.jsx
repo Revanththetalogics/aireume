@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader2, Shield } from 'lucide-react'
 import { getRequisitionSettings, updateRequisitionSettings } from '../../lib/api'
 import { Button } from '../ui'
+import { REQUISITIONS } from '../../lib/uxLabels'
 import usePermissions from '../../hooks/usePermissions'
 import { useOnboarding } from '../../contexts/OnboardingContext'
 
@@ -12,6 +13,7 @@ export default function RequisitionSettingsPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [gateMode, setGateMode] = useState('warn')
+  const [screeningMode, setScreeningMode] = useState('requisition_required')
   const [hmPerm, setHmPerm] = useState('view_only')
   const [resumeWeight, setResumeWeight] = useState(40)
   const [interviewWeight, setInterviewWeight] = useState(60)
@@ -21,6 +23,7 @@ export default function RequisitionSettingsPanel() {
       .then((s) => {
         setSettings(s)
         setGateMode(s.intake_gate_mode || 'warn')
+        setScreeningMode(s.screening_mode || 'requisition_required')
         setHmPerm(s.hm_pipeline_permission || 'view_only')
         const hw = s.hiring_signal_weights || {}
         setResumeWeight(Math.round((hw.resume ?? 0.4) * 100))
@@ -35,6 +38,7 @@ export default function RequisitionSettingsPanel() {
     try {
       const updated = await updateRequisitionSettings({
         intake_gate_mode: gateMode,
+        screening_mode: screeningMode,
         hm_pipeline_permission: hmPerm,
         hiring_signal_weights: {
           resume: resumeWeight / 100,
@@ -77,6 +81,18 @@ export default function RequisitionSettingsPanel() {
           <option value="warn">Warn — allow with warning</option>
           <option value="block">Block — require calibration</option>
           <option value="optional">Optional — no gate</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold text-slate-700 mb-1">{REQUISITIONS.screeningModeLabel}</label>
+        <p className="text-xs text-slate-500 mb-2">{REQUISITIONS.screeningModeHint}</p>
+        <select
+          value={screeningMode}
+          onChange={(e) => setScreeningMode(e.target.value)}
+          className="w-full max-w-md rounded-xl border border-brand-200 px-3 py-2 text-sm"
+        >
+          <option value="requisition_required">{REQUISITIONS.screeningModeRequired}</option>
+          <option value="allow_ad_hoc">{REQUISITIONS.screeningModeAdHoc}</option>
         </select>
       </div>
       <div>

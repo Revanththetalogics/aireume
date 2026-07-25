@@ -569,3 +569,33 @@ class TestPipelineBackfill:
         ).first()
         assert rc is not None
         assert rc.screening_result_id == sr.id
+
+
+class TestRequisitionSettings:
+    def test_get_settings_includes_screening_mode(self, auth_client):
+        resp = auth_client.get("/api/requisitions/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["screening_mode"] in {"requisition_required", "allow_ad_hoc"}
+
+    def test_update_screening_mode(self, auth_client):
+        resp = auth_client.put(
+            "/api/requisitions/settings",
+            json={"screening_mode": "allow_ad_hoc"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["screening_mode"] == "allow_ad_hoc"
+
+        resp = auth_client.put(
+            "/api/requisitions/settings",
+            json={"screening_mode": "requisition_required"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["screening_mode"] == "requisition_required"
+
+    def test_rejects_invalid_screening_mode(self, auth_client):
+        resp = auth_client.put(
+            "/api/requisitions/settings",
+            json={"screening_mode": "invalid"},
+        )
+        assert resp.status_code == 422

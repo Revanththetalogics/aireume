@@ -730,7 +730,7 @@ export async function getTemplates() {
 export async function getRequisitionsForPicker() {
   const data = await listRequisitions()
   const arr = Array.isArray(data) ? data : []
-  return arr.map((r) => ({
+    return arr.map((r) => ({
     id: r.id,
     name: r.title,
     title: r.title,
@@ -738,8 +738,12 @@ export async function getRequisitionsForPicker() {
     scoring_weights: r.scoring_weights,
     required_skills_override: r.required_skills_override,
     nice_to_have_skills_override: r.nice_to_have_skills_override,
+    calibrated_criteria_json: r.calibrated_criteria_json,
     is_calibrated: r.is_calibrated,
     intake_gate_warning: r.intake_gate_warning,
+    intake_status: r.intake_status,
+    current_criteria_version: r.current_criteria_version,
+    candidate_count: r.candidate_count,
     status: r.status,
     client_name: r.client_name,
     location: r.location,

@@ -280,7 +280,11 @@ export default function NavBar() {
   const filterByFeature = (items) =>
     items.filter((item) => !item.feature || isFeatureAvailable(item.feature))
 
-  const primaryNav = filterByFeature(isHiringManager ? PRIMARY_NAV_HM : PRIMARY_NAV_RECRUITER)
+  const primaryNav = filterByFeature(isHiringManager ? PRIMARY_NAV_HM : PRIMARY_NAV_RECRUITER).map((item) =>
+    item.path === '/analyze' && isFeatureAvailable('requisitions')
+      ? { ...item, label: NAV.screenResumes }
+      : item,
+  )
   const menuLinks = filterByFeature(USER_MENU_LINKS)
   const location = useLocation()
   const [userMenuOpen, setUserMenuOpen] = useState(false)

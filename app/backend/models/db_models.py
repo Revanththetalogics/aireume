@@ -480,6 +480,7 @@ class TenantRequisitionSettings(Base):
 
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
     intake_gate_mode = Column(String(20), nullable=False, default="warn", server_default="warn")
+    screening_mode = Column(String(30), nullable=False, default="requisition_required", server_default="requisition_required")
     hm_pipeline_permission = Column(String(30), nullable=False, default="view_only", server_default="view_only")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

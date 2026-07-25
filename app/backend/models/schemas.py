@@ -1153,6 +1153,7 @@ _PIPELINE_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"
 _SUBMISSION_STATUSES = {"none", "draft", "submitted", "reviewed"}
 _HM_OUTCOMES = {"advance", "hold", "reject", "hire"}
 _INTAKE_GATE_MODES = {"block", "warn", "optional"}
+_SCREENING_MODES = {"requisition_required", "allow_ad_hoc"}
 _HM_PIPELINE_PERMS = {"view_only", "shortlist_reject", "full"}
 
 
@@ -1284,6 +1285,7 @@ class RequisitionOutcomeUpdate(BaseModel):
 
 class TenantRequisitionSettingsUpdate(BaseModel):
     intake_gate_mode: Optional[str] = None
+    screening_mode: Optional[str] = None
     hm_pipeline_permission: Optional[str] = None
     hiring_signal_weights: Optional[Dict[str, float]] = None
 
@@ -1294,6 +1296,15 @@ class TenantRequisitionSettingsUpdate(BaseModel):
             return v
         if v not in _INTAKE_GATE_MODES:
             raise ValueError(f"intake_gate_mode must be one of {_INTAKE_GATE_MODES}")
+        return v
+
+    @field_validator("screening_mode")
+    @classmethod
+    def validate_screening_mode(cls, v):
+        if v is None:
+            return v
+        if v not in _SCREENING_MODES:
+            raise ValueError(f"screening_mode must be one of {_SCREENING_MODES}")
         return v
 
     @field_validator("hm_pipeline_permission")
@@ -1389,6 +1400,7 @@ class RequisitionCriteriaVersionOut(BaseModel):
 class TenantRequisitionSettingsOut(BaseModel):
     tenant_id: int
     intake_gate_mode: str
+    screening_mode: str = "requisition_required"
     hm_pipeline_permission: str
     hiring_signal_weights: Optional[Dict[str, float]] = None
     updated_at: Optional[datetime] = None

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Briefcase, Loader2, Users, CheckCircle2, Sparkles,
-  ListChecks, Columns3, Wand2, UserPlus, X,
+  ListChecks, Columns3, Wand2, UserPlus, X, ChevronDown, ChevronUp, FileText,
 } from 'lucide-react'
 import {
   getRequisition,
@@ -42,6 +42,226 @@ const TABS = [
   { id: 'criteria', label: REQUISITIONS.criteriaTab, icon: Sparkles },
   { id: 'pipeline', label: REQUISITIONS.pipelineTab, icon: Columns3 },
 ]
+
+function countJdWords(text) {
+  if (!text?.trim()) return 0
+  return text.trim().split(/\s+/).filter(Boolean).length
+}
+
+function resolveRequisitionNextAction({ req, intakeGate, canWrite, isHiringManager, isAdmin, pendingCount }) {
+  if (!req) return null
+
+  if (isHiringManager && req.intake_status === 'pending_hm') {
+    return {
+      stepLabel: 'Your action',
+      title: REQUISITIONS.nextActionReviewIntake,
+      description: 'Recruiter submitted intake for this role. Approve to lock criteria v1 or request changes.',
+      cta: REQUISITIONS.approveIntakeCta,
+      action: 'intake',
+      tone: 'brand',
+    }
+  }
+
+  if (canWrite && intakeGate && !intakeGate.hm_assigned) {
+    if (req.hm_request_status === 'pending' && req.hm_request_email) {
+      return {
+        stepLabel: 'Step 1 of 3',
+        title: 'Waiting for HM approval',
+        description: `Access requested for ${req.hm_request_email}. Approve the request or assign another hiring manager.`,
+        cta: 'Review HM request',
+        action: 'hm',
+        tone: 'amber',
+      }
+    }
+    const adminNote = isAdmin && intakeGate.intake_has_minimum_content
+      ? ' Admin override allows screening once intake is saved.'
+      : ''
+    return {
+      stepLabel: 'Step 1 of 3',
+      title: REQUISITIONS.nextActionAssignHm,
+      description: `${REQUISITIONS.hmAssignHint}${adminNote}`,
+      cta: REQUISITIONS.hmAssignCta,
+      action: 'hm',
+      tone: 'amber',
+    }
+  }
+
+  if (canWrite && intakeGate && !intakeGate.intake_has_minimum_content) {
+    return {
+      stepLabel: 'Step 2 of 3',
+      title: REQUISITIONS.nextActionCompleteIntake,
+      description: 'Add screen-focus topics or must-haves on the Intake tab, or use “Suggest from job description”.',
+      cta: REQUISITIONS.nextActionGoIntake,
+      action: 'intake',
+      tone: 'brand',
+    }
+  }
+
+  if (intakeGate?.blocks && intakeGate?.requires_hm_approval && req.intake_status !== 'approved') {
+    return {
+      stepLabel: 'Waiting on HM',
+      title: REQUISITIONS.nextActionHmApproval,
+      description: intakeGate.warning || 'Save intake and request HM approval per tenant policy.',
+      cta: REQUISITIONS.nextActionGoIntake,
+      action: 'intake',
+      tone: 'amber',
+    }
+  }
+
+  if (canWrite && intakeGate?.intake_screening_ready && !intakeGate?.blocks) {
+    return {
+      stepLabel: 'Ready',
+      title: REQUISITIONS.nextActionReadyScreen,
+      description: pendingCount > 0
+        ? `${pendingCount} candidate${pendingCount === 1 ? '' : 's'} in pipeline — open Analyze with this requisition loaded.`
+        : 'Intake is set — open Analyze to screen resumes against this role.',
+      cta: pendingCount > 0
+        ? REQUISITIONS.nextActionScreenPending(pendingCount)
+        : 'Screen candidates',
+      action: 'screen',
+      tone: 'emerald',
+    }
+  }
+
+  return null
+}
+
+const NEXT_ACTION_TONES = {
+  brand: 'bg-brand-50 ring-brand-200 text-brand-900',
+  amber: 'bg-amber-50 ring-amber-200 text-amber-950',
+  emerald: 'bg-emerald-50 ring-emerald-200 text-emerald-950',
+  slate: 'bg-slate-50 ring-slate-200 text-slate-800',
+}
+
+function RequisitionNextActionBanner({ action, onAction }) {
+  if (!action) return null
+  const tone = NEXT_ACTION_TONES[action.tone] || NEXT_ACTION_TONES.brand
+  return (
+    <div className={`rounded-xl ring-1 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 ${tone}`}>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{action.stepLabel}</p>
+        <p className="text-sm font-bold mt-0.5">{action.title}</p>
+        <p className="text-xs mt-1 opacity-80 leading-relaxed">{action.description}</p>
+      </div>
+      <Button size="sm" className="shrink-0" onClick={() => onAction(action.action)}>
+        {action.cta}
+      </Button>
+    </div>
+  )
+}
+
+function JdFullModal({ title, jdText, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-brand-50">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText className="w-5 h-5 text-brand-600 shrink-0" />
+            <h3 className="font-bold text-brand-900 truncate">{title || REQUISITIONS.jdModalTitle}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1.5 hover:bg-brand-50 rounded-lg shrink-0"
+          >
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 flex-1">
+          {jdText?.trim() ? (
+            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{jdText}</p>
+          ) : (
+            <p className="text-sm text-slate-500">{REQUISITIONS.jdEmpty}</p>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-brand-50 flex justify-end">
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function JdPreviewSection({ jdText, onViewFull }) {
+  const [expanded, setExpanded] = useState(false)
+  const wordCount = countJdWords(jdText)
+  if (!jdText?.trim()) {
+    return <p className="text-sm text-slate-500">{REQUISITIONS.jdEmpty}</p>
+  }
+  return (
+    <div>
+      <p className={`text-sm text-slate-600 whitespace-pre-wrap leading-relaxed ${expanded ? '' : 'line-clamp-6'}`}>
+        {jdText}
+      </p>
+      <div className="flex flex-wrap items-center gap-3 mt-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs font-semibold text-brand-600 hover:text-brand-800 inline-flex items-center gap-1"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="w-3.5 h-3.5" />
+              {REQUISITIONS.jdShowLess}
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3.5 h-3.5" />
+              {REQUISITIONS.jdShowMore}
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onViewFull}
+          className="text-xs font-semibold text-brand-600 hover:text-brand-800"
+        >
+          {REQUISITIONS.jdViewFullCta} ({REQUISITIONS.jdWordCount(wordCount)}) →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function JdReferencePanel({ jdText, onViewFull }) {
+  const [open, setOpen] = useState(false)
+  const wordCount = countJdWords(jdText)
+  return (
+    <div className="rounded-xl ring-1 ring-brand-100 bg-brand-50/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-brand-50/80 transition-colors"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-brand-900">{REQUISITIONS.jdReferenceLabel}</p>
+          <p className="text-xs text-slate-500 mt-0.5 truncate">
+            {jdText?.trim()
+              ? `${REQUISITIONS.jdWordCount(wordCount)} · ${REQUISITIONS.jdReferenceHint}`
+              : REQUISITIONS.jdEmpty}
+          </p>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && jdText?.trim() && (
+        <div className="px-4 pb-4 border-t border-brand-100">
+          <div className="mt-3 max-h-64 overflow-y-auto rounded-xl bg-white ring-1 ring-brand-100 p-3">
+            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{jdText}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onViewFull}
+            className="text-xs font-semibold text-brand-600 hover:text-brand-800 mt-2"
+          >
+            {REQUISITIONS.jdViewFullCta} ({REQUISITIONS.jdWordCount(wordCount)}) →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const COLUMN_STYLES = {
   pending: { header: 'bg-amber-50 text-amber-800 border-amber-200', badge: 'bg-amber-100 text-amber-700' },
@@ -467,6 +687,7 @@ export default function RequisitionDetailPage() {
   const [savingHm, setSavingHm] = useState(false)
   const [showHmInvite, setShowHmInvite] = useState(false)
   const [showHmRequest, setShowHmRequest] = useState(false)
+  const [showJdModal, setShowJdModal] = useState(false)
 
   const hmCandidates = teamMembers.filter(
     (m) => m.role === 'hiring_manager' || m.role === 'admin' || m.role === 'recruiter',
@@ -608,6 +829,44 @@ export default function RequisitionDetailPage() {
     requestAnimationFrame(() => {
       document.getElementById('hm-assignment')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
+  }
+
+  const pendingPipelineCount = analytics?.funnel?.pending
+    ?? (pipeline?.pending?.length ?? 0)
+
+  const nextAction = resolveRequisitionNextAction({
+    req,
+    intakeGate,
+    canWrite,
+    isHiringManager,
+    isAdmin,
+    pendingCount: pendingPipelineCount,
+  })
+
+  const handleNextAction = (action) => {
+    switch (action) {
+      case 'hm':
+        focusHmAssignment()
+        break
+      case 'intake':
+        setTab('intake')
+        break
+      case 'screen':
+        openScreenCandidate()
+        break
+      default:
+        break
+    }
+  }
+
+  const screenCandidateDisabled = Boolean(intakeGate?.blocks)
+  const screenCandidateTitle = screenCandidateDisabled
+    ? (intakeGate?.warning || REQUISITIONS.screenCandidateBlocked)
+    : (req?.intake_gate_warning || undefined)
+
+  const openScreenCandidate = () => {
+    if (screenCandidateDisabled) return
+    navigate(`/analyze?requisition_id=${id}`)
   }
 
   const saveHiringWeights = async () => {
@@ -879,16 +1138,11 @@ export default function RequisitionDetailPage() {
           {canWrite && (
             <Button
               variant="ghost"
-              disabled={intakeGate?.blocks}
-              title={intakeGate?.blocks ? (intakeGate.warning || 'Save intake before screening') : undefined}
-              className="shrink-0 whitespace-nowrap"
-              onClick={() => {
-                if (intakeGate?.blocks) {
-                  window.alert(intakeGate.warning || 'Save HM intake and calibrate before screening candidates.')
-                  return
-                }
-                navigate(`/analyze?requisition_id=${id}`)
-              }}
+              disabled={screenCandidateDisabled}
+              title={screenCandidateTitle}
+              aria-disabled={screenCandidateDisabled}
+              className={`shrink-0 whitespace-nowrap ${screenCandidateDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={openScreenCandidate}
             >
               Screen candidate
             </Button>
@@ -914,6 +1168,7 @@ export default function RequisitionDetailPage() {
 
       {tab === 'overview' && (
         <Card className="p-6 space-y-4">
+          <RequisitionNextActionBanner action={nextAction} onAction={handleNextAction} />
           {canWrite && (
             <div id="hm-assignment" className="pb-4 border-b border-brand-50">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
@@ -1076,14 +1331,17 @@ export default function RequisitionDetailPage() {
             </div>
           )}
           <div className="pt-4 border-t border-brand-50">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">JD preview</p>
-            <p className="text-sm text-slate-600 whitespace-pre-wrap line-clamp-6">{req.jd_text}</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              {REQUISITIONS.jdPreviewLabel}
+            </p>
+            <JdPreviewSection jdText={req.jd_text} onViewFull={() => setShowJdModal(true)} />
           </div>
         </Card>
       )}
 
       {tab === 'intake' && (
-        <Card className="p-6">
+        <Card className="p-6 space-y-4">
+          <JdReferencePanel jdText={req.jd_text} onViewFull={() => setShowJdModal(true)} />
           <IntakeWorkflowBar intakeGate={intakeGate} req={req} />
           <IntakeForm
             intake={intake}
@@ -1212,6 +1470,14 @@ export default function RequisitionDetailPage() {
         <HmInviteModal
           onClose={() => setShowHmInvite(false)}
           onInvited={handleHmInvited}
+        />
+      )}
+
+      {showJdModal && (
+        <JdFullModal
+          title={`${REQUISITIONS.jdModalTitle} · ${req.title}`}
+          jdText={req.jd_text}
+          onClose={() => setShowJdModal(false)}
         />
       )}
 

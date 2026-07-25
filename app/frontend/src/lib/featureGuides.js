@@ -3,11 +3,11 @@ export const FEATURE_GUIDES = {
   analyze: {
     id: 'analyze',
     title: 'Screen resumes in 3 steps',
-    body: 'Paste or upload a job description, add resumes, and ARIA scores fit with explainable recommendations.',
+    body: 'Choose a requisition, upload resumes, and ARIA scores fit with explainable recommendations tied to your pipeline.',
     bullets: [
-      'Step 1: Define role skills (or load from a requisition)',
+      'Step 1: Select an opening and confirm skills',
       'Step 2: Upload one or many resumes',
-      'Step 3: Review scores and shortlist top candidates',
+      'Step 3: Review scores and move candidates through pipeline',
     ],
     ctaLabel: 'Got it — start screening',
   },

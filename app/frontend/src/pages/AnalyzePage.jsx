@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { 
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
-  Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
+  Sparkles, ChevronRight, BookOpen, Link2, 
   FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft,
   XCircle, RefreshCw, ShieldCheck, Settings, ChevronDown
 } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
   submitBatchToQueue,
   extractJdFromUrl, 
   getRequisitionsForPicker,
+  getRequisitionSettings,
   createRequisition,
   createRequisitionFromFile,
   updateRequisition,
@@ -53,6 +54,18 @@ import {
   canNavigateToAnalyzeStep,
   getEffectiveBatchTotal,
 } from '../lib/analyzeBatchUtils'
+import {
+  buildSkillStateFromRequisition,
+  canUseAdHocPath,
+  requiresRequisitionSelection,
+} from '../lib/analyzeRequisitionUtils'
+import {
+  AdHocModeToggle,
+  JdFullModal,
+  RequisitionContextBar,
+  RequisitionPickerPanel,
+} from '../components/analyze/AnalyzeRequisitionStep'
+import { ANALYZE } from '../lib/uxLabels'
 
 const DEFAULT_WEIGHTS = {
   core_competencies: 0.30,
@@ -194,11 +207,16 @@ export default function AnalyzePage() {
   }, [files.length])
   const [currentStep, setCurrentStep] = useState(1)
   const [draftSaved, setDraftSaved] = useState(false)
-  const [showRequisitionPicker, setShowRequisitionPicker] = useState(false)
   const [requisitions, setRequisitions] = useState([])
+  const [requisitionsLoading, setRequisitionsLoading] = useState(false)
+  const [requisitionSearch, setRequisitionSearch] = useState('')
   const [hasLoadedRequisition, setHasLoadedRequisition] = useState(false)
   const [loadedRequisitionId, setLoadedRequisitionId] = useState(null)
-  const requisitionPickerRef = useRef(null)
+  const [loadedRequisition, setLoadedRequisition] = useState(null)
+  const [screeningMode, setScreeningMode] = useState('requisition_required')
+  const [adHocMode, setAdHocMode] = useState(false)
+  const [intakeGateStatus, setIntakeGateStatus] = useState(null)
+  const [showJdModal, setShowJdModal] = useState(false)
 
   // Skill Classification state (mandatory review before analysis)
   const [jdParseResult, setJdParseResult]     = useState(null)
@@ -251,15 +269,32 @@ export default function AnalyzePage() {
   useEffect(() => {
     if (!hasRequisitions) {
       setRequisitions([])
+      setScreeningMode('allow_ad_hoc')
       return
     }
+    setRequisitionsLoading(true)
     getRequisitionsForPicker()
       .then((res) => {
         const arr = Array.isArray(res) ? res : res?.templates || []
         setRequisitions(arr)
       })
       .catch(() => setRequisitions([]))
+      .finally(() => setRequisitionsLoading(false))
+
+    getRequisitionSettings()
+      .then((s) => setScreeningMode(s?.screening_mode || 'requisition_required'))
+      .catch(() => setScreeningMode('requisition_required'))
   }, [hasRequisitions])
+
+  useEffect(() => {
+    if (!loadedRequisitionId) {
+      setIntakeGateStatus(null)
+      return
+    }
+    checkRequisitionIntakeGate(loadedRequisitionId)
+      .then(setIntakeGateStatus)
+      .catch(() => setIntakeGateStatus(null))
+  }, [loadedRequisitionId])
 
   // Load requisition from URL query (?requisition_id=)
   useEffect(() => {
@@ -285,8 +320,9 @@ export default function AnalyzePage() {
     }
   }, [jdText, weights, roleCategory])
 
-  // Restore draft on mount
+  // Restore draft on mount (skip when requisition-first flow is enforced)
   useEffect(() => {
+    if (hasRequisitions && requiresRequisitionSelection(hasRequisitions, screeningMode)) return
     const draft = localStorage.getItem('aria_draft_jd')
     if (draft) {
       try {
@@ -299,6 +335,13 @@ export default function AnalyzePage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!hasRequisitions) return
+    if (requiresRequisitionSelection(hasRequisitions, screeningMode)) {
+      setAdHocMode(false)
+    }
+  }, [hasRequisitions, screeningMode])
 
   // Restore active session from sessionStorage on fresh mount
   // ONLY auto-advance when coming from "Analyze Another Resume" (flag set in ReportPage)
@@ -456,17 +499,6 @@ export default function AnalyzePage() {
       setCurrentStep(2)
     }
   }, [location.state])
-
-  // Close requisition picker on outside click
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (requisitionPickerRef.current && !requisitionPickerRef.current.contains(e.target)) {
-        setShowRequisitionPicker(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
 
   // ── Auto-parse JD text with debounce (1.5s after user stops typing) ──
   useEffect(() => {
@@ -748,64 +780,30 @@ export default function AnalyzePage() {
     setShowAiSuggestion(false)
   }
 
-  // Load requisition from picker
+  // Load requisition from picker or deep link
   const handleLoadRequisition = (requisition) => {
-    setJdText(requisition.jd_text)
+    if (!requisition) return
+    setJdText(requisition.jd_text || '')
     setJdMode('text')
-    setShowRequisitionPicker(false)
+    setAdHocMode(false)
     setRoleName(requisition.name || requisition.title || '')
     roleNameTouchedRef.current = Boolean(requisition.name || requisition.title)
-    
-    // Robust override parser — handles null, "", "null", "[]", JSON strings, arrays
-    const parseOverride = (val) => {
-      if (!val) return []
-      if (Array.isArray(val)) return val
-      if (typeof val === 'string') {
-        try {
-          const parsed = JSON.parse(val)
-          return Array.isArray(parsed) ? parsed : []
-        } catch { return [] }
-      }
-      return []
-    }
-
-    const reqOverride = parseOverride(requisition.required_skills_override)
-    const niceOverride = parseOverride(requisition.nice_to_have_skills_override)
-    const hasOverrides = reqOverride.length > 0 || niceOverride.length > 0
-
-    if (hasOverrides) {
-      const restoredOverrides = {
-        required_skills: reqOverride,
-        nice_to_have_skills: niceOverride
-      }
-      setSkillOverrides(restoredOverrides)
-      setSkillsConfirmed(true)
-      setJdParseResult({
-        required_skills: reqOverride,
-        nice_to_have_skills: niceOverride,
-        restored_from_requisition: true
-      })
-      // Skip the auto-parse effect so it doesn't clobber restored state
-      skipAutoParseRef.current = true
-    } else {
-      // Reset skill confirmation since JD changed
-      setSkillsConfirmed(false)
-      setSkillOverrides(null)
-      setJdParseResult(null)
-    }
-    
+    setLoadedRequisition(requisition)
     setHasLoadedRequisition(true)
     setLoadedRequisitionId(requisition.id)
-    
-    // Load weights if available
+
+    const skillState = buildSkillStateFromRequisition(requisition)
+    setSkillOverrides(skillState.skillOverrides)
+    setSkillsConfirmed(skillState.skillsConfirmed)
+    setJdParseResult(skillState.jdParseResult)
+    skipAutoParseRef.current = skillState.skipAutoParse
+
     let hasWeights = false
     if (requisition.scoring_weights) {
       try {
-        const savedWeights = typeof requisition.scoring_weights === 'string' 
-          ? JSON.parse(requisition.scoring_weights) 
+        const savedWeights = typeof requisition.scoring_weights === 'string'
+          ? JSON.parse(requisition.scoring_weights)
           : requisition.scoring_weights
-        
-        // Only set weights if they're valid and not empty
         if (savedWeights && Object.keys(savedWeights).length > 0) {
           setWeights(savedWeights)
           hasWeights = true
@@ -814,17 +812,53 @@ export default function AnalyzePage() {
         console.error('Failed to parse weights:', e)
       }
     }
-    
-    // Only trigger AI suggestion if weights are NOT available
-    // This prevents unnecessary LLM calls when weights are already saved
     if (!hasWeights) {
       setShowAiSuggestion(true)
     }
   }
 
+  const clearRequisitionSelection = () => {
+    setHasLoadedRequisition(false)
+    setLoadedRequisitionId(null)
+    setLoadedRequisition(null)
+    setIntakeGateStatus(null)
+    setJdText('')
+    setJdMode('text')
+    setRoleName('')
+    roleNameTouchedRef.current = false
+    setSkillOverrides(null)
+    setSkillsConfirmed(false)
+    setJdParseResult(null)
+    skipAutoParseRef.current = false
+    setAdHocMode(false)
+    navigate('/analyze', { replace: true })
+  }
+
+  const enableAdHocMode = () => {
+    setHasLoadedRequisition(false)
+    setLoadedRequisitionId(null)
+    setLoadedRequisition(null)
+    setIntakeGateStatus(null)
+    setJdText('')
+    setJdMode('text')
+    setRoleName('')
+    roleNameTouchedRef.current = false
+    setSkillOverrides(null)
+    setSkillsConfirmed(false)
+    setJdParseResult(null)
+    skipAutoParseRef.current = false
+    setAdHocMode(true)
+    navigate('/analyze', { replace: true })
+  }
+
   // Handle analysis
   const handleAnalyze = async () => {
     // Validation
+    const requisitionRequired = requiresRequisitionSelection(hasRequisitions, screeningMode)
+    if (requisitionRequired && !hasLoadedRequisition && !adHocMode) {
+      setError(ANALYZE.selectRequisitionError)
+      return
+    }
     const effectiveJd = jdMode === 'text' ? jdText : jdFile
     if (!effectiveJd) {
       setError('Please provide a job description')
@@ -903,7 +937,7 @@ export default function AnalyzePage() {
     let activeReqId = loadedRequisitionId
 
     try {
-      if (hasRequisitions && !hasLoadedRequisition) {
+      if (hasRequisitions && !hasLoadedRequisition && (adHocMode || screeningMode === 'allow_ad_hoc')) {
         const reqTitle = buildRequisitionTitle(roleName, jdParseResult, roleCategory)
         const reqTags = buildRequisitionTags(jdParseResult, roleCategory)
         let created
@@ -1160,7 +1194,14 @@ export default function AnalyzePage() {
     handleNewBatch()
   }
 
-  const isStep1Complete = (jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null) && skillsConfirmed
+  const requisitionRequired = requiresRequisitionSelection(hasRequisitions, screeningMode)
+  const showRequisitionFirst = hasRequisitions && !hasLoadedRequisition && !adHocMode
+  const showLoadedRequisition = hasLoadedRequisition && !adHocMode
+  const showAdHocInput = !hasRequisitions || adHocMode || (screeningMode === 'allow_ad_hoc' && !hasLoadedRequisition)
+  const hasJdInput = jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null
+  const isStep1Complete = showRequisitionFirst && requisitionRequired
+    ? false
+    : hasJdInput && skillsConfirmed && (!requisitionRequired || hasLoadedRequisition || adHocMode)
   const isStep2Complete = files.length > 0
 
   const remainingAnalyses = getRemainingAnalyses()
@@ -1214,8 +1255,8 @@ export default function AnalyzePage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageHeader
         className="mb-8"
-        title="New Analysis"
-        subtitle="Score resumes against a role in three steps — job description, upload, then ranked results."
+        title={hasRequisitions ? ANALYZE.pageTitleRequisition : ANALYZE.pageTitle}
+        subtitle={hasRequisitions ? ANALYZE.subtitleRequisition : ANALYZE.subtitle}
         icon={Sparkles}
         actions={
           remainingAnalyses !== undefined && remainingAnalyses !== Infinity ? (
@@ -1268,7 +1309,7 @@ export default function AnalyzePage() {
                   )}
                 </div>
                 <span className={`text-xs sm:text-sm font-semibold truncate ${isActive ? 'text-brand-900' : 'text-slate-600'}`}>
-                  {step.label}
+                  {step.num === 1 && hasRequisitions ? 'Opening & skills' : step.label}
                 </span>
               </button>
               {idx < ANALYZE_STEPS.length - 1 && (
@@ -1307,41 +1348,52 @@ export default function AnalyzePage() {
       {/* Step 1: Job Description */}
       {currentStep === 1 && !showResults && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description & Skill Review</h2>
-            {hasRequisitions && (
-            <div className="relative" ref={requisitionPickerRef}>
-              <button
-                onClick={() => setShowRequisitionPicker(!showRequisitionPicker)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition-colors ring-1 ring-brand-200"
-              >
-                <LayoutTemplate className="w-4 h-4" />
-                Load from Requisitions
-              </button>
-              
-              {showRequisitionPicker && requisitions.length > 0 && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-brand-lg ring-1 ring-brand-100 p-4 z-10 max-h-96 overflow-y-auto">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Open Requisitions</p>
-                  <div className="space-y-2">
-                    {requisitions.map((req) => (
-                      <button
-                        key={req.id}
-                        onClick={() => handleLoadRequisition(req)}
-                        className="w-full text-left p-3 rounded-xl hover:bg-brand-50 transition-colors ring-1 ring-slate-100 hover:ring-brand-200"
-                      >
-                        <p className="text-sm font-semibold text-brand-900 truncate">{req.name || req.title}</p>
-                        <p className="text-xs text-slate-500 mt-1 capitalize">
-                          {req.status?.replace(/_/g, ' ') || 'draft'}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <h2 className="text-xl font-bold text-brand-900">
+              {hasRequisitions ? ANALYZE.step1TitleRequisition : ANALYZE.step1Title}
+            </h2>
+            {hasRequisitions && screeningMode === 'allow_ad_hoc' && !showRequisitionFirst && (
+              <AdHocModeToggle
+                active={adHocMode}
+                onEnable={enableAdHocMode}
+                onDisable={clearRequisitionSelection}
+              />
             )}
           </div>
 
+          {showRequisitionFirst && (
+            <>
+              <RequisitionPickerPanel
+                requisitions={requisitions}
+                loading={requisitionsLoading}
+                search={requisitionSearch}
+                onSearchChange={setRequisitionSearch}
+                onSelect={handleLoadRequisition}
+                onCreateNew={() => navigate('/requisitions')}
+              />
+              {screeningMode === 'allow_ad_hoc' && (
+                <div className="mt-4 text-center">
+                  <AdHocModeToggle active={false} onEnable={enableAdHocMode} onDisable={clearRequisitionSelection} />
+                </div>
+              )}
+              {requisitionRequired && (
+                <p className="mt-4 text-xs text-slate-500 text-center">{ANALYZE.adHocDisabledHint}</p>
+              )}
+            </>
+          )}
+
+          {showLoadedRequisition && loadedRequisition && (
+            <RequisitionContextBar
+              requisition={loadedRequisition}
+              intakeGate={intakeGateStatus}
+              remainingAnalyses={remainingAnalyses}
+              onChangeRole={clearRequisitionSelection}
+              onViewFullJd={() => setShowJdModal(true)}
+            />
+          )}
+
+          {showAdHocInput && (
+            <>
           {/* JD Mode Tabs */}
           <div className="flex gap-2 mb-4">
             {[
@@ -1351,6 +1403,7 @@ export default function AnalyzePage() {
             ].map(({ mode, icon: Icon, label }) => (
               <button
                 key={mode}
+                type="button"
                 onClick={() => setJdMode(mode)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                   jdMode === mode
@@ -1364,7 +1417,7 @@ export default function AnalyzePage() {
             ))}
           </div>
 
-          {/* Role title — saved as requisition on Growth+ */}
+          {/* Role title — saved as requisition on Growth+ ad-hoc path */}
           {hasRequisitions && !hasLoadedRequisition && (jdMode === 'text' ? jdText.trim().length > 50 : jdFile) && (
             <div className="mb-4">
               <label htmlFor="role-name" className="block text-sm font-semibold text-brand-900 mb-1.5">
@@ -1571,9 +1624,18 @@ export default function AnalyzePage() {
               )}
             </div>
           )}
+            </>
+          )}
+
+          {showLoadedRequisition && !skillsConfirmed && parsingJd && (
+            <div className="mt-3 flex items-center gap-2 p-3 bg-brand-50 border border-brand-200 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+              <p className="text-xs text-brand-700 font-medium">Parsing job description from requisition…</p>
+            </div>
+          )}
 
           {/* ── Inline Skill Classification Editor (shown after JD is parsed, before confirmation) ── */}
-          {jdParseResult && !skillsConfirmed && (
+          {(showAdHocInput || showLoadedRequisition) && jdParseResult && !skillsConfirmed && (
             <div className="mt-6">
               <SkillClassificationEditor
                 data={jdParseResult}
@@ -1602,11 +1664,15 @@ export default function AnalyzePage() {
           )}
 
           {/* ── Skills Confirmed Badge ── */}
-          {skillsConfirmed && (
+          {(showAdHocInput || showLoadedRequisition) && skillsConfirmed && (
             <div className="mt-6 flex items-center gap-3 flex-wrap p-3 bg-green-50 border border-green-200 rounded-2xl">
               <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
               <span className="text-sm font-medium text-green-700">
-                {jdParseResult?.restored_from_template
+                {jdParseResult?.restored_from_requisition
+                  ? (jdParseResult?.skill_source === 'calibrated'
+                    ? ANALYZE.skillsFromCalibrated
+                    : ANALYZE.skillsFromRequisition)
+                  : jdParseResult?.restored_from_template
                   ? 'Skills restored from saved template'
                   : 'Skills confirmed'}
                 {skillOverrides && !jdParseResult?.restored_from_template
@@ -2062,6 +2128,13 @@ export default function AnalyzePage() {
         guide={analyzeGuide.guide}
         onDismiss={analyzeGuide.dismiss}
       />
+      {showJdModal && loadedRequisition?.jd_text && (
+        <JdFullModal
+          title={`${ANALYZE.jdReferenceLabel} · ${loadedRequisition.title || loadedRequisition.name}`}
+          jdText={loadedRequisition.jd_text}
+          onClose={() => setShowJdModal(false)}
+        />
+      )}
     </div>
   )
 }

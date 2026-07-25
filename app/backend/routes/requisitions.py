@@ -156,6 +156,7 @@ def get_settings(
     return TenantRequisitionSettingsOut(
         tenant_id=row.tenant_id,
         intake_gate_mode=row.intake_gate_mode,
+        screening_mode=getattr(row, "screening_mode", None) or "requisition_required",
         hm_pipeline_permission=row.hm_pipeline_permission,
         hiring_signal_weights=hw,
         updated_at=row.updated_at,
@@ -171,6 +172,8 @@ def update_settings(
     row = get_or_create_tenant_settings(db, current_user.tenant_id)
     if body.intake_gate_mode is not None:
         row.intake_gate_mode = body.intake_gate_mode
+    if body.screening_mode is not None:
+        row.screening_mode = body.screening_mode
     if body.hm_pipeline_permission is not None:
         _assert_hm_workflow(db, current_user.tenant_id)
         row.hm_pipeline_permission = body.hm_pipeline_permission
@@ -209,6 +212,7 @@ def update_settings(
     return TenantRequisitionSettingsOut(
         tenant_id=row.tenant_id,
         intake_gate_mode=row.intake_gate_mode,
+        screening_mode=getattr(row, "screening_mode", None) or "requisition_required",
         hm_pipeline_permission=row.hm_pipeline_permission,
         hiring_signal_weights=hw,
         updated_at=row.updated_at,
