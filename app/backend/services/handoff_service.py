@@ -11,6 +11,7 @@ from app.backend.models.db_models import (
     InterviewEvaluation,
     OverallAssessment,
     Requisition,
+    RequisitionCandidate,
     RoleTemplate,
     ScreeningResult,
     User,
@@ -82,18 +83,31 @@ def build_handoff_package(
         if not req:
             return None
         title = req.title
-        results_q = db.query(ScreeningResult).join(
-            Candidate, ScreeningResult.candidate_id == Candidate.id,
-        ).filter(
-            ScreeningResult.tenant_id == tenant_id,
-            ScreeningResult.is_active == True,
-            ScreeningResult.status == "shortlisted",
+        rc_rows = (
+            db.query(RequisitionCandidate)
+            .filter(RequisitionCandidate.requisition_id == requisition_id)
+            .filter(
+                (RequisitionCandidate.submission_status.in_(("submitted", "reviewed")))
+                | (RequisitionCandidate.pipeline_status == "shortlisted")
+            )
+            .all()
         )
-        results_q = results_q.filter(
-            (ScreeningResult.requisition_id == requisition_id)
-            | (ScreeningResult.role_template_id == req.legacy_role_template_id)
-        )
-        results = results_q.all()
+        result_ids = [rc.screening_result_id for rc in rc_rows if rc.screening_result_id]
+        if result_ids:
+            results = db.query(ScreeningResult).filter(ScreeningResult.id.in_(result_ids)).all()
+        else:
+            results_q = db.query(ScreeningResult).join(
+                Candidate, ScreeningResult.candidate_id == Candidate.id,
+            ).filter(
+                ScreeningResult.tenant_id == tenant_id,
+                ScreeningResult.is_active == True,
+                ScreeningResult.status == "shortlisted",
+            )
+            results_q = results_q.filter(
+                (ScreeningResult.requisition_id == requisition_id)
+                | (ScreeningResult.role_template_id == req.legacy_role_template_id)
+            )
+            results = results_q.all()
         entity_id = requisition_id
         entity_type = "requisition"
     elif jd_id:
@@ -186,7 +200,10 @@ def build_handoff_package(
             "candidate_id": None if public_view else (cand.id if cand else None),
             "result_id": None if public_view else r.id,
             "name": cand_name,
-            "fit_score": analysis.get("fit_score"),
+            "fit_score": analysis.get("fit_score") or getattr(r, "deterministic_score", None),
+            "call_fit_score": getattr(r, "call_fit_score", None),
+            "consolidated_recommendation": getattr(r, "consolidated_recommendation", None),
+            "consolidated_reasoning": getattr(r, "consolidated_reasoning", None),
             "recommendation": analysis.get("final_recommendation", ""),
             "strengths": analysis.get("strengths", []),
             "weaknesses": analysis.get("weaknesses", []),

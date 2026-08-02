@@ -1,5 +1,5 @@
 """
-Tenant-level RBAC — admin, recruiter, viewer, hiring_manager.
+Tenant-level RBAC — admin, ta_lead, recruiter, viewer, hiring_manager.
 """
 from fastapi import Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
@@ -8,12 +8,17 @@ from app.backend.middleware.auth import get_current_user, require_active_subscri
 from app.backend.models.db_models import Requisition, User
 
 TENANT_ROLE_ADMIN = "admin"
+TENANT_ROLE_TA_LEAD = "ta_lead"
 TENANT_ROLE_RECRUITER = "recruiter"
 TENANT_ROLE_VIEWER = "viewer"
 TENANT_ROLE_HIRING_MANAGER = "hiring_manager"
 
-WRITE_ROLES = {TENANT_ROLE_ADMIN, TENANT_ROLE_RECRUITER}
-ALL_ROLES = {TENANT_ROLE_ADMIN, TENANT_ROLE_RECRUITER, TENANT_ROLE_VIEWER, TENANT_ROLE_HIRING_MANAGER}
+WRITE_ROLES = {TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD, TENANT_ROLE_RECRUITER}
+ASSIGNMENT_ROLES = {TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD}
+ALL_ROLES = {
+    TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD, TENANT_ROLE_RECRUITER,
+    TENANT_ROLE_VIEWER, TENANT_ROLE_HIRING_MANAGER,
+}
 
 
 def get_tenant_role(user: User) -> str:
@@ -40,6 +45,14 @@ def is_hiring_manager(user: User) -> bool:
     return get_tenant_role(user) == TENANT_ROLE_HIRING_MANAGER
 
 
+def is_ta_lead(user: User) -> bool:
+    return get_tenant_role(user) == TENANT_ROLE_TA_LEAD
+
+
+def can_assign_recruiters(user: User) -> bool:
+    return get_tenant_role(user) in ASSIGNMENT_ROLES
+
+
 def can_read_tenant(user: User) -> bool:
     return get_tenant_role(user) in ALL_ROLES
 
@@ -59,7 +72,15 @@ def require_recruiter_or_admin(
     current_user: User = Depends(get_current_user),
 ) -> User:
     if not can_write_tenant(current_user):
-        raise _role_forbidden([TENANT_ROLE_ADMIN, TENANT_ROLE_RECRUITER])
+        raise _role_forbidden([TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD, TENANT_ROLE_RECRUITER])
+    return current_user
+
+
+def require_assignment_role(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if not can_assign_recruiters(current_user):
+        raise _role_forbidden([TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD])
     return current_user
 
 
@@ -93,13 +114,16 @@ def require_role_template_manager(user: User, template) -> None:
 
 
 def can_manage_requisition(user: User, req: Requisition) -> bool:
-    if is_tenant_admin(user):
+    if is_tenant_admin(user) or is_ta_lead(user):
         return True
     if is_hiring_manager(user):
         return False
     if not can_write_tenant(user):
         return False
     owner_id = getattr(req, "created_by", None)
+    assigned_id = getattr(req, "assigned_recruiter_id", None)
+    if assigned_id and assigned_id == user.id:
+        return True
     return owner_id is None or owner_id == user.id
 
 
@@ -110,7 +134,7 @@ def require_requisition_access(user: User, req: Requisition, db: Session) -> Non
     if req.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Requisition not found")
     role = get_tenant_role(user)
-    if role in {TENANT_ROLE_ADMIN, TENANT_ROLE_RECRUITER, TENANT_ROLE_VIEWER}:
+    if role in {TENANT_ROLE_ADMIN, TENANT_ROLE_TA_LEAD, TENANT_ROLE_RECRUITER, TENANT_ROLE_VIEWER}:
         return
     if role == TENANT_ROLE_HIRING_MANAGER and hm_assigned_to_requisition(db, user.id, req.id):
         return

@@ -356,8 +356,10 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 #### 8.1 Multi-User Tenants
 - **Role-Based Access Control (RBAC)**:
-  - **Admin**: Full tenant access, user management
-  - **Recruiter**: Standard recruiting operations
+  - **Admin**: Full tenant access, user management, billing
+  - **TA Lead** (`ta_lead`): Assign recruiters to requisitions, approve HM access requests, view all reqs
+  - **Recruiter**: Intake, screening, pipeline, submit to HM (own or assigned requisitions)
+  - **Hiring Manager** (`hiring_manager`): Approve/edit intake, review submitted candidates, shortlist/reject with feedback
   - **Viewer**: Read-only access
 - **Member Invitations**: Email-based team onboarding
 - **Team Members**: Dedicated TeamMember table for tenant-user relationships

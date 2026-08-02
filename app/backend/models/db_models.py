@@ -376,6 +376,9 @@ class Requisition(Base):
     nice_to_have_skills_override = Column(Text, nullable=True)
     must_ask_questions_json = Column(Text, nullable=True)
     primary_hiring_manager_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_recruiter_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    opened_on_behalf_of_hm_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    routing_policy_json = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     legacy_role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="SET NULL"), nullable=True)
     legacy_project_id = Column(Integer, nullable=True)
@@ -396,6 +399,8 @@ class Requisition(Base):
 
     tenant = relationship("Tenant", backref="requisitions")
     primary_hiring_manager = relationship("User", foreign_keys=[primary_hiring_manager_id])
+    assigned_recruiter = relationship("User", foreign_keys=[assigned_recruiter_id])
+    opened_on_behalf_of_hm = relationship("User", foreign_keys=[opened_on_behalf_of_hm_id])
     creator = relationship("User", foreign_keys=[created_by])
     legacy_role_template = relationship("RoleTemplate", foreign_keys=[legacy_role_template_id])
     criteria_versions = relationship("RequisitionCriteriaVersion", back_populates="requisition", cascade="all, delete-orphan")
@@ -442,6 +447,30 @@ class RequisitionHiringManager(Base):
     __table_args__ = (
         UniqueConstraint("requisition_id", "user_id", name="uq_req_hm_user"),
     )
+
+
+class RequisitionOpenRequest(Base):
+    """HM-initiated request for TA/recruiter to open a requisition."""
+    __tablename__ = "requisition_open_requests"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    requested_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=False)
+    jd_text = Column(Text, nullable=False)
+    notes = Column(Text, nullable=True)
+    location = Column(String(200), nullable=True)
+    headcount = Column(Integer, nullable=True)
+    status = Column(String(30), nullable=False, default="pending", server_default="pending")
+    assigned_recruiter_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    requisition_id = Column(Integer, ForeignKey("requisitions.id", ondelete="SET NULL"), nullable=True)
+    assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    requester = relationship("User", foreign_keys=[requested_by])
+    assigned_recruiter = relationship("User", foreign_keys=[assigned_recruiter_id])
+    requisition = relationship("Requisition", foreign_keys=[requisition_id])
 
 
 class RequisitionCandidate(Base):

@@ -109,6 +109,7 @@ def list_candidates(
     status: Optional[str] = Query(None),
     narrative_status: Optional[str] = Query(None),
     skill: Optional[str] = Query(None),
+    requisition_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -122,6 +123,38 @@ def list_candidates(
         )
 
     query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+
+    from app.backend.middleware.rbac import get_tenant_role, is_hiring_manager, TENANT_ROLE_HIRING_MANAGER
+    from app.backend.models.db_models import Requisition, RequisitionCandidate, RequisitionHiringManager
+
+    if get_tenant_role(current_user) == TENANT_ROLE_HIRING_MANAGER:
+        assigned_req_ids = (
+            db.query(Requisition.id)
+            .outerjoin(RequisitionHiringManager, RequisitionHiringManager.requisition_id == Requisition.id)
+            .filter(
+                Requisition.tenant_id == current_user.tenant_id,
+                (Requisition.primary_hiring_manager_id == current_user.id)
+                | (RequisitionHiringManager.user_id == current_user.id),
+            )
+            .distinct()
+            .subquery()
+        )
+        hm_candidate_ids = (
+            db.query(RequisitionCandidate.candidate_id)
+            .filter(RequisitionCandidate.requisition_id.in_(select(assigned_req_ids.c.id)))
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Candidate.id.in_(hm_candidate_ids))
+
+    if requisition_id is not None:
+        req_candidate_ids = (
+            db.query(RequisitionCandidate.candidate_id)
+            .filter(RequisitionCandidate.requisition_id == requisition_id)
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Candidate.id.in_(req_candidate_ids))
 
     # When status filter is active, we must join through ScreeningResult to find
     # candidates that have at least one result with that status.

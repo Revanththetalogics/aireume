@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
-import { listRequisitions, createRequisition, getTeamMembers, deleteRequisition } from '../lib/api'
+import { listRequisitions, createRequisition, getTeamMembers, deleteRequisition, createRequisitionOpenRequest } from '../lib/api'
 import { useOnboarding } from '../contexts/OnboardingContext'
 import useFeatureGuide from '../hooks/useFeatureGuide'
 import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
@@ -37,6 +37,9 @@ export default function RequisitionsPage() {
   const [form, setForm] = useState({ title: '', jd_text: '', client_name: '', location: '', primary_hiring_manager_id: '' })
   const [teamMembers, setTeamMembers] = useState([])
   const [deletingId, setDeletingId] = useState(null)
+  const [showHmRequestOpening, setShowHmRequestOpening] = useState(false)
+  const [hmRequestForm, setHmRequestForm] = useState({ title: '', jd_text: '', notes: '' })
+  const [requestingOpening, setRequestingOpening] = useState(false)
 
   const handleDelete = async (e, req) => {
     e.preventDefault()
@@ -124,12 +127,19 @@ export default function RequisitionsPage() {
         subtitle={pageSubtitle}
         icon={Briefcase}
         actions={
-          canWrite && (
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus className="w-4 h-4" />
-              {REQUISITIONS.createCta}
-            </Button>
-          )
+          <>
+            {isHiringManager && (
+              <Button variant="secondary" onClick={() => setShowHmRequestOpening(true)}>
+                {REQUISITIONS.requestOpeningCta}
+              </Button>
+            )}
+            {canWrite && (
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus className="w-4 h-4" />
+                {REQUISITIONS.createCta}
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -212,6 +222,63 @@ export default function RequisitionsPage() {
             <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>
               Cancel
             </Button>
+          </div>
+        </form>
+      )}
+
+      {isHiringManager && showHmRequestOpening && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault()
+            setRequestingOpening(true)
+            try {
+              await createRequisitionOpenRequest(hmRequestForm)
+              setShowHmRequestOpening(false)
+              setHmRequestForm({ title: '', jd_text: '', notes: '' })
+              window.alert('Opening request submitted — TA will assign a recruiter.')
+            } catch {
+              window.alert('Failed to submit opening request')
+            } finally {
+              setRequestingOpening(false)
+            }
+          }}
+          className="mb-8 bg-white/90 rounded-2xl ring-1 ring-brand-100 p-6 space-y-4"
+        >
+          <h2 className="font-bold text-brand-900">{REQUISITIONS.requestOpeningCta}</h2>
+          <label className="block text-sm">
+            <span className="font-semibold text-slate-700">Title</span>
+            <input
+              value={hmRequestForm.title}
+              onChange={(e) => setHmRequestForm((f) => ({ ...f, title: e.target.value }))}
+              className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-semibold text-slate-700">Job description</span>
+            <textarea
+              value={hmRequestForm.jd_text}
+              onChange={(e) => setHmRequestForm((f) => ({ ...f, jd_text: e.target.value }))}
+              rows={6}
+              className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-semibold text-slate-700">Notes (optional)</span>
+            <textarea
+              value={hmRequestForm.notes}
+              onChange={(e) => setHmRequestForm((f) => ({ ...f, notes: e.target.value }))}
+              rows={2}
+              className="mt-1 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={requestingOpening}>
+              {requestingOpening ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Submit request
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setShowHmRequestOpening(false)}>Cancel</Button>
           </div>
         </form>
       )}

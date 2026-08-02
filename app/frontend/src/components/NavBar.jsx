@@ -4,7 +4,7 @@ import {
   Users2, Settings, Shield, LogOut, Sparkles,
   MoreHorizontal, Moon, Sun, Mic, FolderKanban, GitCompare, ScanSearch, Video,
 } from 'lucide-react'
-import { NAV } from '../lib/uxLabels'
+import { NAV, REQUISITIONS } from '../lib/uxLabels'
 
 /** Active state for primary nav items (includes nested routes). */
 function isPrimaryNavActive(pathname, itemPath) {
@@ -46,6 +46,7 @@ const USER_MENU_LINKS = [
   { label: NAV.compare, path: '/compare', icon: GitCompare, feature: 'compare' },
   { label: NAV.pipeline, path: '/pipeline', icon: Columns, feature: 'pipeline' },
   { label: NAV.analytics, path: '/analytics', icon: BarChart3, feature: 'analytics' },
+  { label: REQUISITIONS.openRequestsNav, path: '/requisitions/open-requests', icon: Briefcase, feature: 'requisitions', assignOnly: true },
   { label: NAV.team, path: '/team', icon: Users2 },
   { label: NAV.interviewReview, path: '/video', icon: Video, feature: 'video_analysis' },
   { label: NAV.settings, path: '/settings', icon: Settings },
@@ -274,7 +275,7 @@ function MobileMoreSheet({ onNavigate, menuLinks }) {
 export default function NavBar() {
   const { user, tenant, logout } = useAuth()
   const { branding } = useBranding()
-  const { canWrite, isHiringManager } = usePermissions()
+  const { canWrite, isHiringManager, canAssign } = usePermissions()
   const { isFeatureAvailable } = useSubscription()
 
   const filterByFeature = (items) =>
@@ -285,7 +286,9 @@ export default function NavBar() {
       ? { ...item, label: NAV.screenResumes }
       : item,
   )
-  const menuLinks = filterByFeature(USER_MENU_LINKS)
+  const menuLinks = filterByFeature(USER_MENU_LINKS).filter(
+    (item) => !item.assignOnly || canAssign,
+  )
   const location = useLocation()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef(null)

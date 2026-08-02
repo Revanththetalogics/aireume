@@ -350,8 +350,16 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
 
 function StepInviteTeam({ onNext, onBack, onSkip }) {
   const [emails, setEmails] = useState([''])
+  const [inviteRole, setInviteRole] = useState('recruiter')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+
+  const INVITE_ROLES = [
+    { value: 'recruiter', label: 'Recruiter' },
+    { value: 'ta_lead', label: 'TA lead (assign recruiters, opening requests)' },
+    { value: 'hiring_manager', label: 'Hiring manager' },
+    { value: 'viewer', label: 'Viewer (read-only)' },
+  ]
 
   const addEmailField = () => setEmails([...emails, ''])
 
@@ -375,7 +383,7 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await inviteTeamDuringOnboarding(validEmails)
+      const result = await inviteTeamDuringOnboarding(validEmails, inviteRole)
       if (result.invited_count === 0 && result.results?.every(r => r.status === 'already_exists')) {
         setError('All entered emails are already registered.')
         return
@@ -412,6 +420,19 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
       </div>
 
       <div className="w-full max-w-sm mx-auto space-y-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Role for all invites</label>
+          <select
+            value={inviteRole}
+            onChange={(e) => setInviteRole(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none text-sm text-slate-800"
+          >
+            {INVITE_ROLES.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+
         {emails.map((email, index) => (
           <div key={index} className="flex items-center gap-2">
             <div className="relative flex-1">

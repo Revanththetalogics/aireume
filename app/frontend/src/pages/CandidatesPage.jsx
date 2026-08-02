@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown, List, LayoutGrid, Columns, Mail, Loader2 } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume, updateResultStatus } from '../lib/api'
@@ -348,6 +348,7 @@ export default function CandidatesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initialStatus = searchParams.get('status') || ''
   const initialNarrativeStatus = searchParams.get('narrative_status') || ''
+  const initialRequisitionId = searchParams.get('requisition_id') || ''
 
   const [candidates, setCandidates] = useState([])
   const [total, setTotal]           = useState(0)
@@ -357,7 +358,7 @@ export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [narrativeStatusFilter, setNarrativeStatusFilter] = useState(initialNarrativeStatus)
-  const [skillFilter, setSkillFilter] = useState('')
+  const [requisitionFilter, setRequisitionFilter] = useState(initialRequisitionId)
   const [toast, setToast]           = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -381,13 +382,14 @@ export default function CandidatesPage() {
     if (mode !== 'split') { setSplitSelectedId(null); setSplitProfile(null) }
   }, [])
 
-  const fetchCandidates = async (s = search, p = page, st = statusFilter, ns = narrativeStatusFilter, sk = skillFilter) => {
+  const fetchCandidates = async (s = search, p = page, st = statusFilter, ns = narrativeStatusFilter, sk = skillFilter, reqId = requisitionFilter) => {
     setLoading(true)
     try {
       const params = { search: s, page: p, page_size: 20 }
       if (st) params.status = st
       if (ns) params.narrative_status = ns
       if (sk) params.skill = sk
+      if (reqId) params.requisition_id = Number(reqId)
       const data = await getCandidates(params)
       setCandidates(data.candidates)
       setTotal(data.total)
@@ -400,19 +402,20 @@ export default function CandidatesPage() {
 
   useEffect(() => { fetchCandidates() }, [page])
 
-  // Sync URL params when status/narrative_status filters change
+  // Sync URL params when status/narrative_status/requisition filters change
   useEffect(() => {
     const params = {}
     if (statusFilter) params.status = statusFilter
     if (narrativeStatusFilter) params.narrative_status = narrativeStatusFilter
+    if (requisitionFilter) params.requisition_id = requisitionFilter
     if (Object.keys(params).length > 0) {
       setSearchParams(params, { replace: true })
     } else {
       setSearchParams({}, { replace: true })
     }
     setPage(1)
-    fetchCandidates(search, 1, statusFilter, narrativeStatusFilter, skillFilter)
-  }, [statusFilter, narrativeStatusFilter])
+    fetchCandidates(search, 1, statusFilter, narrativeStatusFilter, skillFilter, requisitionFilter)
+  }, [statusFilter, narrativeStatusFilter, requisitionFilter])
 
   // Re-fetch when skill filter changes
   useEffect(() => {
@@ -571,12 +574,35 @@ export default function CandidatesPage() {
     <div>
       <main className="max-w-[95vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <ViewerReadOnlyBanner />
+        {requisitionFilter && (
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-brand-50 ring-1 ring-brand-200 px-4 py-3 text-sm">
+            <p className="text-brand-800 font-medium">
+              Showing candidates linked to requisition #{requisitionFilter}
+            </p>
+            <div className="flex items-center gap-3">
+              <Link
+                to={`/requisitions/${requisitionFilter}?tab=sourcing`}
+                className="text-brand-600 font-semibold hover:underline"
+              >
+                Back to sourcing
+              </Link>
+              <button
+                type="button"
+                onClick={() => setRequisitionFilter('')}
+                className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between flex-wrap gap-3 card-animate">
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              {statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all'
-                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${narrativeStatusFilter ? ` with narrative status: ${narrativeStatusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
+              {statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all' || requisitionFilter
+                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${requisitionFilter ? ` for requisition #${requisitionFilter}` : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${narrativeStatusFilter ? ` with narrative status: ${narrativeStatusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
                 : `${total} candidates tracked in your workspace`}
             </p>
           </div>

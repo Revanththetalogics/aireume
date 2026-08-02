@@ -599,3 +599,65 @@ class TestRequisitionSettings:
             json={"screening_mode": "invalid"},
         )
         assert resp.status_code == 422
+
+
+class TestIcpWorkflow:
+    def test_feedback_suggestions_from_reject(self, db, auth_client):
+        user = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="QA Engineer",
+            jd_text="Playwright Python CI",
+        )
+        db.commit()
+        from app.backend.services.hm_feedback_service import build_feedback_suggestions
+        suggestions = build_feedback_suggestions(
+            req,
+            outcome_reason_code="wrong_skills",
+            outcome_notes="Need stronger CI/CD",
+        )
+        assert suggestions["outcome_reason_code"] == "wrong_skills"
+        assert any("CI/CD" in s for s in suggestions["search_brief_additions"])
+
+    def test_assign_recruiter_endpoint(self, db, auth_client):
+        admin = _admin_user(db)
+        recruiter = User(
+            email="assigned.rec@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=admin.tenant_id,
+            role="recruiter",
+        )
+        db.add(recruiter)
+        db.commit()
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=admin.id,
+            title="Assigned Role",
+            jd_text="JD text here",
+        )
+        db.commit()
+        resp = auth_client.put(
+            f"/api/requisitions/{req.id}/assign-recruiter",
+            json={"assigned_recruiter_id": recruiter.id},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["assigned_recruiter_id"] == recruiter.id
+
+    def test_reject_outcome_requires_reason(self, db, auth_client):
+        user = _admin_user(db)
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Outcome Test",
+            jd_text="JD",
+        )
+        db.commit()
+        resp = auth_client.put(
+            f"/api/requisitions/{req.id}/candidates/999/outcome",
+            json={"hm_outcome": "reject"},
+        )
+        assert resp.status_code in (403, 404, 422)

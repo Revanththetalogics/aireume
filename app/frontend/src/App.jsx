@@ -36,6 +36,7 @@ const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
 const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
 const RequisitionsPage = lazy(() => import('./pages/RequisitionsPage'))
 const RequisitionDetailPage = lazy(() => import('./pages/RequisitionDetailPage'))
+const OpenRequestsPage = lazy(() => import('./pages/OpenRequestsPage'))
 const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
 const ComparePage  = lazy(() => import('./pages/ComparePage'))
 const TeamPage       = lazy(() => import('./pages/TeamPage'))
@@ -188,6 +189,7 @@ function App() {
               <Route path="/jd-library/:id/handoff" element={<LegacyHandoffRedirect />} />
               <Route path="/jd-library/:id/candidates" element={<LegacyJdPipelineRedirect />} />
               <Route path="/requisitions" element={<Shell><OnboardingGate><RequirePlanFeature feature="requisitions"><RequisitionsPage /></RequirePlanFeature></OnboardingGate></Shell>} />
+              <Route path="/requisitions/open-requests" element={<Shell><OnboardingGate><RequirePlanFeature feature="requisitions"><OpenRequestsPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               <Route path="/requisitions/:id" element={<Shell><OnboardingGate><RequirePlanFeature feature="requisitions"><RequisitionDetailPage /></RequirePlanFeature></OnboardingGate></Shell>} />
               
               {/* Existing routes */}

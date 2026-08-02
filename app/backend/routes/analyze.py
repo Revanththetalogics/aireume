@@ -620,6 +620,20 @@ def _resolve_requisition(
     return requisition_id, jd, overrides, weights, req.legacy_role_template_id
 
 
+def _enforce_screening_mode(db, tenant_id: int, requisition_id: int | None) -> None:
+    from app.backend.services.requisition_service import get_or_create_tenant_settings
+    settings = get_or_create_tenant_settings(db, tenant_id)
+    mode = getattr(settings, "screening_mode", None) or "requisition_required"
+    if mode == "requisition_required" and not requisition_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Your workspace requires screening through a requisition. Select an opening before analyzing.",
+                "error_code": "REQUISITION_REQUIRED",
+            },
+        )
+
+
 def _finalize_analyze_context(
     db,
     tenant_id: int,
@@ -1784,6 +1798,8 @@ async def analyze_endpoint(
                 "plan": quota["plan"],
             },
         )
+
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
 
     # ─── VALIDATE FILES FIRST (before incrementing usage) ─────────────────────
     # Validate file extension

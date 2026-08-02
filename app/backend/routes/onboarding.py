@@ -333,7 +333,7 @@ async def invite_team_during_onboarding(
     from app.backend.services.plan_entitlement_service import check_team_member_capacity
 
     results = []
-    valid_roles = {"admin", "recruiter", "viewer", "hiring_manager"}
+    valid_roles = {"admin", "recruiter", "viewer", "hiring_manager", "ta_lead"}
     role = body.role if body.role in valid_roles else "recruiter"
 
     for raw_email in body.emails:

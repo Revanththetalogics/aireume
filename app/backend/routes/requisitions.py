@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session, selectinload
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.middleware.rbac import (
+    can_assign_recruiters,
     can_manage_requisition,
     get_tenant_role,
     is_hiring_manager,
     is_tenant_admin,
+    require_assignment_role,
     require_requisition_access,
     require_recruiter_or_admin,
     require_requisition_write,
@@ -26,21 +28,27 @@ from app.backend.models.db_models import (
     RequisitionCandidate,
     RequisitionCriteriaVersion,
     RequisitionHiringManager,
+    RequisitionOpenRequest,
     ScreeningResult,
     TenantRequisitionSettings,
     User,
 )
 from app.backend.models.schemas import (
+    RequisitionAssignRecruiter,
     RequisitionCalibrateRequest,
     RequisitionCriteriaUpdate,
     RequisitionCandidateAdd,
     RequisitionCandidateOut,
     RequisitionCandidateStatusUpdate,
     RequisitionCreate,
+    RequisitionFeedbackApply,
     RequisitionHmApproval,
     RequisitionHmRequestCreate,
     RequisitionHmRequestDecision,
     RequisitionIntakeUpdate,
+    RequisitionOpenRequestAssign,
+    RequisitionOpenRequestCreate,
+    RequisitionOpenRequestOut,
     RequisitionOutcomeUpdate,
     RequisitionOut,
     RequisitionSubmissionCreate,
@@ -49,6 +57,11 @@ from app.backend.models.schemas import (
     TenantRequisitionSettingsUpdate,
 )
 from app.backend.services.audit_service import log_tenant_event
+from app.backend.services.hm_feedback_service import (
+    OUTCOME_REASON_CODES,
+    apply_feedback_suggestions,
+    build_feedback_suggestions,
+)
 from app.backend.services.requisition_service import (
     approve_hm_request,
     assign_hiring_managers,
@@ -65,12 +78,16 @@ from app.backend.services.requisition_service import (
     is_requisition_calibrated,
     list_pending_hm_requests,
     migrate_legacy_data,
+    maybe_advance_to_interviewing,
+    maybe_advance_to_sourcing,
+    notify_hm_candidate_submitted,
     reject_hm_request,
     request_hm_for_requisition,
     requisition_has_hiring_manager,
     requisition_to_dict,
     req_candidate_to_dict,
     suggest_intake_from_jd,
+    suggest_screening_action,
     sync_working_criteria_v0,
     update_criteria_manual,
 )
@@ -243,6 +260,9 @@ def create_req(
         nice_to_have_skills_override=body.nice_to_have_skills_override,
         primary_hiring_manager_id=body.primary_hiring_manager_id,
         hiring_manager_ids=body.hiring_manager_ids,
+        assigned_recruiter_id=body.assigned_recruiter_id or current_user.id,
+        opened_on_behalf_of_hm_id=body.opened_on_behalf_of_hm_id,
+        routing_policy_json=body.routing_policy_json,
         status=body.status,
     )
     if body.primary_hiring_manager_id:
@@ -283,7 +303,10 @@ def list_reqs(
             | Requisition.id.in_(select(assigned_ids))
         )
     elif mine_only and not is_tenant_admin(current_user):
-        q = q.filter(Requisition.created_by == current_user.id)
+        q = q.filter(
+            (Requisition.created_by == current_user.id)
+            | (Requisition.assigned_recruiter_id == current_user.id)
+        )
     if status_filter:
         q = q.filter(Requisition.status == status_filter)
     q = q.order_by(Requisition.updated_at.desc())
@@ -293,7 +316,7 @@ def list_reqs(
 
 @router.get("/hm-requests", response_model=list[RequisitionOut], dependencies=[Depends(require_feature("hm_workflow"))])
 def list_hm_requests(
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_assignment_role),
     db: Session = Depends(get_db),
 ):
     """Tenant admins — pending hiring manager access requests across requisitions."""
@@ -357,6 +380,14 @@ def update_req(
             req.intake_status = "pending_hm"
         if req.status == "draft":
             req.status = "intake_in_progress"
+    if body.assigned_recruiter_id is not None:
+        if not can_assign_recruiters(current_user) and not can_manage_requisition(current_user, req):
+            raise HTTPException(status_code=403, detail="Not allowed to assign recruiter")
+        req.assigned_recruiter_id = body.assigned_recruiter_id
+    if body.opened_on_behalf_of_hm_id is not None:
+        req.opened_on_behalf_of_hm_id = body.opened_on_behalf_of_hm_id
+    if body.routing_policy_json is not None:
+        req.routing_policy_json = json.dumps(body.routing_policy_json)
     db.commit()
     db.refresh(req)
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
@@ -395,6 +426,7 @@ def update_intake(
         req.status = "intake_in_progress"
     from app.backend.services.requisition_service import sync_working_criteria_v0
     sync_working_criteria_v0(db, req)
+    maybe_advance_to_sourcing(db, req)
     db.commit()
     db.refresh(req)
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
@@ -486,11 +518,18 @@ def hm_approval(
     if not hm_assigned_to_requisition(db, current_user.id, req.id) and not is_tenant_admin(current_user):
         raise HTTPException(status_code=403, detail="Only assigned hiring managers can approve intake")
     if body.approved:
+        if body.intake_json:
+            req.intake_json = json.dumps(body.intake_json)
+            from app.backend.services.interview_kit_context import sync_must_ask_from_intake
+            must_ask = sync_must_ask_from_intake(body.intake_json)
+            if must_ask is not None:
+                req.must_ask_questions_json = must_ask
+            sync_working_criteria_v0(db, req)
         req.intake_status = "approved"
         req.hm_approved_at = datetime.now(timezone.utc)
         req.hm_approved_by = current_user.id
-        # B: HM approval always locks criteria v1+ from latest intake + JD
         calibrate_requisition(db, req, user_id=current_user.id)
+        maybe_advance_to_sourcing(db, req)
     else:
         req.intake_status = "changes_requested"
     db.commit()
@@ -678,7 +717,13 @@ def get_pipeline(
     pipeline: dict[str, list] = {s: [] for s in _ALLOWED_PIPELINE}
     for rc in rows:
         st = rc.pipeline_status if rc.pipeline_status in pipeline else "pending"
-        pipeline[st].append(req_candidate_to_dict(rc, rc.candidate))
+        item = req_candidate_to_dict(rc, rc.candidate)
+        item["suggested_action"] = suggest_screening_action(
+            req,
+            item.get("fit_score"),
+            has_call=bool(item.get("call_fit_score")),
+        )
+        pipeline[st].append(item)
     return {
         "requisition_id": req_id,
         "pipeline": pipeline,
@@ -739,7 +784,7 @@ def submit_to_hm(
     req = _load_req(db, req_id, current_user.tenant_id)
     rc = (
         db.query(RequisitionCandidate)
-        .options(selectinload(RequisitionCandidate.screening_result))
+        .options(selectinload(RequisitionCandidate.screening_result), selectinload(RequisitionCandidate.candidate))
         .filter(
             RequisitionCandidate.requisition_id == req_id,
             RequisitionCandidate.candidate_id == candidate_id,
@@ -753,6 +798,16 @@ def submit_to_hm(
     rc.submission_json = json.dumps(packet)
     rc.submission_status = "submitted"
     rc.submitted_at = datetime.now(timezone.utc)
+    cand_name = rc.candidate.name if rc.candidate else None
+    notify_hm_candidate_submitted(db, req, cand_name or "")
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="hm.candidate_submitted",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"candidate_id": candidate_id, "title": req.title},
+    )
     db.commit()
     return packet
 
@@ -778,19 +833,36 @@ def record_outcome(
     )
     if not rc:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    if body.hm_outcome == "reject" and not body.outcome_reason_code:
+        raise HTTPException(
+            status_code=400,
+            detail="outcome_reason_code is required when rejecting a candidate",
+        )
     rc.hm_outcome = body.hm_outcome
     rc.outcome_reason_code = body.outcome_reason_code
     rc.outcome_notes = body.outcome_notes
     rc.outcome_at = datetime.now(timezone.utc)
     rc.submission_status = "reviewed"
+    feedback_suggestions = None
     if body.hm_outcome == "advance":
         rc.pipeline_status = "shortlisted"
+        maybe_advance_to_interviewing(db, req)
     elif body.hm_outcome == "reject":
         rc.pipeline_status = "rejected"
+        feedback_suggestions = build_feedback_suggestions(
+            req,
+            outcome_reason_code=body.outcome_reason_code,
+            outcome_notes=body.outcome_notes,
+        )
     elif body.hm_outcome == "hire":
         rc.pipeline_status = "hired"
+        maybe_advance_to_interviewing(db, req)
     db.commit()
-    return {"status": "ok", "hm_outcome": body.hm_outcome}
+    return {
+        "status": "ok",
+        "hm_outcome": body.hm_outcome,
+        "feedback_suggestions": feedback_suggestions,
+    }
 
 
 @router.get("/{req_id}/analytics", dependencies=[Depends(require_feature("analytics"))])
@@ -946,3 +1018,129 @@ def list_req_share_links(
         }
         for l in links
     ]
+
+
+@router.get("/outcome-reasons")
+def list_outcome_reasons():
+    return {"reasons": [{"code": k, "label": v} for k, v in OUTCOME_REASON_CODES.items()]}
+
+
+@router.post("/open-requests", response_model=RequisitionOpenRequestOut, dependencies=[Depends(require_feature("hm_workflow"))])
+def create_open_request(
+    body: RequisitionOpenRequestCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not is_hiring_manager(current_user):
+        raise HTTPException(status_code=403, detail="Only hiring managers can request new openings")
+    row = RequisitionOpenRequest(
+        tenant_id=current_user.tenant_id,
+        requested_by=current_user.id,
+        title=body.title.strip(),
+        jd_text=body.jd_text,
+        notes=body.notes,
+        location=body.location,
+        headcount=body.headcount,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return RequisitionOpenRequestOut.model_validate(row)
+
+
+@router.get("/open-requests", response_model=list[RequisitionOpenRequestOut])
+def list_open_requests(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(RequisitionOpenRequest).filter(
+        RequisitionOpenRequest.tenant_id == current_user.tenant_id,
+    )
+    if is_hiring_manager(current_user):
+        q = q.filter(RequisitionOpenRequest.requested_by == current_user.id)
+    elif not can_assign_recruiters(current_user):
+        raise HTTPException(status_code=403, detail="Not allowed to view opening requests")
+    rows = q.order_by(RequisitionOpenRequest.created_at.desc()).all()
+    out = []
+    for row in rows:
+        data = RequisitionOpenRequestOut.model_validate(row).model_dump()
+        if row.requested_by:
+            u = db.get(User, row.requested_by)
+            data["requester_email"] = u.email if u else None
+        if row.assigned_recruiter_id:
+            u = db.get(User, row.assigned_recruiter_id)
+            data["assigned_recruiter_email"] = u.email if u else None
+        out.append(data)
+    return out
+
+
+@router.post("/open-requests/{request_id}/assign", response_model=RequisitionOut)
+def assign_open_request(
+    request_id: int,
+    body: RequisitionOpenRequestAssign,
+    current_user: User = Depends(require_assignment_role),
+    db: Session = Depends(get_db),
+):
+    row = db.query(RequisitionOpenRequest).filter(
+        RequisitionOpenRequest.id == request_id,
+        RequisitionOpenRequest.tenant_id == current_user.tenant_id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Opening request not found")
+    if row.status != "pending":
+        raise HTTPException(status_code=400, detail="Request already assigned")
+    hm_id = body.primary_hiring_manager_id or row.requested_by
+    req = create_requisition(
+        db,
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        title=row.title,
+        jd_text=row.jd_text,
+        location=row.location,
+        headcount=row.headcount,
+        primary_hiring_manager_id=hm_id,
+        assigned_recruiter_id=body.assigned_recruiter_id,
+        opened_on_behalf_of_hm_id=row.requested_by,
+        status="intake_in_progress",
+    )
+    req.intake_status = "pending_hm"
+    row.status = "assigned"
+    row.assigned_recruiter_id = body.assigned_recruiter_id
+    row.assigned_by = current_user.id
+    row.requisition_id = req.id
+    db.commit()
+    db.refresh(req)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.put("/{req_id}/assign-recruiter", response_model=RequisitionOut)
+def assign_recruiter(
+    req_id: int,
+    body: RequisitionAssignRecruiter,
+    current_user: User = Depends(require_assignment_role),
+    db: Session = Depends(get_db),
+):
+    req = _load_req(db, req_id, current_user.tenant_id)
+    req.assigned_recruiter_id = body.assigned_recruiter_id
+    db.commit()
+    db.refresh(req)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.post("/{req_id}/apply-feedback", response_model=RequisitionOut)
+def apply_feedback(
+    req_id: int,
+    body: RequisitionFeedbackApply,
+    current_user: User = Depends(require_recruiter_or_admin),
+    db: Session = Depends(get_db),
+):
+    req = _load_req(db, req_id, current_user.tenant_id)
+    if not can_manage_requisition(current_user, req):
+        raise HTTPException(status_code=403, detail="Not allowed to update this requisition")
+    apply_feedback_suggestions(
+        db, req, body.suggestions, user_id=current_user.id, recalibrate=body.recalibrate,
+    )
+    db.commit()
+    db.refresh(req)
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)

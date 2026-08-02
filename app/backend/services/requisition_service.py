@@ -55,6 +55,69 @@ def get_or_create_tenant_settings(db: Session, tenant_id: int) -> TenantRequisit
     return row
 
 
+DEFAULT_ROUTING_POLICY = {
+    "submit_to_hm_min_score": 80,
+    "ai_interview_min_score": 65,
+    "ai_interview_max_score": 79,
+    "auto_suggest": True,
+}
+
+
+def get_routing_policy(req: Requisition) -> dict[str, Any]:
+    stored = _json_loads(req.routing_policy_json, {})
+    return {**DEFAULT_ROUTING_POLICY, **(stored or {})}
+
+
+def suggest_screening_action(req: Requisition, fit_score: int | None, *, has_call: bool = False) -> str:
+    """Return suggested next action: submit_hm | ai_interview | pass | review."""
+    policy = get_routing_policy(req)
+    if fit_score is None:
+        return "review"
+    if fit_score >= policy["submit_to_hm_min_score"]:
+        return "submit_hm"
+    if has_call:
+        return "review"
+    lo, hi = policy["ai_interview_min_score"], policy["ai_interview_max_score"]
+    if lo <= fit_score <= hi:
+        return "ai_interview"
+    if fit_score < lo:
+        return "pass"
+    return "review"
+
+
+def maybe_advance_to_sourcing(db: Session, req: Requisition) -> None:
+    if req.status not in ("draft", "intake_in_progress", "calibrated"):
+        return
+    if intake_screening_ready(req, db):
+        req.status = "sourcing"
+
+
+def maybe_advance_to_interviewing(db: Session, req: Requisition) -> None:
+    if req.status in ("sourcing", "calibrated", "intake_in_progress"):
+        req.status = "interviewing"
+
+
+def notify_hm_candidate_submitted(db: Session, req: Requisition, candidate_name: str) -> None:
+    """Email primary HM when recruiter submits a candidate for review."""
+    if not req.primary_hiring_manager_id:
+        return
+    hm = db.get(User, req.primary_hiring_manager_id)
+    if not hm or not hm.email:
+        return
+    try:
+        from app.backend.services.email_service import email_service, get_tenant_email_service
+        svc = get_tenant_email_service(db, req.tenant_id) or email_service
+        subject = f"Candidate submitted for review: {req.title}"
+        body = (
+            f"<p>A candidate has been submitted for your review on <strong>{req.title}</strong>.</p>"
+            f"<p>Candidate: <strong>{candidate_name or 'Unknown'}</strong></p>"
+            f"<p>Log in to your requisitions to review and record your decision.</p>"
+        )
+        svc.send_email(hm.email, subject, body)
+    except Exception:
+        logger.exception("Failed to notify HM about candidate submission req=%s", req.id)
+
+
 def is_requisition_calibrated(req: Requisition) -> bool:
     return (
         req.status in CALIBRATED_STATUSES
@@ -550,6 +613,16 @@ def requisition_to_dict(
         requester = db.get(User, req.hm_requested_by)
         requester_email = requester.email if requester else None
 
+    assigned_email = None
+    if req.assigned_recruiter_id:
+        ar = db.get(User, req.assigned_recruiter_id)
+        assigned_email = ar.email if ar else None
+
+    on_behalf_email = None
+    if req.opened_on_behalf_of_hm_id:
+        ob = db.get(User, req.opened_on_behalf_of_hm_id)
+        on_behalf_email = ob.email if ob else None
+
     return {
         "id": req.id,
         "tenant_id": req.tenant_id,
@@ -579,6 +652,11 @@ def requisition_to_dict(
         "hm_requested_by_email": requester_email,
         "hm_requested_at": req.hm_requested_at,
         "hm_request_notes": req.hm_request_notes,
+        "assigned_recruiter_id": req.assigned_recruiter_id,
+        "assigned_recruiter_email": assigned_email,
+        "opened_on_behalf_of_hm_id": req.opened_on_behalf_of_hm_id,
+        "opened_on_behalf_of_hm_email": on_behalf_email,
+        "routing_policy_json": get_routing_policy(req),
         "created_by": req.created_by,
         "legacy_role_template_id": req.legacy_role_template_id,
         "external_ats_id": req.external_ats_id,
@@ -620,6 +698,9 @@ def create_requisition(
         required_skills_override=_json_dumps(fields.get("required_skills_override")),
         nice_to_have_skills_override=_json_dumps(fields.get("nice_to_have_skills_override")),
         created_by=created_by,
+        assigned_recruiter_id=fields.get("assigned_recruiter_id"),
+        opened_on_behalf_of_hm_id=fields.get("opened_on_behalf_of_hm_id"),
+        routing_policy_json=_json_dumps(fields.get("routing_policy_json") or DEFAULT_ROUTING_POLICY),
     )
     db.add(req)
     db.flush()
@@ -663,6 +744,7 @@ def calibrate_requisition(
     req.calibrated_by = user_id
     if req.status in ("draft", "intake_in_progress"):
         req.status = "calibrated"
+    maybe_advance_to_sourcing(db, req)
     db.flush()
     return version
 
@@ -896,11 +978,22 @@ def build_submission_packet(
     analysis = _json_loads(result.analysis_result, {}) if result else {}
     narrative = _json_loads(result.narrative_json, {}) if result and result.narrative_json else {}
     criteria = _json_loads(req.calibrated_criteria_json, {})
+    consolidated = {}
+    if result:
+        consolidated = {
+            "call_fit_score": getattr(result, "call_fit_score", None),
+            "consolidated_recommendation": getattr(result, "consolidated_recommendation", None),
+            "consolidated_reasoning": getattr(result, "consolidated_reasoning", None),
+            "call_source": getattr(result, "call_source", None),
+        }
+    fit = result.deterministic_score if result else None
     return {
         "candidate_id": rc.candidate_id,
         "requisition_id": req.id,
         "requisition_title": req.title,
-        "fit_score": result.deterministic_score if result else None,
+        "fit_score": fit,
+        **consolidated,
+        "suggested_action": suggest_screening_action(req, fit, has_call=bool(consolidated.get("call_fit_score"))),
         "recommendation": analysis.get("recommendation"),
         "skill_gaps": analysis.get("skill_gaps") or analysis.get("gaps"),
         "evidence": analysis.get("evidence") or analysis.get("skill_evidence"),

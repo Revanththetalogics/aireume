@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Briefcase, Loader2, Users, CheckCircle2, Sparkles,
-  ListChecks, Columns3, Wand2, UserPlus, X, ChevronDown, ChevronUp, FileText,
+  ListChecks, Columns3, Wand2, UserPlus, X, ChevronDown, ChevronUp, FileText, Search,
 } from 'lucide-react'
 import {
   getRequisition,
@@ -26,6 +26,9 @@ import {
   requestRequisitionHm,
   approveRequisitionHmRequest,
   rejectRequisitionHmRequest,
+  assignRequisitionRecruiter,
+  applyRequisitionFeedback,
+  getRequisitionSettings,
 } from '../lib/api'
 import { PIPELINE_STAGES } from '../lib/constants'
 import { Button, Card } from '../components/ui'
@@ -35,10 +38,13 @@ import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { REQUISITIONS } from '../lib/uxLabels'
 import { showSuccess, showError } from '../lib/toast'
 import { useAuth } from '../contexts/AuthContext'
+import HmOutcomeModal from '../components/HmOutcomeModal'
+import RequisitionSourcingPanel from '../components/RequisitionSourcingPanel'
 
 const TABS = [
   { id: 'overview', label: REQUISITIONS.overviewTab, icon: Briefcase },
   { id: 'intake', label: REQUISITIONS.intakeTab, icon: ListChecks },
+  { id: 'sourcing', label: REQUISITIONS.sourcingTab, icon: Search },
   { id: 'criteria', label: REQUISITIONS.criteriaTab, icon: Sparkles },
   { id: 'pipeline', label: REQUISITIONS.pipelineTab, icon: Columns3 },
 ]
@@ -481,7 +487,7 @@ function CriteriaEditForm({ criteria, onChange, readOnly }) {
 function IntakeWorkflowBar({ intakeGate, req }) {
   const intakeDone = intakeGate?.intake_has_minimum_content && intakeGate?.hm_assigned
   const canScreen = intakeGate?.intake_screening_ready && !intakeGate?.blocks
-  const refined = (req?.current_criteria_version || 0) > 1
+  const refined = (req?.current_criteria_version || 0) >= 1
   const steps = [
     {
       key: 'intake',
@@ -587,7 +593,7 @@ function IntakeForm({ intake, onChange, readOnly, onSuggest, suggesting }) {
   )
 }
 
-function PipelineCard({ item, onStatusChange, onSubmit, onOutcome, canWritePipeline, isHm }) {
+function PipelineCard({ item, onStatusChange, onSubmit, onOutcome, canWritePipeline, isHm, requisitionId }) {
   const navigate = useNavigate()
   return (
     <div className="bg-white rounded-xl ring-1 ring-brand-100 p-3 shadow-sm">
@@ -638,6 +644,16 @@ function PipelineCard({ item, onStatusChange, onSubmit, onOutcome, canWritePipel
           {REQUISITIONS.submitToHmCta}
         </Button>
       )}
+      {canWritePipeline && !isHm && item.suggested_action === 'ai_interview' && (
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-2 w-full text-xs"
+          onClick={() => navigate(`/candidates/${item.candidate_id}?requisition_id=${requisitionId}`)}
+        >
+          Schedule AI interview
+        </Button>
+      )}
       {isHm && item.submission_status === 'submitted' && !item.hm_outcome && (
         <div className="flex gap-1 mt-2">
           {['advance', 'hold', 'reject'].map((o) => (
@@ -661,7 +677,7 @@ export default function RequisitionDetailPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { canWrite, isHiringManager, isAdmin } = usePermissions()
+  const { canWrite, isHiringManager, isAdmin, canAssign } = usePermissions()
   const [req, setReq] = useState(null)
   const [intake, setIntake] = useState({})
   const [pipeline, setPipeline] = useState({})
@@ -688,9 +704,19 @@ export default function RequisitionDetailPage() {
   const [showHmInvite, setShowHmInvite] = useState(false)
   const [showHmRequest, setShowHmRequest] = useState(false)
   const [showJdModal, setShowJdModal] = useState(false)
+  const [hmPipelinePerm, setHmPipelinePerm] = useState('view_only')
+  const [outcomeModal, setOutcomeModal] = useState(null)
+  const [pendingFeedback, setPendingFeedback] = useState(null)
+  const [submitNote, setSubmitNote] = useState('')
+  const [assignRecruiterId, setAssignRecruiterId] = useState('')
+  const [searchBrief, setSearchBrief] = useState('')
+  const [sourcingBriefJson, setSourcingBriefJson] = useState({})
 
   const hmCandidates = teamMembers.filter(
     (m) => m.role === 'hiring_manager' || m.role === 'admin' || m.role === 'recruiter',
+  )
+  const recruiterCandidates = teamMembers.filter(
+    (m) => m.role === 'recruiter' || m.role === 'admin' || m.role === 'ta_lead',
   )
 
   const intakeDirty = savedIntakeSnapshot !== JSON.stringify(intake || {})
@@ -708,6 +734,10 @@ export default function RequisitionDetailPage() {
       setReq(r)
       setIntakeGate(gate)
       setHmSelectId(r.primary_hiring_manager_id ? String(r.primary_hiring_manager_id) : '')
+      setAssignRecruiterId(r.assigned_recruiter_id ? String(r.assigned_recruiter_id) : '')
+      const brief = r.search_brief_json || {}
+      setSourcingBriefJson(brief)
+      setSearchBrief(brief.latest_strategy || '')
       const loadedIntake = r.intake_json || {}
       setIntake(loadedIntake)
       setSavedIntakeSnapshot(JSON.stringify(loadedIntake))
@@ -728,6 +758,12 @@ export default function RequisitionDetailPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    getRequisitionSettings()
+      .then((s) => setHmPipelinePerm(s.hm_pipeline_permission || 'view_only'))
+      .catch(() => setHmPipelinePerm('view_only'))
+  }, [])
 
   const refreshTeamMembers = async () => {
     try {
@@ -945,10 +981,71 @@ export default function RequisitionDetailPage() {
   const handleHmApproval = async (approved) => {
     setSaving(true)
     try {
-      const updated = await hmApproveRequisition(id, approved)
+      const intakePayload = intakeDirty ? intake : null
+      const updated = await hmApproveRequisition(id, approved, null, intakePayload)
       setReq(updated)
+      if (intakePayload) {
+        setSavedIntakeSnapshot(JSON.stringify(intakePayload))
+      }
+      await load()
+      showSuccess(approved ? 'Intake approved — criteria v1 locked' : 'Changes requested')
     } catch {
-      window.alert('Approval failed')
+      showError('Approval failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleOutcomeClick = (candidateId, outcome) => {
+    if (outcome === 'reject') {
+      setOutcomeModal({ candidateId, outcome })
+      return
+    }
+    handleOutcome(candidateId, outcome, null, null)
+  }
+
+  const handleOutcome = async (candidateId, outcome, reasonCode, notes) => {
+    try {
+      const result = await recordHmOutcome(id, candidateId, outcome, reasonCode, notes)
+      if (result?.feedback_suggestions) {
+        setPendingFeedback(result.feedback_suggestions)
+      }
+      await load()
+      showSuccess(`Recorded: ${outcome}`)
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to record outcome')
+    } finally {
+      setOutcomeModal(null)
+    }
+  }
+
+  const handleApplyFeedback = async () => {
+    if (!pendingFeedback) return
+    setSaving(true)
+    try {
+      const updated = await applyRequisitionFeedback(id, pendingFeedback, false)
+      setReq(updated)
+      setPendingFeedback(null)
+      const brief = updated.search_brief_json || {}
+      setSourcingBriefJson(brief)
+      setSearchBrief(brief.latest_strategy || '')
+      showSuccess('Sourcing brief updated from HM feedback')
+    } catch {
+      showError('Failed to apply feedback')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAssignRecruiter = async () => {
+    if (!assignRecruiterId) return
+    setSaving(true)
+    try {
+      const updated = await assignRequisitionRecruiter(id, Number(assignRecruiterId))
+      setReq(updated)
+      showSuccess('Recruiter assigned')
+    } catch {
+      showError('Failed to assign recruiter')
     } finally {
       setSaving(false)
     }
@@ -980,19 +1077,11 @@ export default function RequisitionDetailPage() {
 
   const handleSubmit = async (candidateId) => {
     try {
-      await submitCandidateToHm(id, candidateId, {})
+      await submitCandidateToHm(id, candidateId, { recruiter_note: submitNote || undefined })
+      setSubmitNote('')
       await load()
     } catch {
-      window.alert('Submit failed')
-    }
-  }
-
-  const handleOutcome = async (candidateId, outcome) => {
-    try {
-      await recordHmOutcome(id, candidateId, outcome)
-      await load()
-    } catch {
-      window.alert('Failed to record outcome')
+      showError('Submit failed')
     }
   }
 
@@ -1025,7 +1114,9 @@ export default function RequisitionDetailPage() {
   }
 
   const canEditIntake = canWrite || isHiringManager
-  const canWritePipeline = canWrite || isHiringManager
+  const canSaveIntake = canWrite || isHiringManager
+  const canWritePipeline = canWrite
+    || (isHiringManager && hmPipelinePerm !== 'view_only')
 
   if (loading) {
     return (
@@ -1083,7 +1174,7 @@ export default function RequisitionDetailPage() {
           )}
         </div>
         <div className="flex flex-nowrap items-center gap-2 overflow-x-auto max-w-full pb-1 shrink-0">
-          {canWrite && tab === 'intake' && (
+          {canSaveIntake && tab === 'intake' && (
             <Button onClick={saveIntake} disabled={saving || !intakeDirty}>
               {saving ? (
                 <>
@@ -1113,7 +1204,7 @@ export default function RequisitionDetailPage() {
             <>
               <Button onClick={() => handleHmApproval(true)} disabled={saving}>
                 <CheckCircle2 className="w-4 h-4" />
-                {REQUISITIONS.approveIntakeCta}
+                {REQUISITIONS.intakeHmSaveApprove}
               </Button>
               <Button variant="ghost" onClick={() => handleHmApproval(false)} disabled={saving}>
                 {REQUISITIONS.requestChangesCta}
@@ -1269,6 +1360,51 @@ export default function RequisitionDetailPage() {
                   Current: <span className="font-semibold text-slate-700">{req.primary_hiring_manager_email}</span>
                 </p>
               )}
+              {req.opened_on_behalf_of_hm_email && (
+                <p className="text-xs text-slate-500 mt-1">
+                  {REQUISITIONS.openedOnBehalfOf}: <span className="font-semibold">{req.opened_on_behalf_of_hm_email}</span>
+                </p>
+              )}
+            </div>
+          )}
+          {canAssign && (
+            <div className="pt-4 border-t border-brand-50">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{REQUISITIONS.assignRecruiter}</p>
+              <p className="text-xs text-slate-500 mb-2">{REQUISITIONS.assignRecruiterHint}</p>
+              <div className="flex flex-wrap gap-2 items-end">
+                <select
+                  value={assignRecruiterId}
+                  onChange={(e) => setAssignRecruiterId(e.target.value)}
+                  className="rounded-xl border border-brand-200 px-3 py-2 text-sm min-w-[12rem]"
+                >
+                  <option value="">Select recruiter…</option>
+                  {recruiterCandidates.map((m) => (
+                    <option key={m.id} value={m.id}>{m.email}</option>
+                  ))}
+                </select>
+                <Button size="sm" onClick={handleAssignRecruiter} disabled={!assignRecruiterId || saving}>
+                  {REQUISITIONS.assignRecruiter}
+                </Button>
+              </div>
+              {req.assigned_recruiter_email && (
+                <p className="text-xs text-slate-500 mt-2">Assigned: <span className="font-semibold">{req.assigned_recruiter_email}</span></p>
+              )}
+            </div>
+          )}
+          {req.intake_status === 'changes_requested' && canWrite && (
+            <div className="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-900">
+              {REQUISITIONS.intakeChangesRequested}
+            </div>
+          )}
+          {pendingFeedback && canWrite && (
+            <div className="rounded-xl bg-blue-50 ring-1 ring-blue-200 px-4 py-3 space-y-2">
+              <p className="text-sm font-bold text-blue-900">{REQUISITIONS.hmRejectFeedbackTitle}</p>
+              <ul className="text-xs text-blue-800 list-disc pl-4">
+                {(pendingFeedback.search_brief_additions || []).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              <Button size="sm" onClick={handleApplyFeedback} disabled={saving}>{REQUISITIONS.applyFeedbackCta}</Button>
             </div>
           )}
           <div className="grid sm:grid-cols-3 gap-4 text-sm">
@@ -1343,14 +1479,58 @@ export default function RequisitionDetailPage() {
         <Card className="p-6 space-y-4">
           <JdReferencePanel jdText={req.jd_text} onViewFull={() => setShowJdModal(true)} />
           <IntakeWorkflowBar intakeGate={intakeGate} req={req} />
+          {req.intake_status === 'changes_requested' && (
+            <p className="text-sm text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-xl px-3 py-2">
+              {REQUISITIONS.intakeChangesRequested}
+            </p>
+          )}
           <IntakeForm
             intake={intake}
             onChange={setIntake}
             readOnly={!canEditIntake}
-            onSuggest={canEditIntake ? suggestIntake : null}
+            onSuggest={canEditIntake && canWrite ? suggestIntake : null}
             suggesting={suggestingIntake}
           />
+          {canWrite && (
+            <p className="text-xs text-slate-500 pt-2 border-t border-brand-50">
+              Sourcing strategy and channels live on the{' '}
+              <button type="button" className="text-brand-600 font-semibold hover:underline" onClick={() => setTab('sourcing')}>
+                Sourcing tab
+              </button>
+              .
+            </p>
+          )}
         </Card>
+      )}
+
+      {tab === 'sourcing' && (
+        <RequisitionSourcingPanel
+          req={{ ...req, search_brief_json: sourcingBriefJson }}
+          searchBrief={searchBrief}
+          onSearchBriefChange={(next) => {
+            setSourcingBriefJson(next)
+            setSearchBrief(next.latest_strategy || '')
+          }}
+          onSave={async (payload) => {
+            setSaving(true)
+            try {
+              const updated = await updateRequisition(id, { search_brief_json: payload })
+              setReq(updated)
+              const saved = updated.search_brief_json || {}
+              setSourcingBriefJson(saved)
+              setSearchBrief(saved.latest_strategy || '')
+              showSuccess('Sourcing plan saved')
+            } catch {
+              showError('Failed to save sourcing plan')
+            } finally {
+              setSaving(false)
+            }
+          }}
+          saving={saving}
+          canWrite={canWrite}
+          onAddCandidates={() => setShowAddCandidates(true)}
+          onScreen={openScreenCandidate}
+        />
       )}
 
       {tab === 'criteria' && (
@@ -1444,9 +1624,10 @@ export default function RequisitionDetailPage() {
                     <PipelineCard
                       key={item.candidate_id}
                       item={item}
+                      requisitionId={id}
                       onStatusChange={handleStatusChange}
                       onSubmit={handleSubmit}
-                      onOutcome={handleOutcome}
+                      onOutcome={handleOutcomeClick}
                       canWritePipeline={canWritePipeline}
                       isHm={isHiringManager}
                     />
@@ -1480,6 +1661,16 @@ export default function RequisitionDetailPage() {
           onClose={() => setShowJdModal(false)}
         />
       )}
+
+      <HmOutcomeModal
+        open={Boolean(outcomeModal)}
+        outcome={outcomeModal?.outcome}
+        saving={saving}
+        onClose={() => setOutcomeModal(null)}
+        onConfirm={({ outcome, reasonCode, notes }) => {
+          handleOutcome(outcomeModal.candidateId, outcome, reasonCode, notes)
+        }}
+      />
 
       {showAddCandidates && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">

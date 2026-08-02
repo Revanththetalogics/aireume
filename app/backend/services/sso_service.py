@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Allowed SSO roles ────────────────────────────────────────────────────────
 
-ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin", "hiring_manager"}
+ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin", "hiring_manager", "ta_lead"}
 
 # ─── SAML Namespaces ──────────────────────────────────────────────────────────
 

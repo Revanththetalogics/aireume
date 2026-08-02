@@ -394,7 +394,7 @@ class InviteRequest(BaseModel):
     @field_validator("role")
     @classmethod
     def validate_role(cls, v):
-        allowed = {"admin", "recruiter", "viewer", "hiring_manager"}
+        allowed = {"admin", "recruiter", "viewer", "hiring_manager", "ta_lead"}
         if v not in allowed:
             raise ValueError(f"role must be one of {allowed}")
         return v
@@ -1170,6 +1170,9 @@ class RequisitionCreate(BaseModel):
     nice_to_have_skills_override: Optional[List[Any]] = None
     primary_hiring_manager_id: Optional[int] = None
     hiring_manager_ids: Optional[List[int]] = None
+    assigned_recruiter_id: Optional[int] = None
+    opened_on_behalf_of_hm_id: Optional[int] = None
+    routing_policy_json: Optional[Dict[str, Any]] = None
     status: str = "draft"
 
     @field_validator("status")
@@ -1193,6 +1196,9 @@ class RequisitionUpdate(BaseModel):
     required_skills_override: Optional[List[Any]] = None
     nice_to_have_skills_override: Optional[List[Any]] = None
     primary_hiring_manager_id: Optional[int] = None
+    assigned_recruiter_id: Optional[int] = None
+    opened_on_behalf_of_hm_id: Optional[int] = None
+    routing_policy_json: Optional[Dict[str, Any]] = None
     search_brief_json: Optional[Dict[str, Any]] = None
     must_ask_questions_json: Optional[List[Dict[str, Any]]] = None
 
@@ -1239,6 +1245,29 @@ class RequisitionCriteriaUpdate(BaseModel):
 class RequisitionHmApproval(BaseModel):
     approved: bool
     notes: Optional[str] = None
+    intake_json: Optional[Dict[str, Any]] = None
+
+
+class RequisitionOpenRequestCreate(BaseModel):
+    title: str
+    jd_text: str
+    notes: Optional[str] = None
+    location: Optional[str] = None
+    headcount: Optional[int] = None
+
+
+class RequisitionOpenRequestAssign(BaseModel):
+    assigned_recruiter_id: int
+    primary_hiring_manager_id: Optional[int] = None
+
+
+class RequisitionAssignRecruiter(BaseModel):
+    assigned_recruiter_id: int
+
+
+class RequisitionFeedbackApply(BaseModel):
+    suggestions: Dict[str, Any]
+    recalibrate: bool = False
 
 
 class RequisitionHmRequestCreate(BaseModel):
@@ -1358,6 +1387,30 @@ class RequisitionOut(BaseModel):
     hm_requested_by_email: Optional[str] = None
     hm_requested_at: Optional[datetime] = None
     hm_request_notes: Optional[str] = None
+    assigned_recruiter_id: Optional[int] = None
+    assigned_recruiter_email: Optional[str] = None
+    opened_on_behalf_of_hm_id: Optional[int] = None
+    opened_on_behalf_of_hm_email: Optional[str] = None
+    routing_policy_json: Optional[Dict[str, Any]] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RequisitionOpenRequestOut(BaseModel):
+    id: int
+    tenant_id: int
+    title: str
+    jd_text: str
+    notes: Optional[str] = None
+    location: Optional[str] = None
+    headcount: Optional[int] = None
+    status: str
+    requested_by: Optional[int] = None
+    requester_email: Optional[str] = None
+    assigned_recruiter_id: Optional[int] = None
+    assigned_recruiter_email: Optional[str] = None
+    requisition_id: Optional[int] = None
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -1381,6 +1434,9 @@ class RequisitionCandidateOut(BaseModel):
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     fit_score: Optional[int] = None
+    call_fit_score: Optional[int] = None
+    call_source: Optional[str] = None
+    suggested_action: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

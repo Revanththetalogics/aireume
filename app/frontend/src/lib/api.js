@@ -1184,10 +1184,11 @@ export async function updateRequisitionCriteria(reqId, criteria) {
   return response.data
 }
 
-export async function hmApproveRequisition(reqId, approved, notes = null) {
+export async function hmApproveRequisition(reqId, approved, notes = null, intakeJson = null) {
   const response = await api.post(`/requisitions/${reqId}/hm-approval`, {
     approved,
     notes,
+    intake_json: intakeJson,
   })
   return response.data
 }
@@ -1257,6 +1258,44 @@ export async function rejectRequisitionHmRequest(reqId, notes = null) {
 
 export async function listPendingHmRequests() {
   const response = await api.get('/requisitions/hm-requests')
+  return response.data
+}
+
+export async function assignRequisitionRecruiter(reqId, assignedRecruiterId) {
+  const response = await api.put(`/requisitions/${reqId}/assign-recruiter`, {
+    assigned_recruiter_id: assignedRecruiterId,
+  })
+  return response.data
+}
+
+export async function applyRequisitionFeedback(reqId, suggestions, recalibrate = false) {
+  const response = await api.post(`/requisitions/${reqId}/apply-feedback`, {
+    suggestions,
+    recalibrate,
+  })
+  return response.data
+}
+
+export async function createRequisitionOpenRequest(payload) {
+  const response = await api.post('/requisitions/open-requests', payload)
+  return response.data
+}
+
+export async function listRequisitionOpenRequests() {
+  const response = await api.get('/requisitions/open-requests')
+  return response.data
+}
+
+export async function assignRequisitionOpenRequest(requestId, assignedRecruiterId, primaryHmId = null) {
+  const response = await api.post(`/requisitions/open-requests/${requestId}/assign`, {
+    assigned_recruiter_id: assignedRecruiterId,
+    primary_hiring_manager_id: primaryHmId,
+  })
+  return response.data
+}
+
+export async function getOutcomeReasons() {
+  const response = await api.get('/requisitions/outcome-reasons')
   return response.data
 }
 

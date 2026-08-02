@@ -27,6 +27,13 @@ const ROLE_COPY = {
     secondary: { label: 'View candidates', href: '/candidates' },
     Icon: LayoutTemplate,
   },
+  ta_lead: {
+    title: 'Welcome, TA lead',
+    body: 'Assign recruiters to requisitions, review HM opening requests, and oversee the hiring pipeline.',
+    primary: { label: 'Opening requests', href: '/requisitions/open-requests' },
+    secondary: { label: 'View requisitions', href: '/requisitions' },
+    Icon: Users,
+  },
 }
 
 export default function InvitedUserWelcome() {

@@ -5,7 +5,15 @@ import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus, get
 import { useAuth } from '../contexts/AuthContext'
 import { useOnboarding } from '../contexts/OnboardingContext'
 
-const ROLES = ['admin', 'recruiter', 'viewer', 'hiring_manager']
+const ROLES = ['admin', 'ta_lead', 'recruiter', 'hiring_manager', 'viewer']
+
+const ROLE_LABELS = {
+  admin: 'Admin',
+  ta_lead: 'TA lead',
+  recruiter: 'Recruiter',
+  hiring_manager: 'Hiring manager',
+  viewer: 'Viewer',
+}
 
 function InviteModal({ onSave, onClose }) {
   const { completeChecklistItem } = useOnboarding()
@@ -62,7 +70,7 @@ function InviteModal({ onSave, onClose }) {
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
               >
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
               </select>
             </div>
             {error && (
@@ -270,11 +278,14 @@ export default function TeamPage() {
                     </div>
                   </div>
                   <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ring-1 ${
-                    m.role === 'admin'     ? 'bg-brand-50 text-brand-700 ring-brand-200' :
-                    m.role === 'recruiter' ? 'bg-blue-50 text-blue-700 ring-blue-200'   : 'bg-slate-50 text-slate-600 ring-slate-200'
+                    m.role === 'admin'          ? 'bg-brand-50 text-brand-700 ring-brand-200' :
+                    m.role === 'ta_lead'        ? 'bg-violet-50 text-violet-700 ring-violet-200' :
+                    m.role === 'recruiter'      ? 'bg-blue-50 text-blue-700 ring-blue-200' :
+                    m.role === 'hiring_manager' ? 'bg-amber-50 text-amber-800 ring-amber-200' :
+                    'bg-slate-50 text-slate-600 ring-slate-200'
                   }`}>
                     {m.role === 'admin' && <Shield className="w-3 h-3" />}
-                    {m.role}
+                    {ROLE_LABELS[m.role] || m.role}
                   </span>
                 </div>
               ))}
