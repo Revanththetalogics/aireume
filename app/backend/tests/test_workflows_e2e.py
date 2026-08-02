@@ -90,6 +90,9 @@ class TestFullHiringWorkflow:
         token = login.json()["access_token"]
         client.headers.update({"Authorization": f"Bearer {token}"})
 
+        from app.backend.tests.test_helpers import allow_ad_hoc_screening
+        allow_ad_hoc_screening(db, email="recruiter@hiringco.com")
+
         # 3) Screen a candidate resume against a JD
         resp = _run_analyze(client)
         assert resp.status_code == 200, resp.text

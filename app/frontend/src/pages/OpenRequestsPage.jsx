@@ -7,7 +7,7 @@ import {
   getTeamMembers,
 } from '../lib/api'
 import { Button, Card } from '../components/ui'
-import PageHeaderCard from '../components/patterns/PageHeaderCard'
+import { PageHeaderCard } from '../components/patterns/PageHeader'
 import usePermissions from '../hooks/usePermissions'
 import { REQUISITIONS } from '../lib/uxLabels'
 import { showSuccess, showError } from '../lib/toast'

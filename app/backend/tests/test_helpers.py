@@ -59,3 +59,24 @@ def assign_tenant_plan(db, *plan_names: str, slug=None, tenant_id=None, email=No
     db.commit()
     invalidate_cache(tenant.id)
     return tenant
+
+
+def allow_ad_hoc_screening(db, *, tenant_id=None, slug=None, email=None):
+    """Allow analyze without requisition_id (default product mode is requisition_required)."""
+    from app.backend.models.db_models import Tenant, User
+    from app.backend.services.requisition_service import get_or_create_tenant_settings
+
+    tid = tenant_id
+    if tid is None and slug:
+        tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
+        tid = tenant.id if tenant else None
+    if tid is None and email:
+        user = db.query(User).filter(User.email == email).first()
+        tid = user.tenant_id if user else None
+    if tid is None:
+        raise ValueError("allow_ad_hoc_screening: tenant not found")
+
+    settings = get_or_create_tenant_settings(db, tid)
+    settings.screening_mode = "allow_ad_hoc"
+    db.commit()
+    return settings

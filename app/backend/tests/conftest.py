@@ -306,6 +306,8 @@ def auth_client(client, db, seed_subscription_plans):
     # Register no longer returns tokens — verify then login
     _verify_user_via_api("admin@testcorp.com")
     assign_tenant_plan(db, "growth", "pro", slug="testcorp")
+    from app.backend.tests.test_helpers import allow_ad_hoc_screening
+    allow_ad_hoc_screening(db, slug="testcorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "admin@testcorp.com",
@@ -323,7 +325,7 @@ def viewer_client(client, db, seed_subscription_plans):
     """Authenticated client with tenant role=viewer (read-only)."""
     from app.backend.models.db_models import User
     from app.backend.routes.auth import _hash_password
-    from app.backend.tests.test_helpers import assign_tenant_plan
+    from app.backend.tests.test_helpers import assign_tenant_plan, allow_ad_hoc_screening
 
     register_payload = {
         "company_name": "ViewerCorp",
@@ -335,6 +337,7 @@ def viewer_client(client, db, seed_subscription_plans):
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
     _verify_user_via_api("admin@viewercorp.com")
     assign_tenant_plan(db, "growth", "pro", slug="viewercorp")
+    allow_ad_hoc_screening(db, slug="viewercorp")
 
     admin_user = db.query(User).filter(User.email == "admin@viewercorp.com").first()
     assert admin_user is not None
@@ -839,6 +842,8 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
     tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
     tenant.plan_id = starter_plan_id
     db.commit()
+    from app.backend.tests.test_helpers import allow_ad_hoc_screening
+    allow_ad_hoc_screening(db, slug="freecorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "free@freecorp.com",
@@ -853,6 +858,7 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
 def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Pro plan."""
     from app.backend.models.db_models import Tenant, SubscriptionPlan
+    from app.backend.tests.test_helpers import allow_ad_hoc_screening
     
     register_payload = {
         "company_name": "ProCorp",
@@ -874,6 +880,7 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     tenant.subscription_status = "active"
     tenant.analyses_count_this_month = 0
     db.commit()
+    allow_ad_hoc_screening(db, slug="procorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "pro@procorp.com",
@@ -888,6 +895,7 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
 def auth_client_with_agency_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Agency plan."""
     from app.backend.models.db_models import Tenant, SubscriptionPlan
+    from app.backend.tests.test_helpers import allow_ad_hoc_screening
 
     register_payload = {
         "company_name": "AgencyCorp",
@@ -905,6 +913,7 @@ def auth_client_with_agency_plan(client, db, seed_subscription_plans):
     tenant.plan_id = agency_plan.id
     tenant.subscription_status = "active"
     db.commit()
+    allow_ad_hoc_screening(db, slug="agencycorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "agency@agencycorp.com",
@@ -918,7 +927,7 @@ def auth_client_with_agency_plan(client, db, seed_subscription_plans):
 @pytest.fixture
 def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Enterprise plan."""
-    from app.backend.tests.test_helpers import assign_tenant_plan
+    from app.backend.tests.test_helpers import assign_tenant_plan, allow_ad_hoc_screening
 
     register_payload = {
         "company_name": "EnterpriseCorp",
@@ -935,6 +944,7 @@ def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
     tenant = db.query(Tenant).filter(Tenant.slug == "enterprisecorp").first()
     tenant.analyses_count_this_month = 0
     db.commit()
+    allow_ad_hoc_screening(db, slug="enterprisecorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "enterprise@enterprisecorp.com",
@@ -949,6 +959,7 @@ def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
 def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     """Create an authenticated client at their usage limit (Free plan = 5 analyses)."""
     from app.backend.models.db_models import Tenant, SubscriptionPlan
+    from app.backend.tests.test_helpers import allow_ad_hoc_screening
     
     register_payload = {
         "company_name": "LimitedCorp",
@@ -970,6 +981,7 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     tenant.analyses_count_this_month = 5  # At limit
     tenant.subscription_status = "active"
     db.commit()
+    allow_ad_hoc_screening(db, slug="limitedcorp")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "limited@limitedcorp.com",

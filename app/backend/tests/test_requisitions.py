@@ -600,6 +600,38 @@ class TestRequisitionSettings:
         )
         assert resp.status_code == 422
 
+    def test_requisition_required_blocks_ad_hoc_analyze(self, auth_client):
+        """Default product mode must reject analyze without requisition_id."""
+        import io
+        auth_client.put(
+            "/api/requisitions/settings",
+            json={"screening_mode": "requisition_required"},
+        )
+        long_jd = (
+            "Senior Python Backend Engineer with five years experience building "
+            "scalable APIs using FastAPI Django PostgreSQL Redis Docker Kubernetes "
+            "AWS and strong testing practices mentoring juniors and delivering "
+            "production systems with observability and CI CD pipelines required."
+        )
+        files = {
+            "resume": (
+                "resume.pdf",
+                io.BytesIO(b"%PDF-1.4 Jane Doe\nPython Engineer\njane@test.com\n"),
+                "application/pdf",
+            )
+        }
+        resp = auth_client.post(
+            "/api/analyze",
+            files=files,
+            data={"job_description": long_jd},
+        )
+        assert resp.status_code == 400
+        detail = resp.json().get("detail", {})
+        if isinstance(detail, dict):
+            assert detail.get("error_code") == "REQUISITION_REQUIRED"
+        else:
+            assert "requisition" in str(detail).lower()
+
 
 class TestIcpWorkflow:
     def test_feedback_suggestions_from_reject(self, db, auth_client):
