@@ -1,5 +1,40 @@
 import { describe, it, expect } from 'vitest'
-import { safeStr, stringToColor, computeDuration, computeGapMonths, formatDate, formatNumber, truncate, debounce, getInitials } from './utils'
+import { safeStr, toScoreNumber, stringToColor, computeDuration, computeGapMonths, formatDate, formatNumber, truncate, debounce, getInitials } from './utils'
+
+describe('toScoreNumber', () => {
+  it('returns scalar numbers as-is', () => {
+    expect(toScoreNumber(85)).toBe(85)
+    expect(toScoreNumber(0)).toBe(0)
+  })
+
+  it('extracts .score from detailed skill_match / experience_match objects', () => {
+    expect(toScoreNumber({
+      score: 72,
+      confidence_weighted: true,
+      avg_confidence: 0.9,
+      required_total: 5,
+      required_matched: 4,
+      nice_total: 2,
+      nice_matched: 1,
+      missing_required: [],
+      matched_details: [],
+      proficiency_adjustments: [],
+    })).toBe(72)
+    expect(toScoreNumber({
+      score: 60,
+      actual_years: 4,
+      required_years: 5,
+      explanation: 'Slightly under',
+    })).toBe(60)
+  })
+
+  it('returns 0 for null, undefined, and non-numeric values', () => {
+    expect(toScoreNumber(null)).toBe(0)
+    expect(toScoreNumber(undefined)).toBe(0)
+    expect(toScoreNumber('n/a')).toBe(0)
+    expect(toScoreNumber({})).toBe(0)
+  })
+})
 
 describe('safeStr', () => {
   it('returns empty string for null', () => {

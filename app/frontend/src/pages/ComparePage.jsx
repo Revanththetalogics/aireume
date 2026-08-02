@@ -4,14 +4,7 @@ import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCir
 import { getHistory, compareResults, exportCsv, getTeamProfiles, getTeamGapAnalysis } from '../lib/api'
 import ComparisonMatrix from '../components/ComparisonMatrix'
 import EmptyState from '../components/EmptyState'
-
-/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
-function safeStr(v) {
-  if (v == null) return ''
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try { return JSON.stringify(v) } catch { return String(v) }
-}
+import { safeStr, toScoreNumber } from '../lib/utils'
 
 function ScoreCell({ value, isWinner, color = 'brand' }) {
   const colors = {
@@ -19,10 +12,11 @@ function ScoreCell({ value, isWinner, color = 'brand' }) {
     green: 'text-green-700 bg-green-50 ring-green-200',
     amber: 'text-amber-700 bg-amber-50 ring-amber-200',
   }
+  const score = toScoreNumber(value)
   return (
     <div className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-sm ring-1 ${isWinner ? colors[color] : 'text-slate-600 bg-slate-50 ring-slate-200'}`}>
       {isWinner && <Trophy className="w-3.5 h-3.5" />}
-      {value}%
+      {score}%
     </div>
   )
 }
@@ -262,7 +256,7 @@ export default function ComparePage() {
                   {[
                     { label: 'Fit Score',    key: 'fit_score',                       winnerKey: 'overall',    isScore: false },
                     { label: 'Recommendation', key: 'final_recommendation',          winnerKey: null,         isScore: false },
-                    { label: 'Skill Match',  key: 'score_breakdown.skill_match.score', winnerKey: 'skills',     isScore: true  },
+                    { label: 'Skill Match',  key: 'score_breakdown.skill_match',     winnerKey: 'skills',     isScore: true  },
                     { label: 'Experience',   key: 'score_breakdown.experience_match',winnerKey: 'experience', isScore: true  },
                     { label: 'Education',    key: 'score_breakdown.education',       winnerKey: 'education',  isScore: true  },
                     { label: 'Stability',    key: 'score_breakdown.stability',       winnerKey: 'stability',  isScore: true  },

@@ -18,6 +18,7 @@ import FeatureGuideModal from '../components/onboarding/FeatureGuideModal'
 import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { StaggerContainer, StaggerItem } from '../components/motion'
+import { toScoreNumber } from '../lib/utils'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -262,7 +263,7 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Score Breakdown</h4>
           <div className="space-y-2">
             {Object.entries(scoreBreakdown).map(([key, val]) => {
-              const numVal = typeof val === 'number' ? val : (typeof val?.score === 'number' ? val.score : 0)
+              const numVal = toScoreNumber(val)
               return (
                 <div key={key} className="flex items-center gap-2">
                   <span className="text-xs text-gray-600 w-28 truncate" title={key}>{key}</span>

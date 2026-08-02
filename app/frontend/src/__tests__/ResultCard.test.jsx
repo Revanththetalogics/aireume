@@ -113,6 +113,38 @@ describe('ResultCard', () => {
     expect(screen.getByText('Well-aligned for Senior Engineer role')).toBeInTheDocument()
   })
 
+  it('renders detailed experience_match objects without crashing', () => {
+    const resultWithDetailedExp = {
+      ...mockResult,
+      score_breakdown: {
+        skill_match: {
+          score: 72,
+          confidence_weighted: true,
+          avg_confidence: 0.9,
+          required_total: 5,
+          required_matched: 4,
+          nice_total: 2,
+          nice_matched: 1,
+          missing_required: [],
+          matched_details: [],
+          proficiency_adjustments: [],
+        },
+        experience_match: {
+          score: 60,
+          actual_years: 4,
+          required_years: 5,
+          explanation: 'Slightly under required years',
+        },
+        education: 75,
+        timeline: 90,
+      },
+    }
+    render(<ResultCard result={resultWithDetailedExp} />)
+    expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
+    expect(screen.getByText('72%')).toBeInTheDocument()
+    expect(screen.getByText('60%')).toBeInTheDocument()
+  })
+
   it('displays skill depth counts when provided', () => {
     const resultWithSkillDepth = {
       ...mockResult,

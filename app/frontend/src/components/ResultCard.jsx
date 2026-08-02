@@ -11,7 +11,7 @@ import AnimatedScore from './AnimatedScore'
 import StreamingText from './StreamingText'
 import { generateEmail, getNarrative, recordOutcome, recordOutcomeFeedback } from '../lib/api'
 import { hasNarrativeContent, needsNarrativeHydration, isNarrativePending } from '../lib/enrichmentUtils'
-import { safeStr } from '../lib/utils'
+import { safeStr, toScoreNumber } from '../lib/utils'
 import { usePlanFeature, useHasSubscriptionContext } from '../hooks/useSubscription'
 import { PlanLockedButton } from './PlanLockedInline'
 
@@ -26,17 +26,18 @@ function ScoreBar({ label, value, color }) {
     teal:   'bg-teal-500',
     rose:   'bg-rose-400',
   }[color] || 'bg-brand-400'
+  const score = toScoreNumber(value)
 
   return (
     <div>
       <div className="flex justify-between items-center mb-1.5">
         <span className="text-xs font-semibold text-slate-600">{label}</span>
-        <span className="text-xs font-bold text-brand-700">{value ?? '—'}%</span>
+        <span className="text-xs font-bold text-brand-700">{score}%</span>
       </div>
       <div className="w-full bg-brand-100 rounded-full h-2">
         <div
           className={`h-2 rounded-full transition-all duration-700 ${barColor}`}
-          style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }}
+          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
         />
       </div>
     </div>
@@ -208,11 +209,11 @@ function ScoreBreakdownPanel({ scoreBreakdown, recommendationRationale, riskSumm
   // Handle both old (scalar) and new (dict) formats gracefully
   const skillBreakdown = scoreBreakdown?.skill_match
   const isSkillDetailed = typeof skillBreakdown === 'object' && skillBreakdown !== null
-  const skillScore = isSkillDetailed ? (skillBreakdown.score ?? 0) : (skillBreakdown ?? 0)
+  const skillScore = toScoreNumber(skillBreakdown)
 
   const expBreakdown = scoreBreakdown?.experience_match
   const isExpDetailed = typeof expBreakdown === 'object' && expBreakdown !== null
-  const expScore = isExpDetailed ? (expBreakdown.score ?? 0) : (expBreakdown ?? 0)
+  const expScore = toScoreNumber(expBreakdown)
 
   // Confidence dot color based on match_type
   const matchTypeColor = (type) => {

@@ -13,6 +13,19 @@ export function safeStr(val) {
 }
 
 /**
+ * Coerce score_breakdown values to a numeric score for rendering.
+ * Supports legacy scalars and detailed objects ({ score, ... }).
+ */
+export function toScoreNumber(val) {
+  if (typeof val === 'number' && Number.isFinite(val)) return val
+  if (val && typeof val === 'object' && typeof val.score === 'number' && Number.isFinite(val.score)) {
+    return val.score
+  }
+  const n = Number(val)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
  * Generate a deterministic color class from a string.
  * Returns one of 8 predefined color combinations.
  */
