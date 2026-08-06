@@ -8,6 +8,8 @@
 
 **Tech Stack:** FastAPI, SQLAlchemy, Alembic, React, existing requisition/HM workflow.
 
+**Status (2026-08-02):** Phases A–D landed on `main`. Product docs updated in `README.md` and `PRODUCT_SPECIFICATION.md` §3 / §8 / §29.
+
 ## Global Constraints
 
 - Plan-gated: `hm_workflow`, `requisitions`, `ai_interviews`
@@ -26,8 +28,8 @@
 ### Phase B (P1) — Flow alignment
 - Stepper step 3 at criteria v1+; renamed "Criteria locked"
 - Consolidated fields in submission + handoff packs
-- `screening_mode=requisition_required` enforced in analyze
-- Routing policy + `suggested_action` on pipeline
+- `screening_mode=requisition_required` enforced on primary `POST /analyze`
+- Routing policy + `suggested_action` on pipeline (backend; UI editor still thin)
 - Assigned recruiter can manage requisition
 
 ### Phase C (P2) — Automation & scope
@@ -44,6 +46,13 @@
 - Submit recruiter note overlay
 - SSO/invite accepts `ta_lead`
 - Spec + plan docs
+
+## Known gaps (post-ship)
+
+- External job-board / LinkedIn posting APIs (deferred)
+- Adverse-action PDF / deeper ATS partner work (separate track)
+
+**Closed (2026-08-07):** pending HM feedback persistence + recruiter Apply; `submit_to_hm` ownership AuthZ; screening_mode on stream/batch; admin-only billing tabs; routing-policy editor; `require_feature("requisitions")` on CRUD; `ta_lead` HM-request approve/reject.
 
 ## Verification
 

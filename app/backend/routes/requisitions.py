@@ -61,6 +61,7 @@ from app.backend.services.hm_feedback_service import (
     OUTCOME_REASON_CODES,
     apply_feedback_suggestions,
     build_feedback_suggestions,
+    persist_pending_feedback,
 )
 from app.backend.services.requisition_service import (
     approve_hm_request,
@@ -236,7 +237,7 @@ def update_settings(
     )
 
 
-@router.post("", response_model=RequisitionOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RequisitionOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("requisitions"))])
 def create_req(
     body: RequisitionCreate,
     current_user: User = Depends(require_recruiter_or_admin),
@@ -282,7 +283,7 @@ def create_req(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.get("", response_model=list[RequisitionOut])
+@router.get("", response_model=list[RequisitionOut], dependencies=[Depends(require_feature("requisitions"))])
 def list_reqs(
     status_filter: Optional[str] = Query(None, alias="status"),
     mine_only: bool = Query(False),
@@ -325,7 +326,7 @@ def list_hm_requests(
     return [_to_out(db, r, current_user.tenant_id, current_user=current_user) for r in rows]
 
 
-@router.get("/{req_id}", response_model=RequisitionOut)
+@router.get("/{req_id}", response_model=RequisitionOut, dependencies=[Depends(require_feature("requisitions"))])
 def get_req(
     req_id: int,
     current_user: User = Depends(get_current_user),
@@ -336,7 +337,7 @@ def get_req(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.put("/{req_id}", response_model=RequisitionOut)
+@router.put("/{req_id}", response_model=RequisitionOut, dependencies=[Depends(require_feature("requisitions"))])
 def update_req(
     req_id: int,
     body: RequisitionUpdate,
@@ -393,7 +394,7 @@ def update_req(
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
-@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_feature("requisitions"))])
 def delete_req(
     req_id: int,
     current_user: User = Depends(require_recruiter_or_admin),
@@ -579,7 +580,7 @@ def submit_hm_request(
 @router.post("/{req_id}/hm-request/approve", response_model=RequisitionOut, dependencies=[Depends(require_feature("hm_workflow"))])
 def approve_hm_request_route(
     req_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_assignment_role),
     db: Session = Depends(get_db),
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
@@ -605,7 +606,7 @@ def approve_hm_request_route(
 def reject_hm_request_route(
     req_id: int,
     body: RequisitionHmRequestDecision,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_assignment_role),
     db: Session = Depends(get_db),
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
@@ -782,6 +783,8 @@ def submit_to_hm(
     db: Session = Depends(get_db),
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
+    if not can_manage_requisition(current_user, req):
+        raise HTTPException(status_code=403, detail="Not allowed to submit candidates on this requisition")
     rc = (
         db.query(RequisitionCandidate)
         .options(selectinload(RequisitionCandidate.screening_result), selectinload(RequisitionCandidate.candidate))
@@ -854,6 +857,7 @@ def record_outcome(
             outcome_reason_code=body.outcome_reason_code,
             outcome_notes=body.outcome_notes,
         )
+        persist_pending_feedback(req, feedback_suggestions)
     elif body.hm_outcome == "hire":
         rc.pipeline_status = "hired"
         maybe_advance_to_interviewing(db, req)

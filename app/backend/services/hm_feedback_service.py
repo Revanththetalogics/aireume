@@ -69,6 +69,29 @@ def build_feedback_suggestions(
     return suggestions
 
 
+def get_pending_feedback(req: Requisition) -> dict[str, Any] | None:
+    """Return recruiter-visible pending HM feedback suggestions, if any."""
+    brief = _json_loads(req.search_brief_json, {})
+    pending = brief.get("pending_feedback")
+    return pending if isinstance(pending, dict) and pending else None
+
+
+def persist_pending_feedback(req: Requisition, suggestions: dict[str, Any]) -> None:
+    """Store HM reject suggestions so recruiters can apply them later."""
+    brief = _json_loads(req.search_brief_json, {})
+    # Drop large preview blob — recruiters rebuild from current brief on apply UI
+    stored = {k: v for k, v in suggestions.items() if k != "preview"}
+    brief["pending_feedback"] = stored
+    req.search_brief_json = _json_dumps(brief)
+
+
+def clear_pending_feedback(req: Requisition) -> None:
+    brief = _json_loads(req.search_brief_json, {})
+    if "pending_feedback" in brief:
+        brief.pop("pending_feedback", None)
+        req.search_brief_json = _json_dumps(brief)
+
+
 def apply_feedback_suggestions(
     db: Session,
     req: Requisition,
@@ -100,5 +123,6 @@ def apply_feedback_suggestions(
     if recalibrate and req.intake_status == "approved":
         calibrate_requisition(db, req, user_id=user_id, merge_jd=True)
 
+    clear_pending_feedback(req)
     db.flush()
     return req

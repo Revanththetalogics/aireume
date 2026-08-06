@@ -693,3 +693,173 @@ class TestIcpWorkflow:
             json={"hm_outcome": "reject"},
         )
         assert resp.status_code in (403, 404, 422)
+
+    def test_reject_persists_pending_feedback_for_recruiter(self, db, auth_client):
+        from app.backend.services.hm_feedback_service import (
+            build_feedback_suggestions,
+            persist_pending_feedback,
+            get_pending_feedback,
+            clear_pending_feedback,
+            apply_feedback_suggestions,
+        )
+        user = _admin_user(db)
+        assert user is not None
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Feedback Persist",
+            jd_text="Python AWS CI/CD",
+        )
+        db.commit()
+        suggestions = build_feedback_suggestions(
+            req, outcome_reason_code="wrong_skills", outcome_notes="Need CI/CD",
+        )
+        persist_pending_feedback(req, suggestions)
+        db.commit()
+        db.refresh(req)
+        pending = get_pending_feedback(req)
+        assert pending is not None
+        assert pending["outcome_reason_code"] == "wrong_skills"
+        apply_feedback_suggestions(db, req, pending, user_id=user.id)
+        clear_pending_feedback(req)
+        db.commit()
+        db.refresh(req)
+        assert get_pending_feedback(req) is None
+
+    def test_submit_requires_requisition_management(self, client, db, auth_client):
+        from app.backend.models.db_models import Candidate, RequisitionCandidate
+        from app.backend.tests.test_workflows_e2e import _JD
+
+        admin = _admin_user(db)
+        owner = User(
+            email="owner.rec@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=admin.tenant_id,
+            role="recruiter",
+            is_active=True,
+            email_verified=True,
+        )
+        other = User(
+            email="other.rec@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=admin.tenant_id,
+            role="recruiter",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add_all([owner, other])
+        db.flush()
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=owner.id,
+            title="Owned Req",
+            jd_text=_JD,
+            assigned_recruiter_id=owner.id,
+        )
+        cand = Candidate(tenant_id=admin.tenant_id, name="Submit Cand", email="submit.cand@test.com")
+        db.add(cand)
+        db.flush()
+        db.add(RequisitionCandidate(
+            requisition_id=req.id, candidate_id=cand.id, added_by=owner.id,
+        ))
+        db.commit()
+
+        login = client.post("/api/auth/login", json={"email": other.email, "password": "pass"})
+        assert login.status_code == 200
+        client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+        resp = client.post(
+            f"/api/requisitions/{req.id}/candidates/{cand.id}/submit",
+            json={"submission_json": {"recruiter_note": "x"}},
+        )
+        assert resp.status_code == 403
+
+    def test_stream_analyze_enforces_requisition_required(self, auth_client):
+        import io
+        auth_client.put(
+            "/api/requisitions/settings",
+            json={"screening_mode": "requisition_required"},
+        )
+        long_jd = (
+            "Senior Python Backend Engineer with five years experience building "
+            "scalable APIs using FastAPI Django PostgreSQL Redis Docker Kubernetes "
+            "AWS and strong testing practices mentoring juniors and delivering "
+            "production systems with observability and CI CD pipelines required."
+        )
+        files = {
+            "resume": (
+                "resume.pdf",
+                io.BytesIO(b"%PDF-1.4 Jane Doe\nPython Engineer\njane@test.com\n"),
+                "application/pdf",
+            )
+        }
+        resp = auth_client.post(
+            "/api/analyze/stream",
+            files=files,
+            data={"job_description": long_jd},
+        )
+        assert resp.status_code == 400
+        detail = resp.json().get("detail", {})
+        if isinstance(detail, dict):
+            assert detail.get("error_code") == "REQUISITION_REQUIRED"
+        else:
+            assert "requisition" in str(detail).lower()
+
+    def test_ta_lead_can_approve_hm_request(self, client, db, auth_client):
+        from app.backend.tests.test_workflows_e2e import _JD
+        from app.backend.services.requisition_service import request_hm_for_requisition
+
+        admin = _admin_user(db)
+        ta = User(
+            email="ta.lead@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=admin.tenant_id,
+            role="ta_lead",
+            is_active=True,
+            email_verified=True,
+        )
+        recruiter = User(
+            email="rec.for.ta@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=admin.tenant_id,
+            role="recruiter",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add_all([ta, recruiter])
+        db.commit()
+        req = create_requisition(
+            db,
+            tenant_id=admin.tenant_id,
+            created_by=recruiter.id,
+            title="TA Lead Approve HM",
+            jd_text=_JD,
+        )
+        request_hm_for_requisition(
+            db, req, email="ta.approve.hm@testcorp.com", requested_by=recruiter.id,
+        )
+        db.commit()
+
+        login = client.post("/api/auth/login", json={"email": ta.email, "password": "pass"})
+        assert login.status_code == 200
+        client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+        resp = client.post(f"/api/requisitions/{req.id}/hm-request/approve")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["hm_request_status"] == "approved"
+
+    def test_free_plan_blocked_from_requisition_create(self, auth_client_with_free_plan):
+        resp = auth_client_with_free_plan.post(
+            "/api/requisitions",
+            json={
+                "title": "Blocked Role",
+                "jd_text": (
+                    "Senior engineer needed with Python FastAPI PostgreSQL Redis Docker "
+                    "Kubernetes AWS experience and strong communication skills required now."
+                ),
+            },
+        )
+        assert resp.status_code == 403
+        detail = resp.json().get("detail", {})
+        if isinstance(detail, dict):
+            assert detail.get("error_code") == "PLAN_FEATURE_LOCKED" or "requisition" in str(detail).lower()

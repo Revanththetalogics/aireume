@@ -308,11 +308,13 @@ export default function SettingsPage() {
   const { completeChecklistItem } = useOnboarding()
   const { preferences, updatePreferences } = useUserPreferences()
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') || 'subscription'
+  const isAdmin = user?.role === 'admin'
+  const requestedTab = searchParams.get('tab') || (isAdmin ? 'subscription' : 'team')
+  const moneyTabs = new Set(['subscription', 'billing'])
+  const initialTab = (!isAdmin && moneyTabs.has(requestedTab)) ? 'team' : requestedTab
   const [activeTab, setActiveTab] = useState(initialTab)
   const [saving, setSaving] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
-  const isAdmin = user?.role === 'admin'
 
   // White-label branding
   const [brandingForm, setBrandingForm] = useState({
@@ -368,7 +370,7 @@ export default function SettingsPage() {
 
   // Fetch invoices when billing tab is active
   useEffect(() => {
-    if (activeTab === 'billing') {
+    if (activeTab === 'billing' && isAdmin) {
       fetchInvoices(0)
     }
   }, [activeTab, fetchInvoices])
@@ -476,8 +478,8 @@ export default function SettingsPage() {
 
   const tabs = [
     ...(isAdmin ? [{ id: 'setup', label: 'Setup', icon: ListChecks }] : []),
-    { id: 'subscription', label: 'Subscription', icon: CreditCard },
-    { id: 'billing', label: 'Billing History', icon: Receipt },
+    ...(isAdmin ? [{ id: 'subscription', label: 'Subscription', icon: CreditCard }] : []),
+    ...(isAdmin ? [{ id: 'billing', label: 'Billing History', icon: Receipt }] : []),
     { id: 'team', label: 'Team & Access', icon: Users },
     ...(isAdmin && isFeatureAvailable('white_label') ? [{ id: 'branding', label: 'White-label', icon: Palette }] : []),
     ...(isFeatureAvailable('ai_interviews') ? [{ id: 'interviews', label: 'Interviews', icon: Mic }] : []),
@@ -539,8 +541,8 @@ export default function SettingsPage() {
             <WorkspaceSetupPanel />
           )}
 
-          {/* Subscription Tab */}
-          {activeTab === 'subscription' && (
+          {/* Subscription Tab — admin only */}
+          {activeTab === 'subscription' && isAdmin && (
             <>
               {loading ? (
                 <div className="flex justify-center py-16">
@@ -759,7 +761,7 @@ export default function SettingsPage() {
           )}
 
           {/* Billing History Tab */}
-          {activeTab === 'billing' && (
+          {activeTab === 'billing' && isAdmin && (
             <>
               {/* Upcoming Billing */}
               <Section

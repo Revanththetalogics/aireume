@@ -711,6 +711,13 @@ export default function RequisitionDetailPage() {
   const [assignRecruiterId, setAssignRecruiterId] = useState('')
   const [searchBrief, setSearchBrief] = useState('')
   const [sourcingBriefJson, setSourcingBriefJson] = useState({})
+  const [routingPolicy, setRoutingPolicy] = useState({
+    submit_to_hm_min_score: 80,
+    ai_interview_min_score: 65,
+    ai_interview_max_score: 79,
+    auto_suggest: true,
+  })
+  const [savingRouting, setSavingRouting] = useState(false)
 
   const hmCandidates = teamMembers.filter(
     (m) => m.role === 'hiring_manager' || m.role === 'admin' || m.role === 'recruiter',
@@ -738,6 +745,18 @@ export default function RequisitionDetailPage() {
       const brief = r.search_brief_json || {}
       setSourcingBriefJson(brief)
       setSearchBrief(brief.latest_strategy || '')
+      if (brief.pending_feedback) {
+        setPendingFeedback(brief.pending_feedback)
+      } else {
+        setPendingFeedback(null)
+      }
+      const policy = r.routing_policy_json || {}
+      setRoutingPolicy({
+        submit_to_hm_min_score: policy.submit_to_hm_min_score ?? 80,
+        ai_interview_min_score: policy.ai_interview_min_score ?? 65,
+        ai_interview_max_score: policy.ai_interview_max_score ?? 79,
+        auto_suggest: policy.auto_suggest !== false,
+      })
       const loadedIntake = r.intake_json || {}
       setIntake(loadedIntake)
       setSavedIntakeSnapshot(JSON.stringify(loadedIntake))
@@ -1048,6 +1067,19 @@ export default function RequisitionDetailPage() {
       showError('Failed to assign recruiter')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const saveRoutingPolicy = async () => {
+    setSavingRouting(true)
+    try {
+      const updated = await updateRequisition(id, { routing_policy_json: routingPolicy })
+      setReq(updated)
+      showSuccess('Routing thresholds saved')
+    } catch {
+      showError('Failed to save routing policy')
+    } finally {
+      setSavingRouting(false)
     }
   }
 
@@ -1599,6 +1631,64 @@ export default function RequisitionDetailPage() {
               </ul>
             </div>
           )}
+          <div className="pt-4 border-t border-brand-50 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase">{REQUISITIONS.routingPolicyLabel}</p>
+            <p className="text-xs text-slate-500">
+              Fit-score bands that suggest submit to HM vs AI interview vs pass. Pipeline CTAs use these thresholds.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="text-xs text-slate-600 space-y-1">
+                <span>Submit to HM min</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  disabled={!canWrite}
+                  className="w-full rounded-xl border border-brand-100 px-3 py-2 text-sm"
+                  value={routingPolicy.submit_to_hm_min_score}
+                  onChange={(e) => setRoutingPolicy((p) => ({ ...p, submit_to_hm_min_score: Number(e.target.value) }))}
+                />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">
+                <span>AI interview min</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  disabled={!canWrite}
+                  className="w-full rounded-xl border border-brand-100 px-3 py-2 text-sm"
+                  value={routingPolicy.ai_interview_min_score}
+                  onChange={(e) => setRoutingPolicy((p) => ({ ...p, ai_interview_min_score: Number(e.target.value) }))}
+                />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">
+                <span>AI interview max</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  disabled={!canWrite}
+                  className="w-full rounded-xl border border-brand-100 px-3 py-2 text-sm"
+                  value={routingPolicy.ai_interview_max_score}
+                  onChange={(e) => setRoutingPolicy((p) => ({ ...p, ai_interview_max_score: Number(e.target.value) }))}
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                disabled={!canWrite}
+                checked={!!routingPolicy.auto_suggest}
+                onChange={(e) => setRoutingPolicy((p) => ({ ...p, auto_suggest: e.target.checked }))}
+              />
+              Auto-suggest next action on pipeline cards
+            </label>
+            {canWrite && (
+              <Button size="sm" onClick={saveRoutingPolicy} disabled={savingRouting}>
+                {savingRouting ? 'Saving…' : 'Save routing thresholds'}
+              </Button>
+            )}
+          </div>
         </Card>
       )}
 

@@ -1,3 +1,5 @@
+﻿> **Status note (2026-08-02):** Historical remediation backlog. Many items may already be shipped — do not treat unchecked boxes as current product gaps. Prefer PRODUCT_SPECIFICATION.md §29.
+
 # ARIA v2.0.0 — Master Remediation Todo List
 **Source:** Full-stack audit (Backend + Security + Architecture + UI/UX)  
 **Generated:** July 6, 2026  

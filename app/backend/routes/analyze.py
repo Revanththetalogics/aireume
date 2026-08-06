@@ -645,6 +645,7 @@ def _finalize_analyze_context(
     current_user: Any | None = None,
 ) -> tuple[str, dict | None, dict | None, int | None, int | None]:
     """Apply requisition resolution and legacy template bridge."""
+    _enforce_screening_mode(db, tenant_id, requisition_id)
     req_id, jd, overrides, wts, legacy_tpl = _resolve_requisition(
         db, requisition_id, tenant_id, job_description, parsed_skill_overrides, weights,
         current_user=current_user,
@@ -2177,6 +2178,8 @@ async def analyze_stream_endpoint(
             },
         )
 
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
+
     # ─── VALIDATE FILES FIRST (before incrementing usage) ─────────────────────
     # Validate file extension
     if not resume.filename.lower().endswith(ALLOWED_EXTENSIONS):
@@ -2581,6 +2584,8 @@ async def batch_analyze_chunked_endpoint(
             },
         )
 
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
+
     from app.backend.routes.upload import CHUNK_STORAGE_DIR
 
     if not upload_ids:
@@ -2847,6 +2852,8 @@ async def batch_analyze_stream_endpoint(
                 "plan": quota["plan"],
             },
         )
+
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
 
     from app.backend.routes.upload import CHUNK_STORAGE_DIR
 
@@ -3291,6 +3298,8 @@ async def batch_analyze_endpoint(
                 "plan": quota["plan"],
             },
         )
+
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
 
     if not resumes:
         raise HTTPException(status_code=400, detail="At least one resume required")

@@ -1,7 +1,7 @@
-# ARIA v2.0.0
+# ARIA v2.2.0
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/react-18.3.1-61dafb.svg" alt="React">
   <img src="https://img.shields.io/badge/fastapi-0.115.6-009688.svg" alt="FastAPI">
@@ -25,8 +25,9 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 ### Key Value Propositions
 
+- **Requisition-centric hiring** — Openings, intake calibration, screening, and HM handoff in one workflow
 - **Explainable AI Screening** — Fit scores, skill matching, gap detection, and narrative reports recruiters can trust
-- **Tenant Security** — Multi-tenant isolation, RBAC, SSO (Enterprise), and GDPR export/erasure tools
+- **Tenant Security** — Multi-tenant isolation, RBAC (5 tenant roles), SSO (Enterprise), and GDPR export/erasure tools
 - **Interview Automation** — AI screen calls and live screen kits integrated with your pipeline
 - **Multi-Tenant SaaS Architecture** — Support for multiple organizations with complete data isolation
 - **Production-Ready** — Comprehensive testing, CI/CD pipeline, and monitoring
@@ -35,15 +36,28 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 ## Features
 
+### Requisitions & Hiring Workflow
+- **Requisitions** — Create and manage openings (intake → criteria lock → sourcing → interviewing)
+- **Open Requests** — Hiring managers request openings; TA Lead / Admin assigns a recruiter
+- **Collaborative Intake** — HM edit + approve; `changes_requested` loop; criteria lock stepper
+- **Recruiter Assignment** — `ta_lead` / admin assign recruiters; assignees can manage the req
+- **Screening Modes** — Tenant setting `requisition_required` (default) or `allow_ad_hoc` quick screen
+- **Submit to HM** — Pipeline submit with recruiter note; email + tenant event notification
+- **HM Outcomes** — Shortlist / reject with required reason codes; feedback applied to sourcing brief
+- **Sourcing Panel** — In-app search brief and manual channel checklist (no external job-board APIs)
+- **Handoff Pack** — Consolidated candidate pack for HM (`/requisitions/:id/handoff`, public `/handoff/:token`)
+- **Plan Gates** — Features `requisitions`, `hm_workflow`, and related interview entitlements
+
 ### Resume Analysis
+- **Requisition-first Screen** — Analyze attaches results to an opening when screening mode requires it
 - **Single-File Analysis** — Upload PDF/DOCX with real-time SSE streaming results
 - **Batch Processing** — Process up to 50 files simultaneously with concurrency control
-- **Fit Scoring** — 0-100 score with detailed breakdown
+- **Fit Scoring** — 0-100 score with detailed breakdown (skill/experience may be detailed objects)
 - **Strengths & Weaknesses** — AI-identified candidate attributes
 - **Risk Signal Detection** — Fake patterns, job hopping, credential inflation
 - **Employment Gap Analysis** — Severity classification (negligible/minor/moderate/critical)
 - **Education Validation** — Degree relevance and institution assessment
-- **Skills Matching** — Against 676-skill registry with fuzzy matching
+- **Skills Matching** — Against skills registry with fuzzy matching and confidence-weighted scores
 - **AI Narrative Generation** — Background LLM processing with deterministic fallback
 
 ### Candidate Management
@@ -54,11 +68,12 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 - **Status Tracking** — pending / shortlisted / rejected / in-review / hired
 
 ### Job Description Handling
-- **Manual Entry** — Direct text input
+- **Requisition JD** — Primary path: opening intake and criteria (legacy JD library redirects to `/requisitions`)
+- **Manual Entry** — Direct text input (ad-hoc when tenant allows)
 - **File Upload** — PDF and DOCX support
 - **URL Scraping** — LinkedIn, Indeed, and other job boards
 - **JD Caching** — MD5-keyed cache with 30-day retention
-- **Template Library** — Save and load frequently-used job descriptions
+- **Role Templates** — Saved templates still available via API / migration paths
 
 ### Side-by-Side Comparison
 - **Multi-Candidate Compare** — Evaluate 2-5 candidates simultaneously
@@ -112,10 +127,12 @@ The Live Screen Kit requires background **interview kit enrichment**. If questio
 **Debugging kit fallback:** Check `interview_kit_status` on the report API (`ready` = Gemini kit, `fallback` = template kit). When fallback, `interview_kit_error` explains why (e.g. `timeout:`, `empty_kit:`, `ValueError:`). Search backend logs for `Interview kit LLM` + `screening_result_id`. Env: `LLM_INTERVIEW_KIT_TIMEOUT` (default 180s), `LLM_INTERVIEW_KIT_RETRIES` (default 2).
 
 ### Team Collaboration
-- **Multi-User Tenants** — Role-based access control (admin/recruiter/viewer)
-- **Member Invitations** — Email-based team onboarding
+- **Multi-User Tenants** — RBAC roles: `admin`, `ta_lead`, `recruiter`, `hiring_manager`, `viewer`
+- **Role-aware Nav** — Recruiters: Home / Requisitions / Screen / Candidates; HMs: My Openings / Candidates
+- **Member Invitations** — Email-based team onboarding (includes `ta_lead` / HM invites)
 - **Comments** — Discuss screening results inline
 - **Shared Lists** — Collaborative candidate shortlists
+- **Workspace Onboarding** — Guided wizard (org, plan, invites, sample seed / checklist)
 
 ### Reporting & Export
 - **Detailed Reports** — Score gauges, skill radar charts, timelines
@@ -512,6 +529,22 @@ LLM_NARRATIVE_TIMEOUT=180
 |--------|----------|-------------|
 | POST | `/api/compare` | Compare 2-5 candidates |
 
+### Requisitions & Hiring Workflow
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET/POST | `/api/requisitions` | List / create requisitions |
+| GET/PATCH | `/api/requisitions/{id}` | Get / update requisition |
+| PUT | `/api/requisitions/{id}/assign-recruiter` | Assign recruiter (`admin` / `ta_lead`) |
+| GET/POST | `/api/requisitions/open-requests` | HM open-request queue |
+| POST | `/api/requisitions/open-requests/{id}/assign` | Assign open request → requisition |
+| POST | `/api/requisitions/{id}/hm-approval` | HM approve / request changes |
+| POST | `/api/requisitions/{id}/candidates/{cid}/submit` | Submit candidate to HM |
+| POST | `/api/requisitions/{id}/candidates/{cid}/outcome` | HM shortlist / reject (+ reason) |
+| POST | `/api/requisitions/{id}/apply-feedback` | Apply reject feedback to sourcing brief |
+| GET | `/api/requisitions/{id}/handoff` | HM handoff package |
+| GET/PUT | `/api/requisitions/settings` | Tenant screening mode & HM pipeline permission |
+
 ### Templates
 
 | Method | Endpoint | Description |
@@ -526,7 +559,7 @@ LLM_NARRATIVE_TIMEOUT=180
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/team` | List team members |
-| POST | `/api/invites` | Invite team member |
+| POST | `/api/invites` | Invite team member (roles include `ta_lead`, `hiring_manager`) |
 | DELETE | `/api/team/{user_id}` | Remove member |
 | GET | `/api/results/{id}/comments` | Get comments |
 | POST | `/api/results/{id}/comments` | Add comment |
@@ -583,7 +616,7 @@ LLM_NARRATIVE_TIMEOUT=180
 - Multi-tenancy root entity
 
 **User**
-- `id`, `email`, `hashed_password`, `role` (admin/recruiter/viewer)
+- `id`, `email`, `hashed_password`, `role` (`admin` / `ta_lead` / `recruiter` / `hiring_manager` / `viewer`)
 - `tenant_id`, `is_active`, `created_at`
 - RBAC-enabled user accounts
 
@@ -592,18 +625,26 @@ LLM_NARRATIVE_TIMEOUT=180
 - `file_hash`, `parsed_data`, `skills`, `education`, `experience`
 - Enriched candidate profile with deduplication fields
 
+**Requisition**
+- Opening lifecycle fields: intake, criteria version, status, assigned recruiter, opened-on-behalf HM
+- Routing policy JSON, search/sourcing brief, HM pipeline permission (tenant settings)
+
+**RequisitionOpenRequest**
+- HM-initiated opening requests pending TA Lead / Admin assignment
+
 **ScreeningResult**
 - `id`, `candidate_id`, `job_description`, `fit_score`
 - `strengths`, `weaknesses`, `employment_gaps`, `risk_signals`
 - `final_recommendation`, `narrative`, `status`, `created_at`
+- Optional link to requisition / pipeline candidate
 
 **Skill**
 - `id`, `name`, `category`, `aliases`
-- 676-entry standardized skill registry
+- Dynamic skills registry (seeded + discovered)
 
 **SubscriptionPlan**
 - `id`, `name`, `price_monthly`, `max_analyses`, `max_storage`
-- `max_team_members`, `features` (JSON)
+- `max_team_members`, `features` (JSON) — includes `requisitions`, `hm_workflow`, etc.
 
 **TranscriptAnalysis**
 - `id`, `candidate_id`, `transcript_text`, `analysis_result`
@@ -621,7 +662,8 @@ LLM_NARRATIVE_TIMEOUT=180
 - **JWT Tokens** — Access tokens (60min) + refresh tokens (30 days)
 - **Token Revocation** — Secure logout with revoked token tracking
 - **Bcrypt Hashing** — Industry-standard password storage
-- **RBAC** — Role-based access (admin/recruiter/viewer)
+- **RBAC** — Tenant roles: `admin`, `ta_lead`, `recruiter`, `hiring_manager`, `viewer`
+- **SSO/SAML** — Enterprise single sign-on (platform-configured per tenant)
 
 ### Data Protection
 - **Multi-Tenant Isolation** — All queries scoped by `tenant_id`

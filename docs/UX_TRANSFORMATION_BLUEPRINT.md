@@ -1,7 +1,9 @@
-# ARIA UX Transformation Blueprint
+﻿# ARIA UX Transformation Blueprint
 
 > A complete SaaS UX redesign strategy for the ARIA AI Recruitment Intelligence Platform.
 > Focus: Recruiter-first workflows, enterprise polish, commercial scalability.
+
+> **Status note (2026-08-02):** Historical redesign strategy — not the live product SSOT. Several items below are **resolved in code** (onboarding wizard; comments; HM outcomes/feedback/handoff; requisition-centric IA; role-aware nav). Prefer `PRODUCT_SPECIFICATION.md` and `README.md` for shipped behavior.
 
 ---
 
@@ -13,18 +15,18 @@ ARIA has **21 pages, 22+ routes, and 17 reusable components** built on React 18 
 
 ### Identified Friction Points
 
-| Category | Problem | Impact |
-|----------|---------|--------|
-| **Feature Overload** | 5 nav groups + 22 routes visible from day one | New users overwhelmed; activation drops |
-| **Navigation Complexity** | Hover dropdowns with timeout; "Screening" group packs 5 items | Recruiter loses context; misclicks on mobile |
-| **Terminology Confusion** | "JD Library," "Analyze," "Pipeline," "Compare" — overlapping concepts | Recruiter unsure where to go next |
-| **No Onboarding** | Zero guided experience; no sample data; no wizard | Time-to-value exceeds 10+ minutes |
-| **Monolithic ResultCard** | 52.3KB single component; dense AI output | Recruiter cannot scan in 30 seconds |
-| **Duplicated Status Logic** | Status configs repeated in 3+ pages | Inconsistent UX across views |
-| **No Collaboration Primitives** | No comments, @mentions, or feedback loops | Hiring manager handoff is manual |
-| **Generic Error States** | "Invitation failed" with no context | User abandons action |
-| **No Undo/Safety Net** | Destructive actions have no undo | Recruiter anxiety on status changes |
-| **Desktop-Centric** | Mobile nav functional but not optimized for recruiter workflows | On-the-go review impossible |
+| Category | Problem | Impact | 2026 status |
+|----------|---------|--------|-------------|
+| **Feature Overload** | 5 nav groups + 22 routes visible from day one | New users overwhelmed; activation drops | Partially improved — primary nav is Home / Requisitions / Screen / Candidates |
+| **Navigation Complexity** | Hover dropdowns with timeout; "Screening" group packs 5 items | Recruiter loses context; misclicks on mobile | Partially improved — role-aware nav |
+| **Terminology Confusion** | "JD Library," "Analyze," "Pipeline," "Compare" — overlapping concepts | Recruiter unsure where to go next | Largely resolved — Requisitions + Screen |
+| **No Onboarding** | Zero guided experience; no sample data; no wizard | Time-to-value exceeds 10+ minutes | **Shipped** — workspace onboarding wizard |
+| **Monolithic ResultCard** | 52.3KB single component; dense AI output | Recruiter cannot scan in 30 seconds | Still dense; incremental improvements |
+| **Duplicated Status Logic** | Status configs repeated in 3+ pages | Inconsistent UX across views | Partially centralized |
+| **No Collaboration Primitives** | No comments, @mentions, or feedback loops | Hiring manager handoff is manual | **Shipped** — comments + HM outcomes / handoff |
+| **Generic Error States** | "Invitation failed" with no context | User abandons action | Ongoing |
+| **No Undo/Safety Net** | Destructive actions have no undo | Recruiter anxiety on status changes | Ongoing |
+| **Desktop-Centric** | Mobile nav functional but not optimized for recruiter workflows | On-the-go review impossible | Ongoing |
 
 ### Enterprise UX Anti-Patterns Present
 

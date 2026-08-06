@@ -1,3 +1,5 @@
+﻿> **Status note (2026-08-02):** Point-in-time audit (April–July 2026). Gaps described as missing (e.g. HM collaboration) may now be shipped. Prefer PRODUCT_SPECIFICATION.md and README.md for current capabilities.
+
 # ARIA Resume AI — Comprehensive Code Audit Report
 
 ## Table of Contents

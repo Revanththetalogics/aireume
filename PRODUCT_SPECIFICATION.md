@@ -1,10 +1,10 @@
 # ARIA Resume Intelligence Platform - Complete Product Specification
 
-**Version**: 2.1.0  
+**Version**: 2.2.0  
 **Company**: ThetaLogics  
 **License**: MIT (Open Source)  
 **Architecture**: Multi-tenant SaaS (cloud-managed)  
-**Last Updated**: May 25, 2026
+**Last Updated**: August 2, 2026
 
 ---
 
@@ -14,12 +14,13 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### Core Value Propositions
 
-1. **Managed AI Screening** — Cloud-hosted multi-tenant SaaS with explainable fit scores, narratives, and interview automation
-2. **Enterprise-Grade Compliance** — EEOC/GDPR tooling with PII redaction, evidence-based decisions, and full audit trails
-3. **AI-Powered Intelligence** — Advanced NLP for skills extraction, gap detection, fit scoring, and narrative generation
-4. **Multi-Tenant SaaS** — Support for unlimited organizations with complete data isolation
-5. **Transparent AI Processing** — Resume and job data processed by configured cloud AI providers (Ollama Cloud, optional Gemini); disclosed at onboarding and in Settings
-6. **Production-Ready** — Comprehensive tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
+1. **Requisition-centric hiring** — Openings, HM/TA collaboration, screening, sourcing feedback, and handoff in one workflow
+2. **Managed AI Screening** — Cloud-hosted multi-tenant SaaS with explainable fit scores, narratives, and interview automation
+3. **Enterprise-Grade Compliance** — EEOC/GDPR tooling with PII redaction, evidence-based decisions, and full audit trails
+4. **AI-Powered Intelligence** — Advanced NLP for skills extraction, gap detection, fit scoring, and narrative generation
+5. **Multi-Tenant SaaS** — Support for unlimited organizations with complete data isolation
+6. **Transparent AI Processing** — Resume and job data processed by configured cloud AI providers (Ollama Cloud, optional Gemini); disclosed at onboarding and in Settings
+7. **Production-Ready** — Comprehensive tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
 
 ---
 
@@ -33,7 +34,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 | **ASGI Server** | Uvicorn 0.32.1 (4 workers) | Production server |
 | **Database (Prod)** | PostgreSQL 16 | Primary datastore with multi-tenant isolation |
 | **ORM** | SQLAlchemy 2.0.36 | Database abstraction |
-| **Migrations** | Alembic 1.14.0 | Schema versioning (34 migrations) |
+| **Migrations** | Alembic 1.14.0 | Schema versioning (67+ migrations) |
 | **Frontend Framework** | React 18.3.1 | Modern UI library |
 | **Build Tool** | Vite 6.0.5 | Frontend bundling |
 | **Styling** | TailwindCSS 3.4.17 | Utility-first CSS |
@@ -195,26 +196,59 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **User Attribution**: Notes linked to author
 - **Timestamp Tracking**: Created and updated timestamps
 
-### 3. Job Description Management
+### 3. Requisitions, Job Descriptions & Hiring Workflow
 
-#### 3.1 JD Input Methods
+#### 3.1 Requisition Lifecycle (Shipped)
+- **Primary object**: Requisition (opening) — replaces JD Library as the day-to-day work surface (`/requisitions`; legacy `/jd-library` redirects)
+- **Statuses**: Intake → criteria locked → sourcing → interviewing (auto-advance helpers after intake ready / HM advance)
+- **Assignment**: `assigned_recruiter_id`; create/assign can set `opened_on_behalf_of_hm_id`
+- **Plan gates**: `requisitions`, `hm_workflow` (and related interview features)
+
+#### 3.2 Open Requests & TA Lead
+- **HM open requests**: Hiring managers request a new opening (`/requisitions/open-requests`)
+- **TA Lead / Admin**: Assign recruiter and materialize the requisition
+- **Role** `ta_lead`: Assign recruiters, approve HM access requests, view all requisitions (no substitute for admin billing ownership)
+
+#### 3.3 Collaborative Intake & Criteria
+- **HM edit + approve**: Intake payload approval; `changes_requested` banner when revisions needed
+- **Criteria lock**: Stepper advances at criteria v1+ (“Criteria locked”)
+- **Sourcing brief**: Search brief UI + apply HM reject feedback via `apply-feedback`
+
+#### 3.4 Screening Against Openings
+- **Tenant `screening_mode`**: `requisition_required` (default) or `allow_ad_hoc`
+- **Analyze UI**: Requisition-first; “Quick screen” when ad-hoc allowed
+- **Enforcement**: Backend gate on `POST /api/analyze` when mode is requisition-required and no `requisition_id` (batch/stream paths may still need the same gate — treat single analyze as the primary enforced entry)
+- **Linking**: Screening results link to requisition candidates / pipeline
+
+#### 3.5 Submit to HM, Outcomes & Handoff
+- **Submit**: Recruiter submits candidates with optional note; email + tenant event to HM
+- **Outcomes**: Shortlist / reject with required `outcome_reason_code`; feedback suggestions update sourcing brief
+- **Handoff pack**: Consolidated fields for submitted/shortlisted candidates (`/requisitions/:id/handoff`, public `/handoff/:token`)
+- **`hm_pipeline_permission`**: Tenant setting respected in frontend HM pipeline access
+
+#### 3.6 JD Input Methods (Ad-hoc / Intake)
 - **Manual Entry**: Direct text input
 - **File Upload**: PDF and DOCX support
 - **URL Scraping**: LinkedIn, Indeed, and other job boards (jd_scraper service)
 - **JD Validation**: Minimum 80 words requirement
 - **Size Limit**: Maximum 50KB
 
-#### 3.2 JD Caching
+#### 3.7 JD Caching
 - **MD5-Keyed Cache**: Cache key based on MD5 of first 2000 characters
 - **Database Storage**: Shared across all workers (JdCache table)
 - **30-Day Retention**: Automatic cleanup of expired entries
 - **Cross-Worker Sharing**: All 4 FastAPI workers share same cache
 
-#### 3.3 Role Templates
+#### 3.8 Role Templates
 - **Save JDs**: Store frequently-used job descriptions
 - **Scoring Weights**: Per-template custom weights
 - **Tags**: Organize templates with tags
 - **Tenant Isolation**: Templates scoped to tenant
+
+#### 3.9 Known gaps (documented, not blocked for core ICP)
+- External job-board / LinkedIn posting APIs (explicitly deferred)
+- Full post-shortlist interview scheduling
+- Adverse-action PDF polish and deeper ATS partner certification (separate track)
 
 ### 4. Side-by-Side Candidate Comparison
 
@@ -353,16 +387,18 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 **API:** `POST /api/interview-kit/{screening_result_id}/regenerate-step` — re-personalize one step (recruiter/admin, tenant-scoped)
 
+### 8. Team Collaboration
 
 #### 8.1 Multi-User Tenants
 - **Role-Based Access Control (RBAC)**:
-  - **Admin**: Full tenant access, user management, billing
+  - **Admin** (`admin`): Full tenant access, user management, billing
   - **TA Lead** (`ta_lead`): Assign recruiters to requisitions, approve HM access requests, view all reqs
-  - **Recruiter**: Intake, screening, pipeline, submit to HM (own or assigned requisitions)
+  - **Recruiter** (`recruiter`): Intake, screening, pipeline, submit to HM (own or assigned requisitions)
   - **Hiring Manager** (`hiring_manager`): Approve/edit intake, review submitted candidates, shortlist/reject with feedback
-  - **Viewer**: Read-only access
-- **Member Invitations**: Email-based team onboarding
+  - **Viewer** (`viewer`): Read-only access
+- **Member Invitations**: Email-based team onboarding (SSO/invite allowlists include `ta_lead`)
 - **Team Members**: Dedicated TeamMember table for tenant-user relationships
+- **Workspace Onboarding**: Guided wizard — organization, plan, invites, checklist / sample seed
 
 #### 8.2 Comments System
 - **Inline Comments**: Discuss screening results
@@ -373,7 +409,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 #### 8.3 Shared Lists
 - **Collaborative Shortlists**: Team-wide candidate shortlists
 - **Status Sharing**: Visible candidate statuses across team
-- **JD Pipelines**: Candidates grouped by job description
+- **Requisition Pipelines**: Candidates grouped by opening / requisition
 
 ### 9. Email Generation & Communication
 
@@ -626,7 +662,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **Token Revocation**: RevokedToken table tracks logged-out tokens
 - **Automatic Cleanup**: Expired revoked tokens deleted every 24 hours
 - **Bcrypt Hashing**: Industry-standard password storage
-- **RBAC**: Role-based access (admin/recruiter/viewer)
+- **RBAC**: Tenant roles `admin`, `ta_lead`, `recruiter`, `hiring_manager`, `viewer`
 - **Platform Roles**: Granular platform admin roles
 - **Tenant Isolation**: All queries scoped by tenant_id
 - **SSO/SAML 2.0**: Enterprise single sign-on support per tenant
@@ -715,10 +751,16 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 #### 19.2 Candidate & Results
 - **Candidate**: Enriched profiles with resume storage, parsing results
-- **ScreeningResult**: Analysis results with fit scores, narratives, status, versioning
+- **ScreeningResult**: Analysis results with fit scores, narratives, status, versioning; optional requisition linkage
 - **CandidateNote**: Team notes on candidates
 - **RoleTemplate**: Saved job descriptions with custom weights
 - **TrainingExample**: Labeled outcomes for model training
+
+#### 19.2b Requisitions & HM Workflow
+- **Requisition**: Opening with intake, criteria version, status, `assigned_recruiter_id`, `opened_on_behalf_of_hm_id`, routing policy JSON, sourcing brief
+- **RequisitionOpenRequest**: HM-initiated opening requests pending assignment
+- **RequisitionCandidate** / pipeline linkage: Submit, outcome reason codes, HM feedback apply path
+- **TenantRequisitionSettings**: `screening_mode` (`requisition_required` | `allow_ad_hoc`), `hm_pipeline_permission`
 
 #### 19.3 Collaboration
 - **TeamMember**: Tenant-user relationships with roles
@@ -800,9 +842,21 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - `PUT /api/templates/{id}` - Update template
 - `DELETE /api/templates/{id}` - Delete template
 
+#### 20.5b Requisitions (`/api/requisitions`)
+- `GET/POST /api/requisitions` - List / create openings
+- `GET/PATCH /api/requisitions/{id}` - Get / update
+- `PUT /api/requisitions/{id}/assign-recruiter` - Assign recruiter (`admin` / `ta_lead`)
+- `GET/POST /api/requisitions/open-requests` - HM open-request queue
+- `POST /api/requisitions/open-requests/{id}/assign` - Assign open request
+- `POST /api/requisitions/{id}/hm-approval` - HM approve / request changes
+- Intake / suggest / calibrate / criteria endpoints on requisition detail
+- Pipeline, submit, outcome, apply-feedback, handoff, share-links
+- `GET/PUT /api/requisitions/settings` - Screening mode & HM pipeline permission
+- Analytics endpoints for requisition funnel metrics
+
 #### 20.6 Team & Collaboration (`/api/team`, `/api/invites`)
 - `GET /api/team` - List team members
-- `POST /api/invites` - Invite team member
+- `POST /api/invites` - Invite team member (roles include `ta_lead`, `hiring_manager`)
 - `DELETE /api/team/{user_id}` - Remove member
 - `GET /api/results/{id}/comments` - Get comments
 - `POST /api/results/{id}/comments` - Add comment
@@ -909,33 +963,28 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 21. Frontend Features
 
-#### 21.1 Pages (23 total)
-- **Dashboard**: Overview with action items, pipeline, metrics
-- **Upload**: Resume upload with JD input
-- **Batch Upload**: Multi-file batch processing
-- **Candidates**: Candidate list with search, filters, pagination
-- **Candidate Profile**: Full candidate profile with analysis history
-- **JD Candidates**: Candidates filtered by specific JD
-- **JD Library**: Job description template library
-- **Kanban Board**: Visual candidate pipeline board
-- **Results**: Screening result detail with scores, narrative, recommendations
+#### 21.1 Pages (primary product surfaces)
+- **Home / Dashboard**: Overview with action items, pipeline, metrics
+- **Requisitions**: Opening list (HM: “My Openings”); create / request opening
+- **Open Requests**: TA Lead / Admin assignment queue
+- **Requisition Detail**: Intake, criteria, sourcing panel, pipeline, HM review, handoff
+- **Screen / Analyze**: Requisition-first resume screening (`/analyze`; batch redirects here)
+- **Report**: Screening result detail with scores, narrative, interview actions
+- **Candidates** / **Candidate Profile**: Directory and enriched profile
+- **Pipeline (Kanban)**: Visual candidate board (plan-gated)
 - **Comparison**: Side-by-side candidate comparison
-- **Interview Kit**: Scorecard and interview evaluations
-- **Report**: PDF report generation and viewing
-- **Transcript Analysis**: Upload and view transcript analyses
-- **Video**: Video interview upload and analysis
-- **Templates**: JD template management
-- **Team**: Team member management
-- **Team Skills**: Team skills overview
-- **Settings**: Tenant settings and configuration
-- **Analytics**: Screening analytics and trends
-- **Admin Dashboard**: Platform admin dashboard (admin only)
-- **Login**: Authentication page
-- **Register**: Account creation page
-- **Forgot Password**: Password reset request page
-- **Reset Password**: Password reset with token page
+- **AI Interviews** / **Voice Screening** / **Recruiter Interviews**: Interview automation surfaces
+- **Video** / **Transcript**: Async interview review (transcript not always in primary nav)
+- **Analytics Hub**: Explore, report builder, docs
+- **Team** / **Team Skills**: Members & skills gap (team-skills may be unlinked from primary nav)
+- **Settings**: Subscription, requisition workflow, ATS, interviews, branding (admin)
+- **Onboarding Wizard**: First-run workspace setup
+- **Public Handoff**: Magic-link HM pack (`/handoff/:token`)
+- **Platform Admin**: Tenants, plans, SSO, billing ops, audit, erasure, etc.
+- **Auth**: Login, register, forgot/reset password, verify email
+- **Legacy redirects**: `/jd-library`, `/projects`, `/templates` → requisitions / analyze as appropriate
 
-#### 21.2 Components (33+ major components)
+#### 21.2 Components (selected)
 - **ResultCard**: Screening result display with scores
 - **InterviewScorecard**: Interview evaluation interface
 - **UniversalWeightsPanel**: Weight adjustment UI
@@ -1110,7 +1159,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 #### 26.2 Enterprise Features
 - **Multi-Tenant**: True SaaS architecture
-- **Granular RBAC**: 7 role types (3 tenant + 4 platform)
+- **Granular RBAC**: 5 tenant roles (`admin`, `ta_lead`, `recruiter`, `hiring_manager`, `viewer`) + platform admin roles
 - **Audit Compliance**: Comprehensive logging
 - **Feature Flags**: Runtime control
 - **Webhooks**: Event-driven integrations
@@ -1203,46 +1252,48 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 ### 29. Implementation Status
 
 #### 29.1 Production-Ready
-✅ Resume analysis (single + batch)  
+✅ Resume analysis (single + batch; requisition-linked when configured)  
+✅ Requisitions & ICP hiring workflow (open requests, TA lead assignment, HM intake/outcomes, sourcing brief, handoff)  
 ✅ Candidate management with deduplication  
-✅ JD management with caching  
+✅ JD input + caching (ad-hoc when allowed; legacy library → requisitions)  
 ✅ Side-by-side comparison  
 ✅ Video interview analysis  
 ✅ Transcript analysis with PII redaction  
 ✅ Evidence validation  
-✅ Interview kit & scorecard  
-✅ Team collaboration  
+✅ Interview kit & scorecard (incl. voice personalization)  
+✅ AI / voice / recruiter interview modes  
+✅ Team collaboration (5 tenant roles)  
+✅ Workspace onboarding wizard  
 ✅ Email generation  
 ✅ Export (CSV/Excel)  
 ✅ Custom AI training  
-✅ Dashboard & analytics  
+✅ Dashboard & analytics / report builder  
 ✅ Subscription & billing  
 ✅ Platform administration  
 ✅ Audit logging  
 ✅ Security events  
 ✅ Feature flags  
-✅ Webhooks  
+✅ Webhooks / ATS hooks  
 ✅ Rate limiting  
 ✅ Data erasure  
 ✅ O*NET integration  
 ✅ Queue system  
 ✅ Monitoring & health checks  
 ✅ CI/CD pipeline  
-✅ 65+ tests  
+✅ Automated backend + frontend test suites  
 
-#### 29.2 In Progress
+#### 29.2 In Progress / Partial
 🔄 Adverse action report system  
 🔄 Calibration & drift detection  
 🔄 Multi-model consensus scoring  
 
 #### 29.3 Planned
-📋 Real-time analysis streaming enhancement  
 📋 Batch transcript processing  
 📋 Custom calibration datasets per tenant  
 📋 ML-based bias detection  
-📋 Automated report generation  
-📋 Advanced ATS integrations  
+📋 Advanced ATS deep integrations  
 📋 Mobile application  
+📋 External job-board / LinkedIn sourcing APIs (explicitly deferred)
 
 ### 30. Key Differentiators Summary
 
@@ -1252,7 +1303,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 4. **Enterprise-Grade**: Multi-tenant, granular RBAC, webhooks, rate limiting
 5. **Open Source**: MIT license, fully auditable
 6. **Customizable**: Adaptive weights, custom training, feature flags
-7. **Production-Ready**: 65+ tests, CI/CD, monitoring, health checks
+7. **Production-Ready**: Automated test suites, CI/CD, monitoring, health checks
 8. **Comprehensive API**: 100+ endpoints, OpenAPI docs
 9. **Explainability**: Transparent scoring, decision explanations
 10. **Scalable**: Async architecture, queue system, caching
@@ -1270,9 +1321,9 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ---
 
-**Document Version**: 1.1  
+**Document Version**: 2.2.0  
 **Created**: May 2026  
-**Last Audited**: May 25, 2026  
-**Status**: Complete and Production-Verified  
+**Last Audited**: August 2, 2026  
+**Status**: Complete and Production-Verified (docs synced to codebase August 2, 2026)  
 
-This document is the single source of truth for ARIA's features, architecture, and capabilities. It is verified against the actual codebase and reflects the production-ready state as of May 2026.
+This document is the single source of truth for ARIA's features, architecture, and capabilities. It is verified against the actual codebase and reflects the production-ready state as of August 2026.

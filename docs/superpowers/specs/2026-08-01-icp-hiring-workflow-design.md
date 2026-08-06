@@ -1,8 +1,10 @@
 # ICP Hiring Workflow — Design Spec
 
 **Date:** 2026-08-01  
-**Status:** Approved for implementation  
+**Status:** Shipped (August 2026) — see Implementation Plan for phase checklist and known gaps  
 **Scope:** Full prioritized improvement backlog (P0–P3) from ICP audit
+
+> **Doc note (2026-08-02):** Core ICP spine is in production code (`ta_lead`, open requests, assignment, HM intake/outcomes, sourcing brief, handoff, `screening_mode`). Remaining gaps: routing-policy editor UI; screening gate not yet on every analyze entrypoint; external job-board APIs still out of scope. Canonical product description: `PRODUCT_SPECIFICATION.md` §3.
 
 ## Problem
 
