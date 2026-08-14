@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown, List, LayoutGrid, Columns, Mail, Loader2 } from 'lucide-react'
+import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown, List, LayoutGrid, Columns, Mail, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume, updateResultStatus } from '../lib/api'
 import { STATUS_OPTIONS, STATUS_CONFIG, getScoreColor } from '../lib/constants'
@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useOptimisticUpdate } from '../hooks/useOptimisticUpdate'
 import { usePrefetch } from '../hooks/usePrefetch'
 import CandidateCard from '../components/CandidateCard'
+import ModalOverlay from '../components/motion/ModalOverlay'
 import ScoreBadge from '../components/ScoreBadge'
 import RecommendationBadge from '../components/RecommendationBadge'
 import QuickActions from '../components/QuickActions'
@@ -19,6 +20,7 @@ import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { StaggerContainer, StaggerItem } from '../components/motion'
 import { toScoreNumber } from '../lib/utils'
+import { showSuccess, showError } from '../lib/toast'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -79,7 +81,7 @@ function StatusPill({ status, onChange }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
+          <button type="button" aria-label="Close" className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
           <div className="absolute left-0 top-full mt-1 w-36 bg-white border border-brand-100/80 shadow-lg rounded-xl py-1 z-50">
             {STATUS_OPTIONS.map(s => {
               const sc = STATUS_CONFIG[s]
@@ -126,14 +128,14 @@ function CandidateDetail({ candidateId, onClose }) {
   }, [candidateId])
 
   if (loading) return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
+    <ModalOverlay isOpen onClose={onClose}>
       <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
-    </div>
+    </ModalOverlay>
   )
   if (!candidate) return null
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+    <ModalOverlay isOpen onClose={onClose}>
       <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-2xl max-h-[90vh] flex flex-col card-animate">
         <div className="flex items-center justify-between p-5 border-b border-brand-50">
           <div>
@@ -150,7 +152,7 @@ function CandidateDetail({ candidateId, onClose }) {
                   Full profile
                 </button>
                 <button
-                  onClick={() => viewCandidateResume(candidate.id).catch(() => alert('Resume not available'))}
+                  onClick={() => viewCandidateResume(candidate.id).catch(() => showError('Resume not available'))}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
                   title="View original resume"
                 >
@@ -158,7 +160,7 @@ function CandidateDetail({ candidateId, onClose }) {
                   Resume
                 </button>
                 <button
-                  onClick={() => downloadCandidateResume(candidate.id, candidate.name ? `${candidate.name}_resume.pdf` : `resume_${candidate.id}.pdf`).catch(() => alert('Resume not available'))}
+                  onClick={() => downloadCandidateResume(candidate.id, candidate.name ? `${candidate.name}_resume.pdf` : `resume_${candidate.id}.pdf`).catch(() => showError('Resume not available'))}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
                   title="Download original resume"
                 >
@@ -201,7 +203,7 @@ function CandidateDetail({ candidateId, onClose }) {
           ))}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
 
@@ -356,6 +358,7 @@ export default function CandidatesPage() {
   const [search, setSearch]         = useState('')
   const [page, setPage]             = useState(1)
   const [loading, setLoading]       = useState(true)
+  const [loadError, setLoadError]   = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [narrativeStatusFilter, setNarrativeStatusFilter] = useState(initialNarrativeStatus)
@@ -385,6 +388,7 @@ export default function CandidatesPage() {
 
   const fetchCandidates = async (s = search, p = page, st = statusFilter, ns = narrativeStatusFilter, sk = skillFilter, reqId = requisitionFilter) => {
     setLoading(true)
+    setLoadError(null)
     try {
       const params = { search: s, page: p, page_size: 20 }
       if (st) params.status = st
@@ -396,6 +400,8 @@ export default function CandidatesPage() {
       setTotal(data.total)
     } catch {
       setCandidates([])
+      setTotal(0)
+      setLoadError('Could not load candidates. Check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -703,6 +709,20 @@ export default function CandidatesPage() {
           <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
             <Skeleton variant="list" count={8} />
           </div>
+        ) : loadError ? (
+          <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-red-100 shadow-brand card-animate">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <h2 className="text-lg font-bold text-slate-900 mb-2">Could not load candidates</h2>
+            <p className="text-sm text-slate-500 mb-6">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => fetchCandidates()}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </button>
+          </div>
         ) : candidates.length === 0 ? (
           statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all' ? (
             <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
@@ -957,7 +977,8 @@ export default function CandidatesPage() {
                     const statusCfg = STATUS_CONFIG[c.latest_status] || STATUS_CONFIG.pending
                     const statusDotColor = STATUS_CONFIG[c.latest_status]?.dotColor || STATUS_CONFIG.pending.dotColor
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={c.id}
                         onClick={() => {
                           setSplitSelectedId(c.id)
@@ -970,7 +991,7 @@ export default function CandidatesPage() {
                         }}
                         onMouseEnter={() => prefetchCandidate(c.id)}
                         onMouseLeave={cancelPrefetch}
-                        className={`flex items-center gap-2.5 px-4 py-3 cursor-pointer transition-colors border-l-3 ${
+                        className={`flex items-center gap-2.5 px-4 py-3 cursor-pointer transition-colors border-l-3 w-full text-left bg-transparent ${
                           isActive ? 'bg-brand-50 border-l-brand-600' : 'border-l-transparent hover:bg-gray-50'
                         } ${selectedIndex === idx ? 'ring-2 ring-inset ring-brand-500' : ''}` }
                       >
@@ -982,7 +1003,7 @@ export default function CandidatesPage() {
                         </div>
                         <ScoreBadge score={c.best_score} size="sm" />
                         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor}`} title={statusCfg.label} />
-                      </div>
+                      </button>
                     )
                   })}
                 </div>

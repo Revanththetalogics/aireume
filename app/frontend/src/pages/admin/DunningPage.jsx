@@ -8,6 +8,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { getAdminDunningRecords, resolveDunning, extractApiError } from '../../lib/api'
+import useConfirm from '../../hooks/useConfirm'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -76,6 +77,7 @@ function SkeletonCard() {
 }
 
 export default function DunningPage() {
+  const { confirm, dialog } = useConfirm()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -102,7 +104,12 @@ export default function DunningPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const handleResolve = async (tenantId, tenantName) => {
-    if (!window.confirm(`Mark dunning as resolved for "${tenantName}"? This will reactivate their subscription.`)) return
+    const ok = await confirm({
+      title: 'Resolve dunning',
+      message: `Mark dunning as resolved for "${tenantName}"? This will reactivate their subscription.`,
+      confirmLabel: 'Resolve',
+    })
+    if (!ok) return
     setResolving(tenantId)
     setResolveError('')
     setResolveSuccess('')
@@ -223,8 +230,8 @@ export default function DunningPage() {
       <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 p-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status Filter</label>
-            <select
+            <label htmlFor="dunningpage-status-filter-1" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status Filter</label>
+            <select id="dunningpage-status-filter-1"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 text-sm rounded-xl ring-1 ring-slate-200 bg-white text-brand-900 focus:outline-none focus:ring-2 focus:ring-brand-400"
@@ -334,6 +341,7 @@ export default function DunningPage() {
           )}
         </div>
       )}
+      {dialog}
     </div>
   )
 }

@@ -44,7 +44,8 @@ class TestAuthFlowRegression:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert "access_token" in data
+        token = resp.cookies.get("access_token") or data.get("access_token")
+        assert token
 
     def test_me_endpoint_returns_user_and_tenant(self, auth_client):
         """GET /api/auth/me still returns user + tenant data."""

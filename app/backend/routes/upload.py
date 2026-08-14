@@ -83,6 +83,29 @@ def _get_chunk_path(upload_id: str, chunk_index: int) -> Path:
     return _get_upload_dir(upload_id) / f"chunk_{chunk_index:04d}"
 
 
+def _read_upload_metadata(upload_id: str) -> dict | None:
+    meta_path = _get_upload_dir(upload_id) / "metadata.json"
+    if not meta_path.exists():
+        return None
+    import json
+    try:
+        return json.loads(meta_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def assert_upload_owned(upload_id: str, current_user: User) -> dict:
+    """Return upload metadata if it belongs to the current tenant; 404 otherwise."""
+    safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
+    upload_dir = _get_upload_dir(safe_uid)
+    if not upload_dir.exists():
+        raise HTTPException(status_code=404, detail="Upload not found")
+    meta = _read_upload_metadata(safe_uid)
+    if not meta or int(meta.get("tenant_id") or -1) != int(current_user.tenant_id):
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return meta
+
+
 def _cleanup_old_chunks():
     """Remove chunk directories older than CHUNK_MAX_AGE_HOURS."""
     try:
@@ -93,8 +116,11 @@ def _cleanup_old_chunks():
                 if dir_mtime < cutoff_time:
                     shutil.rmtree(upload_dir, ignore_errors=True)
                     log.info(f"Cleaned up old chunk directory: {upload_dir.name}")
-    except Exception as e:
-        log.warning(f"Non-critical: Chunk cleanup failed: {e}")
+    except OSError as e:
+        log.warning(
+            "Non-critical: Chunk cleanup failed: %s", e,
+            extra={"error_code": "IO_ERROR"},
+        )
 
 
 @router.post("/chunk", response_model=ChunkUploadResponse)
@@ -155,13 +181,17 @@ async def upload_chunk(
             status_code=400,
             detail="Chunk data is empty"
         )
-    
-    # Create upload directory if it doesn't exist
+
     upload_dir = _get_upload_dir(upload_id)
+    metadata_path = upload_dir / "metadata.json"
+    if metadata_path.exists():
+        assert_upload_owned(upload_id, current_user)
+    elif chunk_index != 0:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
     upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Store metadata file on first chunk
-    if chunk_index == 0:
+
+    if chunk_index == 0 and not metadata_path.exists():
         metadata = {
             "upload_id": upload_id,
             "filename": filename,
@@ -170,7 +200,6 @@ async def upload_chunk(
             "tenant_id": current_user.tenant_id,
             "started_at": datetime.now().isoformat(),
         }
-        metadata_path = upload_dir / "metadata.json"
         import json
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f)
@@ -180,12 +209,15 @@ async def upload_chunk(
     try:
         with open(chunk_path, 'wb') as f:
             f.write(chunk_data)
-    except Exception as e:
-        log.error(f"Failed to write chunk {chunk_index} for upload {upload_id}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to store chunk: {str(e)}"
+    except OSError as e:
+        log.error(
+            "Failed to write chunk %s for upload %s: %s", chunk_index, upload_id, e,
+            extra={"error_code": "IO_ERROR"},
         )
+        raise HTTPException(
+            status_code=502,
+            detail="Upstream failure",
+        ) from e
     
     log.info(
         f"Chunk uploaded: upload_id={upload_id}, chunk={chunk_index}/{total_chunks}, "
@@ -231,6 +263,7 @@ async def finalize_upload(
         HTTPException: If chunks are missing, assembly fails, or validation fails
     """
     upload_id = request.upload_id
+    assert_upload_owned(upload_id, current_user)
     upload_dir = _get_upload_dir(upload_id)
     
     # Verify upload directory exists
@@ -298,7 +331,8 @@ async def finalize_upload(
                 validate_and_scan(f.read(), request.filename)
         except UnsafeFileError as e:
             assembled_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail=str(e))
+            log.warning("Assembled file failed validation: %s", e)
+            raise HTTPException(status_code=422, detail="File failed security validation.") from e
         
         log.info(
             f"File assembled: upload_id={upload_id}, filename={request.filename}, "
@@ -308,8 +342,11 @@ async def finalize_upload(
         # Clean up chunk directory after successful assembly
         try:
             shutil.rmtree(upload_dir, ignore_errors=True)
-        except Exception as e:
-            log.warning(f"Non-critical: Failed to cleanup chunks for {upload_id}: {e}")
+        except OSError as e:
+            log.warning(
+                "Non-critical: Failed to cleanup chunks for %s: %s", upload_id, e,
+                extra={"error_code": "IO_ERROR"},
+            )
         
         return FinalizeUploadResponse(
             success=True,
@@ -321,15 +358,22 @@ async def finalize_upload(
         
     except HTTPException:
         raise
-    except Exception as e:
-        log.error(f"Failed to assemble file for upload {upload_id}: {e}")
-        # Clean up partial assembled file
+    except (ValueError, TypeError, KeyError) as e:
+        log.warning(
+            "Failed to assemble file for upload %s: %s", upload_id, e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
         if assembled_path.exists():
             assembled_path.unlink()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to assemble file: {str(e)}"
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except OSError as e:
+        log.error(
+            "Failed to assemble file for upload %s: %s", upload_id, e,
+            extra={"error_code": "IO_ERROR"},
         )
+        if assembled_path.exists():
+            assembled_path.unlink()
+        raise HTTPException(status_code=502, detail="Upstream failure") from e
 
 
 @router.delete("/cancel/{upload_id}")
@@ -349,21 +393,15 @@ async def cancel_upload(
     Returns:
         Success message
     """
+    assert_upload_owned(upload_id, current_user)
     upload_dir = _get_upload_dir(upload_id)
-    
-    if not upload_dir.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Upload {upload_id} not found"
-        )
-    
     try:
         shutil.rmtree(upload_dir, ignore_errors=True)
         log.info(f"Upload cancelled: upload_id={upload_id}, user={current_user.id}")
         return {"success": True, "message": f"Upload {upload_id} cancelled and cleaned up"}
-    except Exception as e:
-        log.error(f"Failed to cancel upload {upload_id}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to cancel upload: {str(e)}"
+    except OSError as e:
+        log.error(
+            "Failed to cancel upload %s: %s", upload_id, e,
+            extra={"error_code": "IO_ERROR"},
         )
+        raise HTTPException(status_code=502, detail="Upstream failure") from e

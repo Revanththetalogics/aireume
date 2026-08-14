@@ -495,7 +495,7 @@ function CreateWizard({
 
             {!lockDepth && (
               <div>
-                <label className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-2">Call depth</label>
+                <p className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-2">Call depth</p>
                 <div className="grid grid-cols-3 gap-2">
                   {DEPTH_OPTIONS.map((opt) => {
                     const Icon = opt.icon
@@ -532,7 +532,7 @@ function CreateWizard({
             />
 
             <div>
-              <label className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-2">When</label>
+              <p className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-2">When</p>
               <SegmentedControl
                 options={[
                   { label: 'Call now', value: 'now' },

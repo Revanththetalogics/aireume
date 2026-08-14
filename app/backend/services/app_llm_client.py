@@ -47,6 +47,38 @@ async def generate_app_llm(
     log_label: str = "app",
 ) -> str | None:
     """Generate text via Gemini when configured, else Ollama (with Gemini→Ollama fallback)."""
+    from app.backend.services.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
+
+    breaker = get_circuit_breaker("llm")
+
+    async def _inner() -> str | None:
+        return await _generate_app_llm_uncached(
+            prompt,
+            system=system,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            timeout=timeout,
+            json_mode=json_mode,
+            log_label=log_label,
+        )
+
+    try:
+        return await breaker.call(_inner)
+    except CircuitBreakerOpenError:
+        logger.error("%s LLM circuit breaker open", log_label)
+        return None
+
+
+async def _generate_app_llm_uncached(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_output_tokens: int = 1024,
+    temperature: float = 0.2,
+    timeout: float = 120.0,
+    json_mode: bool = False,
+    log_label: str = "app",
+) -> str | None:
     from app.backend.services.llm_service import (
         gemini_generate_content,
         get_gemini_model,

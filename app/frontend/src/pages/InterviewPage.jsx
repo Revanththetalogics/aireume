@@ -22,6 +22,7 @@ import {
 } from '../components/patterns/InterviewSessionList'
 import { Button, Card, SegmentedControl } from '../components/ui'
 import { bucketSessions, groupSessionsByCandidate, depthLabel } from '../lib/interviewHubUtils'
+import useConfirm from '../hooks/useConfirm'
 
 /* ── Session normalization ───────────────────────────── */
 
@@ -77,6 +78,7 @@ function normalizeRecruiterSession(s) {
 export default function InterviewPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { confirm, dialog } = useConfirm()
   const initialDepth = searchParams.get('depth') || 'all'
 
   const [voiceSessions, setVoiceSessions] = useState([])
@@ -154,7 +156,13 @@ export default function InterviewPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   async function handleCancelSession(session) {
-    if (!confirm('Cancel this interview session?')) return
+    const ok = await confirm({
+      title: 'Cancel session',
+      message: 'Cancel this interview session?',
+      confirmLabel: 'Cancel session',
+      danger: true,
+    })
+    if (!ok) return
     try {
       if (session.source === 'voice') {
         await cancelVoiceSession(session.rawId)
@@ -404,6 +412,7 @@ export default function InterviewPage() {
           />
         )}
       </div>
+      {dialog}
     </div>
   )
 }

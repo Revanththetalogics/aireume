@@ -58,8 +58,9 @@ export default function RecruiterTranscript({ transcript }) {
             className="bg-white rounded-2xl ring-1 ring-slate-200 overflow-hidden"
           >
             {/* Question header */}
-            <div
-              className="px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors"
+            <button
+              type="button"
+              className="px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors w-full text-left bg-transparent border-0"
               onClick={() => setExpandedIdx(isExpanded ? null : idx)}
             >
               <div className="flex items-start gap-3">
@@ -85,7 +86,7 @@ export default function RecruiterTranscript({ transcript }) {
                   {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </div>
               </div>
-            </div>
+            </button>
 
             {/* Response (expanded) */}
             {isExpanded && (

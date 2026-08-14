@@ -28,6 +28,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_internal_service
@@ -797,10 +798,26 @@ async def _generate_scorecard_background(session_id: str) -> None:
     try:
         orchestrator = RecruiterOrchestrator(db)
         await orchestrator.on_interview_completed(session_id)
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as e:
         logger.error(
             "Scorecard generation failed for session %s: %s",
             session_id, e, exc_info=True,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        db.rollback()
+        session = db.execute(
+            select(RecruiterInterviewSession).where(
+                RecruiterInterviewSession.id == session_id
+            )
+        ).scalar_one_or_none()
+        if session and session.status != "completed":
+            session.status = "completed"
+            db.commit()
+    except (OSError, RuntimeError, SQLAlchemyError) as e:
+        logger.error(
+            "Scorecard generation failed for session %s: %s",
+            session_id, e, exc_info=True,
+            extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "IO_ERROR"},
         )
         # Roll back any partial changes from the orchestrator
         db.rollback()

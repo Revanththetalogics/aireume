@@ -252,7 +252,7 @@ class TestCSRFTokenRotation:
         
         # Make a POST request with the CSRF token (using Bearer auth, so CSRF is bypassed)
         # But we need to test cookie-based auth, so we'll use the cookie auth
-        access_token = login_resp.json()["access_token"]
+        access_token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
         
         # Create a template (this is a POST that should rotate CSRF)
         # Using Bearer auth bypasses CSRF, so we need to test with cookie auth

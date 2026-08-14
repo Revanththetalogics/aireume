@@ -115,6 +115,7 @@ class QueueManager:
             # Check if identical job already exists and is not failed
             existing = db.query(AnalysisJob).filter(
                 AnalysisJob.input_hash == input_hash,
+                AnalysisJob.tenant_id == tenant_id,
                 AnalysisJob.status.in_(['queued', 'processing', 'completed', 'retrying'])
             ).first()
             
@@ -280,7 +281,7 @@ class QueueManager:
                 self.jobs_retried += 1
                 logger.info(f"Job will retry: {job.id}, attempt={job.retry_count}/{job.max_retries}, next_retry={next_retry}")
             else:
-                # Max retries exceeded
+                # Max retries exceeded — move to dead letter queue
                 job.status = 'failed'
                 job.failed_at = datetime.now(timezone.utc)
                 job.error_message = str(e)
@@ -288,6 +289,16 @@ class QueueManager:
                 
                 self.jobs_failed += 1
                 logger.error(f"Job permanently failed: {job.id}, retries exhausted")
+                try:
+                    await self.move_to_dead_letter(
+                        db,
+                        job,
+                        "retries exhausted",
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                    )
+                except Exception as dlq_exc:
+                    logger.error("Failed to move job %s to DLQ: %s", job.id, dlq_exc)
             
             db.commit()
             
@@ -317,6 +328,18 @@ class QueueManager:
             AnalysisJob.status == 'processing',
             AnalysisJob.worker_heartbeat < stale_threshold
         ).all()
+
+        now = datetime.now(timezone.utc)
+        leased_jobs = db.query(AnalysisJob).filter(
+            AnalysisJob.status == "processing",
+            AnalysisJob.leased_until != None,
+            AnalysisJob.leased_until < now,
+        ).all()
+        seen_ids = {job.id for job in stale_jobs}
+        for job in leased_jobs:
+            if job.id not in seen_ids:
+                stale_jobs.append(job)
+                seen_ids.add(job.id)
         
         for job in stale_jobs:
             logger.warning(f"Recovering stale job: {job.id}, worker={job.worker_id}, last_heartbeat={job.worker_heartbeat}")
@@ -376,8 +399,23 @@ class QueueManager:
         job.failed_at = datetime.now(timezone.utc)
         
         db.commit()
-        logger.warning(f"Moved job {job.id} to dead letter queue: {failure_reason}")
-        
+        logger.warning("Moved job %s to dead letter queue: %s", job.id, failure_reason)
+        try:
+            from app.backend.services.metrics import DLQ_DEPTH, DLQ_MOVED_TOTAL
+            from app.backend.services.observability import capture_message
+
+            DLQ_MOVED_TOTAL.inc()
+            depth = db.query(func.count(DeadLetterJob.id)).filter(
+                DeadLetterJob.status == "pending"
+            ).scalar() or 0
+            DLQ_DEPTH.set(depth)
+            threshold = int(os.getenv("DLQ_ALERT_THRESHOLD", "10"))
+            if depth >= threshold:
+                capture_message(
+                    f"DLQ depth alert: {depth} pending dead-letter jobs (threshold={threshold})"
+                )
+        except (ValueError, TypeError, ImportError) as metric_exc:
+            logger.warning("DLQ metrics skipped: %s", metric_exc)
         return dlq_job
 
     async def get_dead_letter_jobs(

@@ -61,12 +61,11 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('auth:logout', handleAuthLogout)
   }, [])
 
-  const login = async (email, password, tenant_slug) => {
+  const login = async (email, password, tenant_slug, mfa_code) => {
     authGenRef.current++   // invalidate any in-flight loadUser
     try {
-      const res = await api.post('/auth/login', { email, password, tenant_slug })
-      // Tokens are set as httpOnly cookies by the server
-      // We still receive tokens in response body for API clients
+      const res = await api.post('/auth/login', { email, password, tenant_slug, mfa_code })
+      // Tokens are set as httpOnly cookies; JSON bodies omit them unless X-ARIA-Token-Grant: api
       setUser(res.data.user)
       setTenant(res.data.tenant)
       return res.data
@@ -121,7 +120,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, tenant, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, tenant, loading, login, register, logout, loadUser }}>
       {children}
       {isWarning && (
         <SessionTimeoutModal

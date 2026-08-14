@@ -20,6 +20,12 @@ def _cache_key(tenant_id: int, feature_key: str) -> str:
 
 
 def _get_cached(key: str):
+    try:
+        from app.backend.services.shared_cache import cache_get, _client
+        if _client() is not None:
+            return cache_get(f"ff:{key}")
+    except Exception:
+        pass
     with _cache_lock:
         entry = _cache.get(key)
         if entry and time.time() - entry["ts"] < _CACHE_TTL:
@@ -28,6 +34,13 @@ def _get_cached(key: str):
 
 
 def _set_cached(key: str, val: bool):
+    try:
+        from app.backend.services.shared_cache import cache_set, _client
+        if _client() is not None:
+            cache_set(f"ff:{key}", val, ttl_seconds=_CACHE_TTL)
+            return
+    except Exception:
+        pass
     with _cache_lock:
         _cache[key] = {"val": val, "ts": time.time()}
 

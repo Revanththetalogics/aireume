@@ -11,6 +11,8 @@ from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import User
 from app.backend.services.video_service import analyze_video_file, analyze_video_from_url
 from app.backend.services.url_safety import validate_public_url, UnsafeURLError
+from app.backend.services.file_scan_service import scan_any_upload, UnsafeFileError
+from app.backend.services.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +41,23 @@ async def analyze_video(
         raise HTTPException(status_code=400, detail="Video too large. Maximum upload size is 200 MB.")
 
     try:
-        result = await analyze_video_file(content, video.filename)
+        scan_any_upload(content, video.filename)
+    except UnsafeFileError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
+        breaker = get_circuit_breaker("video")
+        result = await breaker.call(analyze_video_file, content, video.filename)
+    except CircuitBreakerOpenError:
+        raise HTTPException(status_code=503, detail="Video analysis is temporarily unavailable")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except (OSError, RuntimeError) as e:
+        logger.warning("Video analysis failed for %s: %s", video.filename, e)
+        raise HTTPException(status_code=422, detail="Video could not be analyzed. Try a different file.")
     except Exception as e:
         logger.warning("Video analysis failed for %s: %s", video.filename, e)
-        raise HTTPException(status_code=422, detail=f"Video analysis failed: {str(e)}")
+        raise HTTPException(status_code=422, detail="Video could not be analyzed. Try a different file.") from e
 
     return {"candidate_id": candidate_id, "filename": video.filename, **result}
 
@@ -65,11 +80,14 @@ async def analyze_video_url(
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
-        result = await analyze_video_from_url(safe_url)
+        breaker = get_circuit_breaker("video")
+        result = await breaker.call(analyze_video_from_url, safe_url)
+    except CircuitBreakerOpenError:
+        raise HTTPException(status_code=503, detail="Video analysis is temporarily unavailable")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
+    except (OSError, RuntimeError, UnsafeURLError) as e:
         logger.warning("Video URL analysis failed for %s: %s", body.url, e)
-        raise HTTPException(status_code=422, detail=f"Video analysis failed: {str(e)}")
+        raise HTTPException(status_code=422, detail="Video could not be analyzed. Try a different file.")
 
     return {"candidate_id": body.candidate_id, **result}

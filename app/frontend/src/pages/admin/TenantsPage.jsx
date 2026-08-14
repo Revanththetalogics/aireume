@@ -33,7 +33,13 @@ import {
   adminChangeTenantPlan,
   getAvailablePlans,
   updateTenant,
+  adminAdjustUsage,
+  adminResetTenantApiKeys,
+  adminExportTenant,
+  adminNotifyTenant,
 } from '../../lib/api'
+import { showError, showSuccess } from '../../lib/toast'
+import useConfirm from '../../hooks/useConfirm'
 
 /* ── Constants ────────────────────────────────────────── */
 const STATUS_OPTIONS = [
@@ -159,8 +165,8 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Name *</label>
-            <input
+            <label htmlFor="tenantspage-name-1" className="block text-sm font-semibold text-gray-700 mb-1">Name *</label>
+            <input id="tenantspage-name-1"
               type="text"
               value={form.name}
               onChange={(e) => handleNameChange(e.target.value)}
@@ -170,7 +176,7 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-semibold text-gray-700">Slug *</label>
+              <label htmlFor="tenantspage-slug-2" className="block text-sm font-semibold text-gray-700">Slug *</label>
               <button
                 type="button"
                 onClick={() => setSlugManual(v => !v)}
@@ -179,7 +185,7 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
                 {slugManual ? 'Auto-generate' : 'Edit manually'}
               </button>
             </div>
-            <input
+            <input id="tenantspage-slug-2"
               type="text"
               value={form.slug}
               onChange={(e) => setForm(prev => ({ ...prev, slug: e.target.value }))}
@@ -188,8 +194,8 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Contact Email</label>
-            <input
+            <label htmlFor="tenantspage-contact-email-3" className="block text-sm font-semibold text-gray-700 mb-1">Contact Email</label>
+            <input id="tenantspage-contact-email-3"
               type="email"
               value={form.contact_email}
               onChange={(e) => setForm(prev => ({ ...prev, contact_email: e.target.value }))}
@@ -199,8 +205,8 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Plan</label>
-            <select
+            <label htmlFor="tenantspage-plan-4" className="block text-sm font-semibold text-gray-700 mb-1">Plan</label>
+            <select id="tenantspage-plan-4"
               value={form.plan_id}
               onChange={(e) => setForm(prev => ({ ...prev, plan_id: e.target.value }))}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
@@ -355,8 +361,8 @@ function SuspendModal({ tenant, onClose, onDone }) {
         )}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Reason *</label>
-            <textarea
+            <label htmlFor="tenantspage-reason-5" className="block text-sm font-semibold text-gray-700 mb-1">Reason *</label>
+            <textarea id="tenantspage-reason-5"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Enter suspension reason..."
@@ -511,8 +517,8 @@ function BulkActionModal({ action, tenants, onClose, onDone }) {
         )}
         {action === 'suspend' && (
           <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Reason</label>
-            <textarea
+            <label htmlFor="tenantspage-reason-6" className="block text-sm font-semibold text-gray-700 mb-1">Reason</label>
+            <textarea id="tenantspage-reason-6"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Reason for bulk suspension..."
@@ -523,8 +529,8 @@ function BulkActionModal({ action, tenants, onClose, onDone }) {
         )}
         {action === 'change-plan' && (
           <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-1">New Plan</label>
-            <select
+            <label htmlFor="tenantspage-new-plan-7" className="block text-sm font-semibold text-gray-700 mb-1">New Plan</label>
+            <select id="tenantspage-new-plan-7"
               value={planId}
               onChange={(e) => setPlanId(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
@@ -560,37 +566,79 @@ function BulkActionModal({ action, tenants, onClose, onDone }) {
 function TenantSlideOut({ tenant, onClose, onAction, onRefresh }) {
   const [notifyText, setNotifyText] = useState('')
   const [notifySending, setNotifySending] = useState(false)
+  const { confirm, dialog } = useConfirm()
 
   if (!tenant) return null
 
-  const handleResetApiKeys = () => {
-    if (!confirm('Reset all API keys for this tenant? This will invalidate existing keys immediately.')) return
-    alert('API keys reset placeholder — backend endpoint needed.')
+  const handleResetApiKeys = async () => {
+    const ok = await confirm({
+      title: 'Reset API keys',
+      message: 'Reset all API keys for this tenant? Existing keys will stop working immediately.',
+      confirmLabel: 'Reset keys',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const data = await adminResetTenantApiKeys(tenant.id)
+      showSuccess(`Rotated ${data.rotated} credentials`)
+      onRefresh?.()
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to reset API keys')
+    }
   }
 
-  const handleExportData = () => {
-    alert('Export tenant data placeholder — backend endpoint needed.')
+  const handleExportData = async () => {
+    try {
+      const data = await adminExportTenant(tenant.id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `tenant-${tenant.slug || tenant.id}-export.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      showSuccess('Tenant export downloaded')
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to export tenant data')
+    }
   }
 
-  const handleAdjustUsage = () => {
-    alert('Adjust usage placeholder — backend endpoint needed.')
+  const handleAdjustUsage = async () => {
+    const ok = await confirm({
+      title: 'Reset monthly usage',
+      message: `Set analyses count this month to 0 for ${tenant.name}?`,
+      confirmLabel: 'Reset usage',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await adminAdjustUsage(tenant.id, { analyses_count: 0 })
+      showSuccess('Usage reset to 0')
+      onRefresh?.()
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to adjust usage')
+    }
   }
 
-  const handleSendNotification = () => {
+  const handleSendNotification = async () => {
     if (!notifyText.trim()) return
     setNotifySending(true)
-    setTimeout(() => {
-      setNotifySending(false)
+    try {
+      await adminNotifyTenant(tenant.id, notifyText.trim())
       setNotifyText('')
-      alert('Notification sent placeholder — backend endpoint needed.')
-    }, 800)
+      showSuccess('Notification sent')
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to send notification')
+    } finally {
+      setNotifySending(false)
+    }
   }
 
   const handleSuspendReactivate = () => {
     if (tenant.subscription_status === 'suspended') {
       reactivateTenant(tenant.id)
         .then(() => { onRefresh(); onClose() })
-        .catch(err => alert(err.response?.data?.detail || 'Failed to reactivate'))
+        .catch(err => showError(err.response?.data?.detail || 'Failed to reactivate'))
     } else {
       onAction('suspend', tenant)
       onClose()
@@ -679,9 +727,9 @@ function TenantSlideOut({ tenant, onClose, onAction, onRefresh }) {
           </button>
 
           <div className="px-4 py-3 bg-gray-50 rounded-lg">
-            <label className="block text-xs font-semibold text-gray-700 mb-2">Send Notification</label>
+            <label htmlFor="tenantspage-send-notification-8" className="block text-xs font-semibold text-gray-700 mb-2">Send Notification</label>
             <div className="flex gap-2">
-              <input
+              <input id="tenantspage-send-notification-8"
                 type="text"
                 value={notifyText}
                 onChange={(e) => setNotifyText(e.target.value)}
@@ -724,6 +772,7 @@ function TenantSlideOut({ tenant, onClose, onAction, onRefresh }) {
           </button>
         </div>
       </div>
+      {dialog}
     </SlideOutPanel>
   )
 }
@@ -863,7 +912,7 @@ export default function TenantsPage() {
         // Immediate reactivate
         reactivateTenant(tenant.id)
           .then(() => fetchTenants())
-          .catch(err => alert(err.response?.data?.detail || 'Failed to reactivate'))
+          .catch(err => showError(err.response?.data?.detail || 'Failed to reactivate'))
         break
       case 'delete':
         setDeleteTenantObj(tenant)

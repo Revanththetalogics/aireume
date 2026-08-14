@@ -651,10 +651,10 @@ export default function PlanManagementPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="planmanagementpage-display-name-1" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Display Name <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="planmanagementpage-display-name-1"
                     type="text"
                     value={form.display_name}
                     onChange={(e) => handleDisplayNameChange(e.target.value)}
@@ -663,10 +663,10 @@ export default function PlanManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="planmanagementpage-name-slug-2" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Name (slug) <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="planmanagementpage-name-slug-2"
                     type="text"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -681,8 +681,8 @@ export default function PlanManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Description</label>
-                <textarea
+                <label htmlFor="planmanagementpage-description-3" className="block text-sm font-bold text-slate-700 mb-1.5">Description</label>
+                <textarea id="planmanagementpage-description-3"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   placeholder="Brief description of the plan..."
@@ -693,10 +693,10 @@ export default function PlanManagementPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="planmanagementpage-monthly-price-4" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Monthly Price ($) <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="planmanagementpage-monthly-price-4"
                     type="number"
                     step="0.01"
                     min="0"
@@ -708,10 +708,10 @@ export default function PlanManagementPage() {
                   <p className="text-xs text-slate-400 mt-1">Enter amount in dollars (e.g., 49.00). Stored in cents internally.</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="planmanagementpage-yearly-price-5" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Yearly Price ($) <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="planmanagementpage-yearly-price-5"
                     type="number"
                     step="0.01"
                     min="0"
@@ -723,10 +723,10 @@ export default function PlanManagementPage() {
                   <p className="text-xs text-slate-400 mt-1">Enter amount in dollars (e.g., 490.00). Stored in cents internally.</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="planmanagementpage-currency-6" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Currency <span className="text-red-500">*</span>
                   </label>
-                  <select
+                  <select id="planmanagementpage-currency-6"
                     value={form.currency}
                     onChange={(e) => setForm({ ...form, currency: e.target.value })}
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
@@ -739,11 +739,11 @@ export default function PlanManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Limits</label>
+                <p className="block text-sm font-bold text-slate-700 mb-2">Limits</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Analyses/Month (-1 = unlimited)</label>
-                    <input
+                    <label htmlFor="planmanagementpage-analyses-month-1-unlimited-7" className="block text-xs font-medium text-slate-500 mb-1">Analyses/Month (-1 = unlimited)</label>
+                    <input id="planmanagementpage-analyses-month-1-unlimited-7"
                       type="number"
                       value={form.limits.analyses_per_month}
                       onChange={(e) =>
@@ -756,8 +756,8 @@ export default function PlanManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Team Members (-1 = unlimited)</label>
-                    <input
+                    <label htmlFor="planmanagementpage-team-members-1-unlimited-8" className="block text-xs font-medium text-slate-500 mb-1">Team Members (-1 = unlimited)</label>
+                    <input id="planmanagementpage-team-members-1-unlimited-8"
                       type="number"
                       value={form.limits.team_members}
                       onChange={(e) =>
@@ -770,8 +770,8 @@ export default function PlanManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Storage (GB)</label>
-                    <input
+                    <label htmlFor="planmanagementpage-storage-gb-9" className="block text-xs font-medium text-slate-500 mb-1">Storage (GB)</label>
+                    <input id="planmanagementpage-storage-gb-9"
                       type="number"
                       value={form.limits.storage_gb}
                       onChange={(e) =>
@@ -784,8 +784,8 @@ export default function PlanManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Batch Size</label>
-                    <input
+                    <label htmlFor="planmanagementpage-batch-size-10" className="block text-xs font-medium text-slate-500 mb-1">Batch Size</label>
+                    <input id="planmanagementpage-batch-size-10"
                       type="number"
                       value={form.limits.batch_size}
                       onChange={(e) =>
@@ -801,8 +801,8 @@ export default function PlanManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Features</label>
-                <textarea
+                <label htmlFor="planmanagementpage-features-11" className="block text-sm font-bold text-slate-700 mb-1.5">Features</label>
+                <textarea id="planmanagementpage-features-11"
                   value={form.features}
                   onChange={(e) => setForm({ ...form, features: e.target.value })}
                   placeholder="Enter one feature per line..."
@@ -826,8 +826,8 @@ export default function PlanManagementPage() {
                   </label>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Sort Order</label>
-                  <input
+                  <label htmlFor="planmanagementpage-sort-order-12" className="block text-sm font-bold text-slate-700 mb-1.5">Sort Order</label>
+                  <input id="planmanagementpage-sort-order-12"
                     type="number"
                     value={form.sort_order}
                     onChange={(e) => setForm({ ...form, sort_order: e.target.value })}

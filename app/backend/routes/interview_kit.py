@@ -2,6 +2,8 @@
 import json
 import re
 import logging
+
+import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -34,8 +36,8 @@ def _verify_result_access(result_id: int, current_user: User, db: Session) -> Sc
     result = db.query(ScreeningResult).filter(ScreeningResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Screening result not found")
-    if result.tenant_id and result.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    if not result.tenant_id or result.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=404 if not result.tenant_id else 403, detail="Screening result not found" if not result.tenant_id else "Access denied")
     return result
 
 
@@ -350,8 +352,19 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
             timeout=60.0,
             log_label="live_screen_debrief",
         )
-    except Exception as e:
-        logger.error("LLM debrief generation failed: %s", e)
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "LLM debrief generation failed: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        debrief_data = None
+    except (OSError, RuntimeError, httpx.HTTPError) as e:
+        logger.error(
+            "LLM debrief generation failed: %s", e,
+            extra={"error_code": "LLM_ERROR"},
+        )
         debrief_data = None
 
     # Fallback if LLM failed
@@ -461,8 +474,11 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
                 "summary": body.conversation_summary[:500],
             },
         )
-    except Exception:
-        pass
+    except (OSError, RuntimeError, ValueError, TypeError) as e:
+        logger.warning(
+            "Webhook dispatch failed for debrief.completed: %s", e,
+            extra={"error_code": "WEBHOOK_ERROR"},
+        )
 
     return DebriefResponse(
         debrief=DebriefContent(**debrief_content),

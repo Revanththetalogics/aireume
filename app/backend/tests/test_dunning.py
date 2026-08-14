@@ -581,7 +581,7 @@ class TestAdminEndpoints:
             assert found[0]["tenant_name"] == "Dunning Corp"
             return
 
-        token = login_resp.json()["access_token"]
+        token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token}"})
 
         resp = client.get("/api/admin/dunning")
@@ -633,7 +633,7 @@ class TestAdminEndpoints:
             # but direct service call doesn't
             return
 
-        token = login_resp.json()["access_token"]
+        token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token}"})
 
         resp = client.post(f"/api/admin/dunning/{tenant.id}/resolve")

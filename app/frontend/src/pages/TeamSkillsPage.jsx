@@ -190,8 +190,8 @@ function ProfileModal({ profile, onSave, onClose }) {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">Team Name</label>
-            <input
+            <label htmlFor="teamskillspage-team-name-1" className="block text-sm font-bold text-slate-700 mb-1.5">Team Name</label>
+            <input id="teamskillspage-team-name-1"
               type="text"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
@@ -201,7 +201,7 @@ function ProfileModal({ profile, onSave, onClose }) {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">Skills</label>
+            <p className="block text-sm font-bold text-slate-700 mb-1.5">Skills</p>
             <SkillAdder
               skills={skills}
               onAddSkill={handleAddSkill}

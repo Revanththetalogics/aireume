@@ -85,6 +85,24 @@ UNVERIFIED_ALLOWED_PREFIXES = (
     "/api/auth/logout",
 )
 
+MFA_ENROLL_ALLOWED_PREFIXES = (
+    "/api/auth/me",
+    "/api/auth/logout",
+    "/api/auth/mfa",
+)
+
+
+def _mfa_enrollment_blocking(user: User) -> bool:
+    if os.getenv("TESTING", "").lower() in {"1", "true", "yes"}:
+        return False
+    if getattr(user, "mfa_enabled", False):
+        return False
+    return (
+        (user.role or "") == "admin"
+        or bool(user.is_platform_admin)
+        or bool(user.platform_role)
+    )
+
 
 # ─── User Loading ─────────────────────────────────────────────────────────────
 
@@ -156,6 +174,17 @@ def get_current_user(
                 detail={
                     "detail": "Please verify your email before accessing the application.",
                     "error_code": "EMAIL_NOT_VERIFIED",
+                },
+            )
+
+    if _mfa_enrollment_blocking(user):
+        path = request.url.path
+        if not any(path.startswith(prefix) for prefix in MFA_ENROLL_ALLOWED_PREFIXES):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "MFA_SETUP_REQUIRED",
+                    "message": "Set up multi-factor authentication to continue.",
                 },
             )
 
@@ -338,9 +367,9 @@ if not INTERNAL_SERVICE_SECRET:
     else:
         import logging as _logging
         _logging.getLogger(__name__).warning(
-            "WARNING: INTERNAL_SERVICE_SECRET not set. Using an insecure development default."
+            "WARNING: INTERNAL_SERVICE_SECRET not set. Internal callbacks will be rejected."
         )
-        INTERNAL_SERVICE_SECRET = "dev-internal-service-secret"
+        INTERNAL_SERVICE_SECRET = ""
 
 
 def require_internal_service(request: Request) -> None:
@@ -350,5 +379,5 @@ def require_internal_service(request: Request) -> None:
     INTERNAL_SERVICE_SECRET using a constant-time comparison.
     """
     provided = request.headers.get("X-Internal-Secret", "")
-    if not provided or not _secrets.compare_digest(provided, INTERNAL_SERVICE_SECRET):
+    if not INTERNAL_SERVICE_SECRET or not provided or not _secrets.compare_digest(provided, INTERNAL_SERVICE_SECRET):
         raise HTTPException(status_code=403, detail="Invalid or missing internal service credentials")

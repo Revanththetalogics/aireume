@@ -203,3 +203,51 @@ class TestPlanFeatureEntitlement:
             PlanFeature.plan_id == plan.id, PlanFeature.feature_flag_id == flag.id
         ).first()
         assert mapping is None
+
+
+class TestTenantUserStatus:
+    def test_deactivate_and_reactivate_tenant_user(self, platform_admin_client, db):
+        from app.backend.routes.auth import pwd_context
+        from app.backend.models.db_models import User, Tenant
+
+        tenant = Tenant(name="UserStatusTenant", slug="userstatustenant")
+        db.add(tenant)
+        db.commit()
+        target = User(
+            email="status.target@example.com",
+            hashed_password=pwd_context.hash("StatusUser123!"),
+            tenant_id=tenant.id,
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(target)
+        db.commit()
+
+        resp = platform_admin_client.patch(
+            f"/api/admin/tenants/{tenant.id}/users/{target.id}/status",
+            json={"is_active": False},
+        )
+        assert resp.status_code == 200, resp.text
+        db.refresh(target)
+        assert target.is_active is False
+        assert int(target.refresh_epoch or 0) >= 1
+
+        resp = platform_admin_client.patch(
+            f"/api/admin/tenants/{tenant.id}/users/{target.id}/status",
+            json={"is_active": True},
+        )
+        assert resp.status_code == 200, resp.text
+        db.refresh(target)
+        assert target.is_active is True
+
+    def test_status_unknown_user_404(self, platform_admin_client, db):
+        from app.backend.models.db_models import Tenant
+
+        tenant = Tenant(name="UserStatusMissing", slug="userstatusmissing")
+        db.add(tenant)
+        db.commit()
+        resp = platform_admin_client.patch(
+            f"/api/admin/tenants/{tenant.id}/users/999999/status",
+            json={"is_active": False},
+        )
+        assert resp.status_code == 404

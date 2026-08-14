@@ -33,8 +33,8 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _RTF_MAGIC = b"{\\rtf"
 
 # Plain-text resumes (.txt) have no reliable magic bytes; allowed by extension.
-_TEXT_EXTENSIONS = {".txt", ".md"}
-_DOC_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".rtf", ".txt", ".md"}
+_TEXT_EXTENSIONS = {".txt", ".md", ".vtt", ".srt"}
+_DOC_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".rtf", ".txt", ".md", ".vtt", ".srt"}
 
 
 def validate_document_bytes(data: bytes, filename: str = "") -> None:
@@ -81,7 +81,11 @@ def _clamav_enabled() -> bool:
 
 
 def _clamav_required() -> bool:
-    return os.getenv("CLAMAV_REQUIRED", "").lower() in ("1", "true")
+    if os.getenv("CLAMAV_REQUIRED", "").lower() in ("1", "true"):
+        return True
+    if os.getenv("CLAMAV_REQUIRED", "").lower() in ("0", "false"):
+        return False
+    return os.getenv("ENVIRONMENT", "development") == "production"
 
 
 def scan_bytes_for_malware(data: bytes) -> None:
@@ -126,4 +130,15 @@ def scan_bytes_for_malware(data: bytes) -> None:
 def validate_and_scan(data: bytes, filename: str = "") -> None:
     """Run both content validation and (optional) malware scan."""
     validate_document_bytes(data, filename)
+    if _clamav_required() and not _clamav_enabled():
+        raise UnsafeFileError("Virus scanning is required")
+    scan_bytes_for_malware(data)
+
+
+def scan_any_upload(data: bytes, filename: str = "") -> None:
+    """Malware-scan any upload (video, transcripts, etc.) without document magic checks."""
+    if not data:
+        raise UnsafeFileError("File is empty")
+    if _clamav_required() and not _clamav_enabled():
+        raise UnsafeFileError("Virus scanning is required")
     scan_bytes_for_malware(data)

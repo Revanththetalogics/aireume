@@ -322,14 +322,14 @@ class TestAnalyzeTranscriptEndpoint:
         client.post("/api/auth/register", json={
             "company_name": "TenantA",
             "email": "a@tenanta.com",
-            "password": "PassA123!",
+            "password": "PassA1234!",
         })
         _verify_user_via_api("a@tenanta.com")
         _grant_transcript_access(db, "a@tenanta.com")
         login_a = client.post("/api/auth/login", json={
-            "email": "a@tenanta.com", "password": "PassA123!"
+            "email": "a@tenanta.com", "password": "PassA1234!"
         })
-        token_a = login_a.json()["access_token"]
+        token_a = (login_a.cookies.get("access_token") or login_a.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token_a}"})
 
         t_resp = client.post("/api/templates", json={
@@ -342,14 +342,14 @@ class TestAnalyzeTranscriptEndpoint:
         client.post("/api/auth/register", json={
             "company_name": "TenantB",
             "email": "b@tenantb.com",
-            "password": "PassB123!",
+            "password": "PassB1234!",
         })
         _verify_user_via_api("b@tenantb.com")
         _grant_transcript_access(db, "b@tenantb.com")
         login_b = client.post("/api/auth/login", json={
-            "email": "b@tenantb.com", "password": "PassB123!"
+            "email": "b@tenantb.com", "password": "PassB1234!"
         })
-        token_b = login_b.json()["access_token"]
+        token_b = (login_b.cookies.get("access_token") or login_b.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token_b}"})
 
         with mock_transcript_llm():
@@ -424,8 +424,8 @@ class TestListTranscriptAnalyses:
     def test_tenant_isolation_in_list(self, client, db, seed_subscription_plans):
         """Two tenants see only their own analyses."""
         for company, email, pwd in [
-            ("CorpX", "x@corpx.com", "PassX123!"),
-            ("CorpY", "y@corpy.com", "PassY123!"),
+            ("CorpX", "x@corpx.com", "PassX1234!"),
+            ("CorpY", "y@corpy.com", "PassY1234!"),
         ]:
             client.post("/api/auth/register", json={
                 "company_name": company, "email": email, "password": pwd
@@ -434,8 +434,8 @@ class TestListTranscriptAnalyses:
             _grant_transcript_access(db, email)
 
         # Tenant X creates a template and an analysis
-        login_x = client.post("/api/auth/login", json={"email": "x@corpx.com", "password": "PassX123!"})
-        token_x = login_x.json()["access_token"]
+        login_x = client.post("/api/auth/login", json={"email": "x@corpx.com", "password": "PassX1234!"})
+        token_x = (login_x.cookies.get("access_token") or login_x.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token_x}"})
 
         t_resp = client.post("/api/templates", json={"name": "X JD", "jd_text": "Python."})
@@ -448,8 +448,8 @@ class TestListTranscriptAnalyses:
             })
 
         # Tenant Y should see an empty list
-        login_y = client.post("/api/auth/login", json={"email": "y@corpy.com", "password": "PassY123!"})
-        token_y = login_y.json()["access_token"]
+        login_y = client.post("/api/auth/login", json={"email": "y@corpy.com", "password": "PassY1234!"})
+        token_y = (login_y.cookies.get("access_token") or login_y.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token_y}"})
 
         resp = client.get("/api/transcript/analyses")
@@ -508,7 +508,7 @@ class TestGetTranscriptAnalysis:
 
         # Tenant Alpha creates an analysis
         login_a = client.post("/api/auth/login", json={"email": "alpha@alpha.com", "password": "AlphaPass1!"})
-        client.headers.update({"Authorization": f"Bearer {login_a.json()['access_token']}"})
+        client.headers.update({"Authorization": f"Bearer {(login_a.cookies.get('access_token') or login_a.json().get('access_token'))}"})
 
         t_resp = client.post("/api/templates", json={"name": "Alpha JD", "jd_text": "Python."})
         template_id = t_resp.json()["id"]
@@ -522,7 +522,7 @@ class TestGetTranscriptAnalysis:
 
         # Tenant Beta attempts to fetch it
         login_b = client.post("/api/auth/login", json={"email": "beta@beta.com", "password": "BetaPass1!"})
-        client.headers.update({"Authorization": f"Bearer {login_b.json()['access_token']}"})
+        client.headers.update({"Authorization": f"Bearer {(login_b.cookies.get('access_token') or login_b.json().get('access_token'))}"})
 
         resp = client.get(f"/api/transcript/analyses/{analysis_id}")
         assert resp.status_code == 404

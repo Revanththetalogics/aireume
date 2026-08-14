@@ -24,6 +24,7 @@ export default function SearchSelect({
   const rootRef = useRef(null)
   const inputRef = useRef(null)
   const listId = useId()
+  const inputId = useId()
 
   const selected = options.find((o) => String(getOptionValue(o)) === String(value))
 
@@ -74,7 +75,7 @@ export default function SearchSelect({
   return (
     <div ref={rootRef} className={`relative ${className}`}>
       {label && (
-        <label className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-1.5">
+        <label htmlFor={inputId} className="block text-sm font-semibold text-slate-700 dark:text-dark-text-secondary mb-1.5">
           {label}
           {required && <span className="text-red-500 ml-0.5">*</span>}
         </label>
@@ -86,7 +87,7 @@ export default function SearchSelect({
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         <Search className="w-4 h-4 text-slate-400 shrink-0" />
-        <input
+        <input id={inputId}
           ref={inputRef}
           type="text"
           disabled={disabled}

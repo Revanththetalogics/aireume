@@ -41,6 +41,8 @@ import {
   addTenantCrmNote,
   getTenantCrmNps,
 } from '../../lib/api'
+import { showError } from '../../lib/toast'
+import useConfirm from '../../hooks/useConfirm'
 
 /* ── Constants ────────────────────────────────────────── */
 const DETAIL_TABS = [
@@ -122,8 +124,8 @@ function AddUserModal({ onClose, onAdded }) {
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Email *</label>
-            <input
+            <label htmlFor="tenantdetailpage-email-1" className="block text-sm font-semibold text-gray-700 mb-1">Email *</label>
+            <input id="tenantdetailpage-email-1"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -134,8 +136,8 @@ function AddUserModal({ onClose, onAdded }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Role</label>
-            <select
+            <label htmlFor="tenantdetailpage-role-2" className="block text-sm font-semibold text-gray-700 mb-1">Role</label>
+            <select id="tenantdetailpage-role-2"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
@@ -285,8 +287,8 @@ function SuspendModal({ tenantId, tenantName, onClose, onDone }) {
         )}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Reason *</label>
-            <textarea
+            <label htmlFor="tenantdetailpage-reason-3" className="block text-sm font-semibold text-gray-700 mb-1">Reason *</label>
+            <textarea id="tenantdetailpage-reason-3"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Enter suspension reason..."
@@ -349,8 +351,8 @@ function AdjustUsageModal({ detail, onClose, onDone }) {
         )}
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Analyses Count</label>
-            <input
+            <label htmlFor="tenantdetailpage-analyses-count-4" className="block text-sm font-semibold text-gray-700 mb-1">Analyses Count</label>
+            <input id="tenantdetailpage-analyses-count-4"
               type="number"
               value={form.analyses_count}
               onChange={(e) => setForm({ ...form, analyses_count: e.target.value })}
@@ -360,8 +362,8 @@ function AdjustUsageModal({ detail, onClose, onDone }) {
             <p className="text-xs text-gray-400 mt-1">Current: {detail.analyses_count_this_month ?? 0}</p>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Storage Used (bytes)</label>
-            <input
+            <label htmlFor="tenantdetailpage-storage-used-bytes-5" className="block text-sm font-semibold text-gray-700 mb-1">Storage Used (bytes)</label>
+            <input id="tenantdetailpage-storage-used-bytes-5"
               type="number"
               value={form.storage_used_bytes}
               onChange={(e) => setForm({ ...form, storage_used_bytes: e.target.value })}
@@ -392,6 +394,7 @@ function AdjustUsageModal({ detail, onClose, onDone }) {
 export default function TenantDetailPage() {
   const { id: tenantId } = useParams()
   const navigate = useNavigate()
+  const { confirm, dialog } = useConfirm()
 
   // Core data
   const [detail, setDetail] = useState(null)
@@ -523,17 +526,23 @@ export default function TenantDetailPage() {
       await reactivateTenant(tenantId)
       fetchDetail()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to reactivate')
+      showError(err.response?.data?.detail || 'Failed to reactivate')
     }
   }
 
   const handleRemoveUser = async (userId) => {
-    if (!confirm('Remove this user from the tenant?')) return
+    const ok = await confirm({
+      title: 'Remove user',
+      message: 'Remove this user from the tenant?',
+      confirmLabel: 'Remove',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await removeUserFromTenant(tenantId, userId)
       fetchDetail()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to remove user')
+      showError(err.response?.data?.detail || 'Failed to remove user')
     }
   }
 
@@ -548,7 +557,7 @@ export default function TenantDetailPage() {
       }
       fetchFeatureOverrides()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to toggle feature')
+      showError(err.response?.data?.detail || 'Failed to toggle feature')
     }
   }
 
@@ -559,7 +568,7 @@ export default function TenantDetailPage() {
       setEditRateLimit(false)
       fetchRateLimit()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to update rate limit')
+      showError(err.response?.data?.detail || 'Failed to update rate limit')
     } finally {
       setRateLimitSaving(false)
     }
@@ -1014,8 +1023,8 @@ export default function TenantDetailPage() {
                 editRateLimit ? (
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Requests per Minute</label>
-                      <input
+                      <label htmlFor="tenantdetailpage-requests-per-minute-6" className="block text-xs font-semibold text-gray-600 mb-1">Requests per Minute</label>
+                      <input id="tenantdetailpage-requests-per-minute-6"
                         type="number"
                         value={rateLimitForm.requests_per_minute}
                         onChange={(e) => setRateLimitForm(prev => ({ ...prev, requests_per_minute: parseInt(e.target.value, 10) || 0 }))}
@@ -1023,8 +1032,8 @@ export default function TenantDetailPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">LLM Concurrent Max</label>
-                      <input
+                      <label htmlFor="tenantdetailpage-llm-concurrent-max-7" className="block text-xs font-semibold text-gray-600 mb-1">LLM Concurrent Max</label>
+                      <input id="tenantdetailpage-llm-concurrent-max-7"
                         type="number"
                         value={rateLimitForm.llm_concurrent_max}
                         onChange={(e) => setRateLimitForm(prev => ({ ...prev, llm_concurrent_max: parseInt(e.target.value, 10) || 0 }))}
@@ -1111,6 +1120,7 @@ export default function TenantDetailPage() {
           onDone={fetchDetail}
         />
       )}
+      {dialog}
     </div>
   )
 }

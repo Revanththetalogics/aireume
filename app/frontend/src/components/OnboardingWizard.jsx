@@ -100,20 +100,19 @@ function StepOrganization({ onNext, onSkip, initialName }) {
 
       <div className="w-full max-w-sm space-y-4 text-left">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Organization Name</label>
-          <input
+          <label htmlFor="onboardingwizard-organization-name-1" className="block text-sm font-medium text-slate-700 mb-1.5">Organization Name</label>
+          <input id="onboardingwizard-organization-name-1"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Your company name"
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all text-slate-800 placeholder:text-slate-300"
-            autoFocus
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Industry</label>
-          <select
+          <label htmlFor="onboardingwizard-industry-2" className="block text-sm font-medium text-slate-700 mb-1.5">Industry</label>
+          <select id="onboardingwizard-industry-2"
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all text-slate-800 bg-white appearance-none"
@@ -126,8 +125,8 @@ function StepOrganization({ onNext, onSkip, initialName }) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Company Size</label>
-          <select
+          <label htmlFor="onboardingwizard-company-size-3" className="block text-sm font-medium text-slate-700 mb-1.5">Company Size</label>
+          <select id="onboardingwizard-company-size-3"
             value={companySize}
             onChange={(e) => setCompanySize(e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all text-slate-800 bg-white appearance-none"
@@ -421,8 +420,8 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
 
       <div className="w-full max-w-sm mx-auto space-y-3">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Role for all invites</label>
-          <select
+          <label htmlFor="onboardingwizard-role-for-all-invites-4" className="block text-sm font-medium text-slate-700 mb-1.5">Role for all invites</label>
+          <select id="onboardingwizard-role-for-all-invites-4"
             value={inviteRole}
             onChange={(e) => setInviteRole(e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none text-sm text-slate-800"

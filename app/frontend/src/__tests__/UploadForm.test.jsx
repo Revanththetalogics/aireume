@@ -2,6 +2,14 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import UploadForm from '../components/UploadForm'
 
+vi.mock('../lib/api', () => ({
+  extractJdFromUrl: vi.fn(),
+  getTemplates: vi.fn().mockResolvedValue([]),
+  createTemplate: vi.fn(),
+  parseJdPreview: vi.fn().mockResolvedValue({ skills: [] }),
+  parseJdPreviewFromFile: vi.fn().mockResolvedValue({ skills: [] }),
+}))
+
 describe('UploadForm', () => {
   const defaultProps = {
     onFileSelect: vi.fn(),

@@ -255,7 +255,8 @@ class TestSSOEnforcement:
             "password": "password123",
         })
         assert resp.status_code == 200
-        assert "access_token" in resp.json()
+        token = resp.cookies.get("access_token") or resp.json().get("access_token")
+        assert token
 
     def test_login_allowed_when_sso_config_inactive(self, client, db, test_tenant, sso_config_payload):
         from app.backend.routes.auth import _hash_password
@@ -290,7 +291,8 @@ class TestSSOEnforcement:
             "password": "password123",
         })
         assert resp.status_code == 200
-        assert "access_token" in resp.json()
+        token = resp.cookies.get("access_token") or resp.json().get("access_token")
+        assert token
 
 
 # ─── SSO Public Config Tests ──────────────────────────────────────────────────

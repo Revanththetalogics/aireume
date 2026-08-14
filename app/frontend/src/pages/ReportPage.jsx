@@ -839,7 +839,7 @@ export default function ReportPage() {
       // Get the report content element
       const element = document.querySelector('.report-content')
       if (!element) {
-        alert('Report content not found. Please try again.')
+        showError('Report content not found. Please try again.')
         setIsDownloading(false)
         return
       }
@@ -867,7 +867,7 @@ export default function ReportPage() {
       await html2pdf().set(opt).from(element).save()
     } catch (error) {
       console.error('PDF generation error:', error)
-      alert('Failed to generate PDF. Please try again or use the browser print option (Ctrl+P).')
+      showError('Failed to generate PDF. Please try again or use the browser print option (Ctrl+P).')
     } finally {
       setIsDownloading(false)
     }
@@ -1245,7 +1245,7 @@ export default function ReportPage() {
             onLiveScreenKit={canWrite && hasAiInterviews && hasDeterministicData ? handleStartLiveScreen : undefined}
             onViewResume={result?.candidate_id ? async () => {
               setResumeActionLoading(true)
-              try { await viewCandidateResume(result.candidate_id) } catch { alert('Resume not available') }
+              try { await viewCandidateResume(result.candidate_id) } catch { showError('Resume not available') }
               finally { setResumeActionLoading(false) }
             } : undefined}
             onDownloadResume={result?.candidate_id ? async () => {
@@ -1255,7 +1255,7 @@ export default function ReportPage() {
                   result.candidate_id,
                   result?.candidate_name ? `${result.candidate_name}_resume.pdf` : `resume_${result.candidate_id}.pdf`
                 )
-              } catch { alert('Resume not available') }
+              } catch { showError('Resume not available') }
               finally { setResumeActionLoading(false) }
             } : undefined}
             onDownloadPdf={handleDownload}

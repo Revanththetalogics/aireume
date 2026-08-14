@@ -135,13 +135,17 @@ class TestAPIEndpoints:
             "raw_text": "John Doe python fastapi", "skills": ["python", "fastapi"],
             "education": [], "work_experience": [],
             "contact_info": {"name": "John Doe", "email": "john@email.com"},
+        }), patch("app.backend.routes.analyze_helpers.parse_resume", return_value={
+            "raw_text": "John Doe python fastapi", "skills": ["python", "fastapi"],
+            "education": [], "work_experience": [],
+            "contact_info": {"name": "John Doe", "email": "john@email.com"},
         }), patch("app.backend.routes.analyze.analyze_gaps", return_value={}), \
            patch("app.backend.routes.analyze.run_hybrid_pipeline",
                  new_callable=AsyncMock, return_value=pipeline_result):
             response = auth_client.post(
                 "/api/analyze",
                 data={"job_description": _JD},
-                files={"resume": ("resume.pdf", io.BytesIO(file_content), "application/pdf")},
+                files={"resume": ("resume.txt", io.BytesIO(file_content), "text/plain")},
             )
         if response.status_code == 200:
             assert "fit_score" in response.json()

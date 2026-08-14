@@ -297,8 +297,13 @@ export default function SSOPage() {
         </div>
         <div>
           <h2 className="text-2xl font-extrabold text-brand-900 tracking-tight">SSO Configuration</h2>
-          <p className="text-sm text-slate-500">Manage single sign-on settings for each tenant.</p>
+          <p className="text-sm text-slate-500">Internal only — not a shipped customer feature in this release.</p>
         </div>
+      </div>
+
+      <div className="p-4 rounded-2xl bg-amber-50 ring-1 ring-amber-200 text-sm text-amber-900">
+        Do not enable SSO for paying tenants. Identity for this release is password login with admin MFA.
+        The SAML integration is not certified.
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
@@ -320,9 +325,9 @@ export default function SSOPage() {
       {/* Tenant selector */}
       {tenants.length > 0 && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-4">
-          <label className="block text-sm font-bold text-slate-700 mb-2">Select Tenant</label>
+          <label htmlFor="ssopage-select-tenant-1" className="block text-sm font-bold text-slate-700 mb-2">Select Tenant</label>
           <div className="relative max-w-md">
-            <select
+            <select id="ssopage-select-tenant-1"
               value={selectedTenantId || ''}
               onChange={(e) => setSelectedTenantId(Number(e.target.value))}
               className="w-full pl-4 pr-10 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white appearance-none cursor-pointer"
@@ -421,10 +426,10 @@ export default function SSOPage() {
               <div className="space-y-4">
                 {/* Provider Type */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="ssopage-provider-type-2" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Provider Type <span className="text-red-500">*</span>
                   </label>
-                  <select
+                  <select id="ssopage-provider-type-2"
                     value={form.provider_type}
                     onChange={(e) => setForm({ ...form, provider_type: e.target.value })}
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
@@ -436,10 +441,10 @@ export default function SSOPage() {
 
                 {/* Entity ID */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="ssopage-entity-id-3" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Entity ID <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="ssopage-entity-id-3"
                     type="text"
                     value={form.idp_entity_id}
                     onChange={(e) => setForm({ ...form, idp_entity_id: e.target.value })}
@@ -450,10 +455,10 @@ export default function SSOPage() {
 
                 {/* SSO Login URL */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="ssopage-sso-login-url-4" className="block text-sm font-bold text-slate-700 mb-1.5">
                     SSO Login URL <span className="text-red-500">*</span>
                   </label>
-                  <input
+                  <input id="ssopage-sso-login-url-4"
                     type="url"
                     value={form.idp_sso_url}
                     onChange={(e) => setForm({ ...form, idp_sso_url: e.target.value })}
@@ -465,10 +470,10 @@ export default function SSOPage() {
 
                 {/* X.509 Certificate */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="ssopage-x-509-certificate-5" className="block text-sm font-bold text-slate-700 mb-1.5">
                     X.509 Certificate {!ssoConfig?.enabled && <span className="text-red-500">*</span>}
                   </label>
-                  <textarea
+                  <textarea id="ssopage-x-509-certificate-5"
                     value={form.idp_certificate}
                     onChange={(e) => setForm({ ...form, idp_certificate: e.target.value })}
                     placeholder="Paste the full X.509 certificate (PEM format)"
@@ -489,10 +494,10 @@ export default function SSOPage() {
 
                 {/* Default Role */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  <label htmlFor="ssopage-default-role-6" className="block text-sm font-bold text-slate-700 mb-1.5">
                     Default Role
                   </label>
-                  <select
+                  <select id="ssopage-default-role-6"
                     value={form.default_role}
                     onChange={(e) => setForm({ ...form, default_role: e.target.value })}
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
@@ -505,8 +510,8 @@ export default function SSOPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Groups SAML Attribute</label>
-                  <input
+                  <label htmlFor="ssopage-groups-saml-attribute-7" className="block text-sm font-bold text-slate-700 mb-1.5">Groups SAML Attribute</label>
+                  <input id="ssopage-groups-saml-attribute-7"
                     value={form.groups_attribute}
                     onChange={(e) => setForm({ ...form, groups_attribute: e.target.value })}
                     placeholder="groups"
@@ -516,7 +521,7 @@ export default function SSOPage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-bold text-slate-700">IdP Group → Role Mappings</label>
+                    <p className="block text-sm font-bold text-slate-700">IdP Group → Role Mappings</p>
                     <button
                       type="button"
                       onClick={() => setForm({

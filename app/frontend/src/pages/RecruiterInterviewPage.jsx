@@ -13,6 +13,7 @@ import {
 } from '../lib/api'
 import InterviewInitiateModal from '../components/InterviewInitiateModal'
 import { StaggerContainer, StaggerItem } from '../components/motion'
+import useConfirm from '../hooks/useConfirm'
 
 /* ── Status / Recommendation mappings ────────────────── */
 
@@ -92,6 +93,7 @@ function Section({ title, icon: Icon, children, description, action }) {
 export default function RecruiterInterviewPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { confirm, dialog } = useConfirm()
   const initialTab = ['sessions', 'analytics', 'config'].includes(searchParams.get('tab'))
     ? searchParams.get('tab')
     : 'sessions'
@@ -169,7 +171,13 @@ export default function RecruiterInterviewPage() {
   }
 
   async function handleCancelSession(sessionId) {
-    if (!confirm('Cancel this interview session?')) return
+    const ok = await confirm({
+      title: 'Cancel session',
+      message: 'Cancel this interview session?',
+      confirmLabel: 'Cancel session',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await cancelRecruiterSession(sessionId)
       fetchSessions()
@@ -336,8 +344,10 @@ export default function RecruiterInterviewPage() {
                 <StaggerContainer className="divide-y divide-brand-50">
                   {sessions.map(session => (
                     <StaggerItem key={session.id}>
-                      <div
-                        className="flex items-center gap-3 px-6 py-4 hover:bg-brand-50/50 transition-colors text-left cursor-pointer"
+                      <div className="flex items-center">
+                      <button
+                        type="button"
+                        className="flex-1 flex items-center gap-3 px-6 py-4 hover:bg-brand-50/50 transition-colors text-left bg-transparent border-0 min-w-0"
                         onClick={() => navigate(`/recruiter-interviews/${session.id}`)}
                       >
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
@@ -390,22 +400,22 @@ export default function RecruiterInterviewPage() {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs text-slate-400">
-                            {session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : ''}
-                          </span>
-                          {['pending_strategy', 'strategy_ready', 'scheduled', 'failed'].includes(session.status) && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleCancelSession(session.id) }}
-                              className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors"
-                              title="Cancel"
-                              aria-label="Cancel session"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <ChevronRight className="w-4 h-4 text-slate-300" />
-                        </div>
+                        <span className="text-xs text-slate-400 shrink-0">
+                          {session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : ''}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                      </button>
+                        {['pending_strategy', 'strategy_ready', 'scheduled', 'failed'].includes(session.status) && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleCancelSession(session.id) }}
+                            className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors shrink-0 mr-4"
+                            title="Cancel"
+                            aria-label="Cancel session"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </StaggerItem>
                   ))}
@@ -512,8 +522,8 @@ export default function RecruiterInterviewPage() {
                   </label>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Min fit score for auto-trigger</label>
-                  <input
+                  <label htmlFor="recruiterinterviewpage-min-fit-score-for-auto-trigger-1" className="block text-sm font-semibold text-slate-700 mb-1.5">Min fit score for auto-trigger</label>
+                  <input id="recruiterinterviewpage-min-fit-score-for-auto-trigger-1"
                     type="number"
                     value={configDraft.min_score_threshold ?? 60}
                     onChange={e => setConfigDraft({ ...configDraft, min_score_threshold: parseInt(e.target.value) || 60 })}
@@ -522,8 +532,8 @@ export default function RecruiterInterviewPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Default duration (minutes)</label>
-                  <input
+                  <label htmlFor="recruiterinterviewpage-default-duration-minutes-2" className="block text-sm font-semibold text-slate-700 mb-1.5">Default duration (minutes)</label>
+                  <input id="recruiterinterviewpage-default-duration-minutes-2"
                     type="number"
                     value={configDraft.default_duration_minutes ?? 30}
                     onChange={e => setConfigDraft({ ...configDraft, default_duration_minutes: parseInt(e.target.value) || 30 })}
@@ -532,8 +542,8 @@ export default function RecruiterInterviewPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Max concurrent sessions</label>
-                  <input
+                  <label htmlFor="recruiterinterviewpage-max-concurrent-sessions-3" className="block text-sm font-semibold text-slate-700 mb-1.5">Max concurrent sessions</label>
+                  <input id="recruiterinterviewpage-max-concurrent-sessions-3"
                     type="number"
                     value={configDraft.max_concurrent ?? 3}
                     onChange={e => setConfigDraft({ ...configDraft, max_concurrent: parseInt(e.target.value) || 3 })}
@@ -577,6 +587,7 @@ export default function RecruiterInterviewPage() {
           />
         )}
       </div>
+      {dialog}
     </div>
   )
 }

@@ -25,8 +25,15 @@ import {
   getAdminTenantDetail,
   addUserToTenant,
   removeUserFromTenant,
+  setTenantUserStatus,
+  adminResetUserPassword,
+  adminInviteUser,
+  getAdminUserActivity,
   extractApiError,
 } from '../../lib/api'
+import { showError, showSuccess } from '../../lib/toast'
+import useConfirm from '../../hooks/useConfirm'
+import ModalOverlay from '../../components/motion/ModalOverlay'
 
 /* ── Constants ────────────────────────────────────────── */
 const PER_PAGE = 20
@@ -113,7 +120,7 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <ModalOverlay isOpen onClose={onClose}>
       <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-bold text-gray-900">Add User</h3>
@@ -129,8 +136,8 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Email *</label>
-            <input
+            <label htmlFor="userspage-email-1" className="block text-sm font-semibold text-gray-700 mb-1">Email *</label>
+            <input id="userspage-email-1"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -141,8 +148,8 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Role</label>
-            <select
+            <label htmlFor="userspage-role-2" className="block text-sm font-semibold text-gray-700 mb-1">Role</label>
+            <select id="userspage-role-2"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
@@ -170,7 +177,7 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
 
@@ -193,12 +200,35 @@ function ToggleSwitch({ checked, onChange }) {
 }
 
 /* ── User Slide-Out Panel ─────────────────────────────── */
-function UserSlideOut({ user, tenantName, onClose, onAction }) {
+function UserSlideOut({ user, tenantId, tenantName, onClose, onAction }) {
+  const { confirm, dialog } = useConfirm()
+  const [activity, setActivity] = useState([])
+  const [activityLoading, setActivityLoading] = useState(false)
+
+  useEffect(() => {
+    if (!user || !tenantId) return
+    setActivityLoading(true)
+    getAdminUserActivity(tenantId, user.id)
+      .then((data) => setActivity(data.items || []))
+      .catch(() => setActivity([]))
+      .finally(() => setActivityLoading(false))
+  }, [user, tenantId])
+
   if (!user) return null
 
-  const handleResetPassword = () => {
-    if (!confirm(`Send password reset email to ${user.email}?`)) return
-    alert('Password reset email placeholder — backend endpoint needed.')
+  const handleResetPassword = async () => {
+    const ok = await confirm({
+      title: 'Reset password',
+      message: `Send a password reset email to ${user.email}?`,
+      confirmLabel: 'Send reset',
+    })
+    if (!ok) return
+    try {
+      const data = await adminResetUserPassword(tenantId, user.id)
+      showSuccess(data.email_sent ? 'Reset email sent' : 'Reset token created (email not delivered)')
+    } catch (err) {
+      showError(extractApiError(err, 'Failed to send reset email'))
+    }
   }
 
   const handleRemoveFromTenant = () => {
@@ -206,9 +236,19 @@ function UserSlideOut({ user, tenantName, onClose, onAction }) {
     onClose()
   }
 
-  const handleSendInvite = () => {
-    if (!confirm(`Send invite email to ${user.email}?`)) return
-    alert('Invite email sent placeholder — backend endpoint needed.')
+  const handleSendInvite = async () => {
+    const ok = await confirm({
+      title: 'Send invite',
+      message: `Send invite email to ${user.email}?`,
+      confirmLabel: 'Send invite',
+    })
+    if (!ok) return
+    try {
+      const data = await adminInviteUser(tenantId, user.id)
+      showSuccess(data.email_sent ? 'Invite email sent' : 'Invite created (email not delivered)')
+    } catch (err) {
+      showError(extractApiError(err, 'Failed to send invite'))
+    }
   }
 
   return (
@@ -313,10 +353,23 @@ function UserSlideOut({ user, tenantName, onClose, onAction }) {
               <History className="w-4 h-4 text-gray-400" />
               <span className="text-sm font-medium text-gray-700">Activity Log</span>
             </div>
-            <p className="text-xs text-gray-500">Coming soon</p>
+            {activityLoading ? (
+              <p className="text-xs text-gray-500">Loading…</p>
+            ) : activity.length === 0 ? (
+              <p className="text-xs text-gray-500">No recent activity</p>
+            ) : (
+              <ul className="space-y-1 max-h-40 overflow-y-auto">
+                {activity.map((item) => (
+                  <li key={item.id} className="text-xs text-gray-600">
+                    {item.action} · {item.created_at ? new Date(item.created_at).toLocaleString() : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
+      {dialog}
     </SlideOutPanel>
   )
 }
@@ -401,6 +454,7 @@ function ChangeRoleModal({ user, tenantId, onClose, onDone }) {
 
 /* ── Main UsersPage ────────────────────────────────────── */
 export default function UsersPage() {
+  const { confirm, dialog } = useConfirm()
   // Data
   const [tenants, setTenants] = useState([])
   const [selectedTenantId, setSelectedTenantId] = useState('')
@@ -489,8 +543,14 @@ export default function UsersPage() {
   /* ── Row action handler ─────────────────────────────── */
   const handleRowAction = async (action, user, tenantId) => {
     switch (action) {
-      case 'remove':
-        if (!confirm(`Remove ${user.email} from this tenant?`)) return
+      case 'remove': {
+        const ok = await confirm({
+          title: 'Remove user',
+          message: `Remove ${user.email} from this tenant?`,
+          confirmLabel: 'Remove',
+          danger: true,
+        })
+        if (!ok) return
         try {
           await removeUserFromTenant(tenantId, user.id)
           setToast({ message: `${user.email} removed from tenant.`, type: 'success' })
@@ -499,9 +559,30 @@ export default function UsersPage() {
           setToast({ message: extractApiError(err, 'Failed to remove user'), type: 'error' })
         }
         break
-      case 'toggle-status':
-        setToast({ message: 'User status change requires a dedicated backend endpoint.', type: 'error' })
+      }
+      case 'toggle-status': {
+        const nextActive = user.is_active === false
+        const ok = await confirm({
+          title: nextActive ? 'Reactivate user' : 'Deactivate user',
+          message: nextActive
+            ? `Reactivate ${user.email}? They will be able to sign in again.`
+            : `Deactivate ${user.email}? Their sessions will be revoked.`,
+          confirmLabel: nextActive ? 'Reactivate' : 'Deactivate',
+          danger: !nextActive,
+        })
+        if (!ok) return
+        try {
+          await setTenantUserStatus(tenantId, user.id, nextActive)
+          setToast({
+            message: `${user.email} ${nextActive ? 'reactivated' : 'deactivated'}.`,
+            type: 'success',
+          })
+          fetchUsers()
+        } catch (err) {
+          setToast({ message: extractApiError(err, 'Failed to update user status'), type: 'error' })
+        }
         break
+      }
       case 'change-role':
         setChangeRoleUser(user)
         setChangeRoleTenantId(tenantId)
@@ -570,8 +651,8 @@ export default function UsersPage() {
 
       {/* Tenant selector */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <label className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
-        <select
+        <label htmlFor="userspage-select-tenant-3" className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
+        <select id="userspage-select-tenant-3"
           value={selectedTenantId}
           onChange={(e) => setSelectedTenantId(e.target.value)}
           className="w-full max-w-md px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
@@ -773,10 +854,12 @@ export default function UsersPage() {
       )}
       <UserSlideOut
         user={slideOutUser}
+        tenantId={Number(selectedTenantId)}
         tenantName={selectedTenant?.name}
         onClose={() => setSlideOutUser(null)}
         onAction={(action, user) => handleRowAction(action, user, Number(selectedTenantId))}
       />
+      {dialog}
     </div>
   )
 }

@@ -12,6 +12,7 @@ Provides endpoints for:
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import logging
 import uuid
 from typing import Optional, List
 from uuid import UUID
@@ -19,6 +20,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User, Tenant
@@ -31,6 +33,8 @@ from app.backend.services.queue_manager import (
     AnalysisArtifact,
     JobMetrics,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/queue", tags=["Queue Management"])
 
@@ -103,8 +107,24 @@ async def submit_analysis_job(
         }
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}")
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Failed to submit job: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except OSError as e:
+        logger.error(
+            "Failed to submit job: %s", e,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=502, detail="Upstream failure") from e
+    except (SQLAlchemyError, RuntimeError) as e:
+        logger.exception(
+            "Failed to submit job: %s", e,
+            extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "QUEUE_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}") from e
 
 
 def _parse_queue_options(
@@ -190,9 +210,25 @@ async def submit_analysis_file(
             "message": "Analysis job submitted successfully",
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}")
+        raise HTTPException(status_code=400, detail="Could not queue this file. Check the file and try again.")
+    except (TypeError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Failed to submit file job: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except OSError as e:
+        logger.error(
+            "Failed to submit file job: %s", e,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=502, detail="Upstream failure") from e
+    except (SQLAlchemyError, RuntimeError) as e:
+        logger.exception(
+            "Failed to submit file job: %s", e,
+            extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "QUEUE_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}") from e
 
 
 @router.post("/submit-batch")
@@ -241,7 +277,18 @@ async def submit_analysis_batch(
                 priority=priority,
             )
             jobs.append({**result, "batch_id": batch_id})
-        except Exception as e:
+        except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as e:
+            error_code = "VALIDATION_ERROR"
+            if isinstance(e, OSError):
+                error_code = "IO_ERROR"
+            elif isinstance(e, SQLAlchemyError):
+                error_code = "DB_ERROR"
+            elif isinstance(e, RuntimeError):
+                error_code = "QUEUE_ERROR"
+            logger.warning(
+                "Failed to queue file %s: %s", resume_file.filename, e,
+                extra={"error_code": error_code},
+            )
             errors.append({"filename": resume_file.filename, "error": str(e)})
 
     if not jobs:

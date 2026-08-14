@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
@@ -28,6 +29,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_internal_service
@@ -530,8 +532,11 @@ async def copilot_stream(
                             "observation": observation,
                         }
                         yield f"data: {json.dumps(event, default=str)}\n\n"
-                    except Exception as exc:
-                        logger.warning("Copilot observation failed for entry %s: %s", e.id, exc)
+                    except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError) as exc:
+                        logger.warning(
+                            "Copilot observation failed for entry %s: %s", e.id, exc,
+                            extra={"error_code": "LLM_ERROR"},
+                        )
 
             yield ": heartbeat\n\n"
             await asyncio.sleep(3)
@@ -770,8 +775,11 @@ def send_pre_notification(
             )
             notification_channels.append("email")
             notification_sent = True
-    except Exception as e:
-        logger.warning("Failed to send email pre-notification: %s", e)
+    except (smtplib.SMTPException, OSError, ValueError, RuntimeError) as e:
+        logger.warning(
+            "Failed to send email pre-notification: %s", e,
+            extra={"error_code": "EMAIL_SEND_ERROR"},
+        )
 
     try:
         if candidate.phone:
@@ -788,8 +796,11 @@ def send_pre_notification(
                 notification_sent = True
     except ImportError:
         logger.info("SMS service not configured, skipping SMS pre-notification")
-    except Exception as e:
-        logger.warning("Failed to send SMS pre-notification: %s", e)
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.warning(
+            "Failed to send SMS pre-notification: %s", e,
+            extra={"error_code": "SMS_SEND_ERROR"},
+        )
 
     if not notification_sent:
         raise HTTPException(
@@ -1312,12 +1323,31 @@ async def _generate_scorecard_background(session_id: str) -> None:
         # Auto-update candidate status from AI recommendation if enabled
         try:
             _apply_auto_status_update(db, session_id)
-        except Exception as e:
-            logger.warning("Auto-status-update failed for session %s: %s", session_id, e)
-    except Exception as e:
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError, SQLAlchemyError) as e:
+            logger.warning(
+                "Auto-status-update failed for session %s: %s", session_id, e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as e:
         logger.error(
             "Scorecard generation failed for session %s: %s",
             session_id, e, exc_info=True,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        db.rollback()
+        session = db.execute(
+            select(RecruiterInterviewSession).where(
+                RecruiterInterviewSession.id == session_id
+            )
+        ).scalar_one_or_none()
+        if session and session.status != "completed":
+            session.status = "completed"
+            db.commit()
+    except (OSError, RuntimeError, SQLAlchemyError) as e:
+        logger.error(
+            "Scorecard generation failed for session %s: %s",
+            session_id, e, exc_info=True,
+            extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "IO_ERROR"},
         )
         db.rollback()
         session = db.execute(
@@ -1476,18 +1506,28 @@ async def on_interview_complete(
         from app.backend.services.voice_screening_service import process_completed_call
         try:
             await process_completed_call(db, voice_session_id)
-        except Exception as e:
+        except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+            logger.warning(
+                "Post-call assessment failed for voice session %s: %s",
+                voice_session_id, e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
+        except (OSError, RuntimeError, SQLAlchemyError) as e:
             logger.exception(
                 "Post-call assessment failed for voice session %s: %s",
                 voice_session_id,
                 e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "IO_ERROR"},
             )
 
         # Adaptive depth escalation: auto-schedule standard interview if score exceeds threshold
         try:
             _handle_quick_screen_escalation(voice_session, db)
-        except Exception as e:
-            logger.warning("Auto-escalation check failed: %s", e)
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError, SQLAlchemyError) as e:
+            logger.warning(
+                "Auto-escalation check failed: %s", e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
 
         return {"status": "ok", "session_id": voice_session_id, "depth": "quick"}
 

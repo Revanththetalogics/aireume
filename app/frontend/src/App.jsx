@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
-import { AnimatePresence, motion, MotionConfig } from 'framer-motion'
+import { Routes, Route, Navigate, useLocation, useParams, Link } from 'react-router-dom'
+import { Spinner } from './components/ui'
+import { MotionConfig } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { BrandingProvider } from './contexts/BrandingContext'
 import { NotificationProvider } from './contexts/NotificationContext'
@@ -10,6 +11,7 @@ import InvitedUserWelcome from './components/onboarding/InvitedUserWelcome'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import VerifyEmailGate from './components/VerifyEmailGate'
+import MFAEnrollGate from './components/MFAEnrollGate'
 import RequireWriteAccess from './components/RequireWriteAccess'
 import RequirePlanFeature from './components/RequirePlanFeature'
 import PlatformAdminRoute from './components/PlatformAdminRoute'
@@ -19,7 +21,7 @@ import OnboardingWizard from './components/OnboardingWizard'
 import usePermissions from './hooks/usePermissions'
 
 // New pages
-const DashboardNew = lazy(() => import('./pages/DashboardNew'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 const AnalyzePage  = lazy(() => import('./pages/AnalyzePage'))
 const HandoffPackage = lazy(() => import('./components/HandoffPackage'))
 const PublicHandoffPage = lazy(() => import('./pages/PublicHandoffPage'))
@@ -81,7 +83,7 @@ const CrmPage            = lazy(() => import('./pages/admin/CrmPage'))
 function PageLoader() {
   return (
     <div className="h-screen bg-surface flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+      <Spinner className="w-8 h-8" />
     </div>
   )
 }
@@ -108,25 +110,26 @@ function HomePage() {
   return (
     <Shell>
       <OnboardingGate>
-        <DashboardNew />
+        <Dashboard />
       </OnboardingGate>
     </Shell>
   )
 }
 
 function Shell({ children }) {
-  const location = useLocation()
   return (
     <ProtectedRoute>
       <VerifyEmailGate>
+      <MFAEnrollGate>
       <SubscriptionProvider>
         <AppShell>
           <InvitedUserWelcome />
-          <ErrorBoundary key={location.pathname}>
+          <ErrorBoundary>
             {children}
           </ErrorBoundary>
         </AppShell>
       </SubscriptionProvider>
+      </MFAEnrollGate>
       </VerifyEmailGate>
     </ProtectedRoute>
   )
@@ -165,8 +168,6 @@ function App() {
           <OnboardingProvider>
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
-                <AnimatePresence mode="wait">
-                <motion.div key={location.pathname}>
                 <Routes>
               {/* Public routes */}
               <Route path="/login"      element={<LoginPage />} />
@@ -178,7 +179,7 @@ function App() {
               <Route path="/handoff/:token" element={<Suspense fallback={<PageLoader />}><PublicHandoffPage /></Suspense>} />
               
               {/* Onboarding direct-access route */}
-              <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
+              <Route path="/onboarding" element={<ProtectedRoute><VerifyEmailGate><OnboardingWizard /></VerifyEmailGate></ProtectedRoute>} />
               
               {/* New routes */}
               <Route path="/"           element={<HomePage />} />
@@ -252,12 +253,10 @@ function App() {
                   <h1 className="text-6xl font-bold text-slate-300 mb-4">404</h1>
                   <p className="text-lg font-medium mb-2">Page not found</p>
                   <p className="text-sm mb-4">The page you're looking for doesn't exist.</p>
-                  <a href="/" className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">Go Home</a>
+                  <Link to="/" className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">Go Home</Link>
                 </div>
               } />
               </Routes>
-              </motion.div>
-              </AnimatePresence>
               </Suspense>
             </ErrorBoundary>
           </OnboardingProvider>

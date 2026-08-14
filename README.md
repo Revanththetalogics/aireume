@@ -10,11 +10,11 @@
 
 <p align="center">
   <strong>AI Resume Intelligence by ThetaLogics</strong><br>
-  Production-grade, multi-tenant SaaS platform for AI-powered resume screening and candidate evaluation.
+  Production-oriented, multi-tenant SaaS platform for AI-powered resume screening and candidate evaluation.
 </p>
 
 <p align="center">
-  <em>Managed AI screening for modern hiring teams — explainable, tenant-secure, production-ready.</em>
+  <em>Managed AI screening for modern hiring teams — explainable and tenant-secure.</em>
 </p>
 
 ---
@@ -27,10 +27,10 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 - **Requisition-centric hiring** — Openings, intake calibration, screening, and HM handoff in one workflow
 - **Explainable AI Screening** — Fit scores, skill matching, gap detection, and narrative reports recruiters can trust
-- **Tenant Security** — Multi-tenant isolation, RBAC (5 tenant roles), SSO (Enterprise), and GDPR export/erasure tools
+- **Tenant Security** — Multi-tenant isolation, RBAC (5 tenant roles), admin MFA, and GDPR export/erasure tools
 - **Interview Automation** — AI screen calls and live screen kits integrated with your pipeline
 - **Multi-Tenant SaaS Architecture** — Support for multiple organizations with complete data isolation
-- **Production-Ready** — Comprehensive testing, CI/CD pipeline, and monitoring
+- **Hardened toward production** — tests, CI/CD, worker isolation, Redis, and monitoring. Operational steps live in `docs/OPS_RUNBOOK.md`.
 
 ---
 
@@ -663,7 +663,8 @@ LLM_NARRATIVE_TIMEOUT=180
 - **Token Revocation** — Secure logout with revoked token tracking
 - **Bcrypt Hashing** — Industry-standard password storage
 - **RBAC** — Tenant roles: `admin`, `ta_lead`, `recruiter`, `hiring_manager`, `viewer`
-- **SSO/SAML** — Enterprise single sign-on (platform-configured per tenant)
+- **Admin MFA** — TOTP required for tenant admins and platform roles (password login)
+- **SSO/SAML** — Not a shipped customer feature in this release; do not enable for paying tenants
 
 ### Data Protection
 - **Multi-Tenant Isolation** — All queries scoped by `tenant_id`

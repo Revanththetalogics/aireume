@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight, Building2 } from 'lucide-react'
 import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { TRUST } from '../lib/uxLabels'
 import { useAuth } from '../contexts/AuthContext'
 import OAuthButtons from '../components/OAuthButtons'
+import { FloatingInput } from '../components/ui'
 import { getSSOConfig } from '../lib/api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const oauthError = searchParams.get('oauth_error')
   const { login } = useAuth()
@@ -18,6 +20,8 @@ export default function LoginPage() {
   const [showPw, setShowPw]     = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [needsMfa, setNeedsMfa] = useState(false)
   const [ssoState, setSsoState] = useState(null) // { enabled, enforced, login_url }
   const [checkingSSO, setCheckingSSO] = useState(false)
 
@@ -46,7 +50,7 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const data = await login(email, password, tenantSlug.trim() || undefined)
+      const data = await login(email, password, tenantSlug.trim() || undefined, mfaCode.trim() || undefined)
       const isAdmin = data.user?.is_platform_admin === true || !!data.user?.platform_role
       if (isAdmin) {
         navigate('/admin')
@@ -54,7 +58,8 @@ export default function LoginPage() {
         navigate('/onboarding')
       } else {
         trackOnboardingEvent('login_success')
-        navigate('/')
+        const from = location.state?.from
+        navigate(from && from !== '/login' ? from : '/')
       }
     } catch (err) {
       const detail = err.response?.data?.detail
@@ -65,6 +70,11 @@ export default function LoginPage() {
           login_url: detail.sso_login_url,
         })
         setError('Password login is disabled for your workspace. Please use SSO below.')
+      } else if (detail && typeof detail === 'object' && detail.error_code === 'MFA_SETUP_REQUIRED') {
+        navigate('/settings?tab=security')
+      } else if (typeof detail === 'string' && detail.toLowerCase().includes('mfa')) {
+        setNeedsMfa(true)
+        setError(detail)
       } else {
         setError(detail || 'Invalid email or password')
       }
@@ -105,7 +115,7 @@ export default function LoginPage() {
           <p className="text-slate-500 text-sm mb-6">Sign in to your workspace</p>
 
           {(error || oauthError) && (
-            <div className="mb-5 p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5">
+            <div role="alert" className="mb-5 p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
               <p className="text-sm text-red-700">{error || oauthError}</p>
             </div>
@@ -113,10 +123,11 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Workspace</label>
+              <label htmlFor="login-workspace" className="block text-sm font-semibold text-slate-700 mb-1.5">Workspace</label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
+                  id="login-workspace"
                   type="text"
                   value={tenantSlug}
                   onChange={(e) => setTenantSlug(e.target.value)}
@@ -133,22 +144,19 @@ export default function LoginPage() {
 
             {!ssoEnforced && (
               <>
+                <FloatingInput
+                  label="Email"
+                  type="email"
+                  value={email}
+                  onChange={setEmail}
+                  disabled={false}
+                  autoComplete="email"
+                />
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required={!ssoEnforced}
-                    autoComplete="email"
-                    placeholder="you@company.com"
-                    className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                  <label htmlFor="login-password" className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
                   <div className="relative">
                     <input
+                      id="login-password"
                       type={showPw ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -168,6 +176,20 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
+                {(needsMfa || mfaCode) && (
+                  <div>
+                    <label htmlFor="login-mfa" className="block text-sm font-semibold text-slate-700 mb-1.5">Authenticator code</label>
+                    <input
+                      id="login-mfa"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="123456"
+                      className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800"
+                    />
+                  </div>
+                )}
                 <div className="flex justify-end">
                   <Link to="/forgot-password" className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
                     Forgot password?

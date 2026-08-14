@@ -123,8 +123,11 @@ def create_template(
         if not existing.tags and body.jd_text:
             try:
                 existing.tags = _auto_generate_tags(body.jd_text)
-            except Exception as e:
-                logger.warning("Auto-tagging failed for existing template %s: %s", existing.id, e)
+            except (ValueError, TypeError, KeyError) as e:
+                logger.warning(
+                    "Auto-tagging failed for existing template %s: %s", existing.id, e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
         db.commit()
         db.refresh(existing)
         return existing
@@ -134,8 +137,11 @@ def create_template(
     if not auto_tags and body.jd_text:
         try:
             auto_tags = _auto_generate_tags(body.jd_text)
-        except Exception as e:
-            logger.warning("Auto-tagging failed for new template: %s", e)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(
+                "Auto-tagging failed for new template: %s", e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
 
     template = RoleTemplate(
         tenant_id=current_user.tenant_id,
@@ -174,8 +180,20 @@ async def create_template_from_file(
 
     try:
         jd_text = extract_jd_text(jd_bytes, jd_file.filename)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to extract text from file: {e}")
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, KeyError) as e:
+        logger.warning(
+            "Failed to extract text from file: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail=f"Failed to extract text from file: {e}") from e
+    except (OSError, RuntimeError) as e:
+        logger.error(
+            "Failed to extract text from file: %s", e,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail=f"Failed to extract text from file: {e}") from e
 
     if not jd_text or not jd_text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file")
@@ -203,8 +221,11 @@ async def create_template_from_file(
         if not existing.tags:
             try:
                 existing.tags = _auto_generate_tags(jd_text)
-            except Exception as e:
-                logger.warning("Auto-tagging failed for existing template %s: %s", existing.id, e)
+            except (ValueError, TypeError, KeyError) as e:
+                logger.warning(
+                    "Auto-tagging failed for existing template %s: %s", existing.id, e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
         db.commit()
         db.refresh(existing)
         return existing
@@ -214,8 +235,11 @@ async def create_template_from_file(
     if not auto_tags:
         try:
             auto_tags = _auto_generate_tags(jd_text)
-        except Exception as e:
-            logger.warning("Auto-tagging failed for new template from file: %s", e)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(
+                "Auto-tagging failed for new template from file: %s", e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
 
     template = RoleTemplate(
         tenant_id=current_user.tenant_id,

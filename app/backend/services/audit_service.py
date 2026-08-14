@@ -1,12 +1,15 @@
 """Audit logging services — platform admin audit trail + field-level change tracking."""
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.backend.models.db_models import AuditLog, FieldAuditLog, User
 
 
-# ─── Platform Admin Audit Trail ─────────────────────────────────────────────
+def _hash_entry(prev_hash: str, actor_email: str, action: str, details: str) -> str:
+    payload = f"{prev_hash}|{actor_email}|{action}|{details}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def log_audit(
@@ -20,18 +23,18 @@ def log_audit(
     ip_address: str = None,
     tenant_id: int = None,
 ):
-    """Record an audit log entry for a platform admin action.
+    """Record an audit log entry and persist it.
 
-    Args:
-        db: Database session
-        actor: The user performing the action
-        action: Action identifier (e.g. "tenant.suspend", "plan.change")
-        resource_type: Type of resource affected (e.g. "tenant", "user", "plan")
-        resource_id: ID of the affected resource
-        details: Optional JSON-serializable context dict
-        ip_address: Optional IP address of the actor
-        tenant_id: Optional tenant ID associated with the action
+    Callers often ``commit()`` business changes before logging. ``get_db()``
+    closes without a final commit, so this function must commit the hash-chained
+    row or the audit trail is rolled back.
     """
+    details_json = json.dumps(details or {}, sort_keys=True)
+    impersonated_by = getattr(actor, "_impersonated_by", None)
+
+    last = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
+    prev_hash = (last.entry_hash if last else None) or "genesis"
+    entry_hash = _hash_entry(prev_hash, actor.email, action, details_json)
     entry = AuditLog(
         actor_user_id=actor.id,
         actor_email=actor.email,
@@ -39,11 +42,15 @@ def log_audit(
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        details=json.dumps(details or {}),
+        details=details_json,
         ip_address=ip_address,
+        entry_hash=entry_hash,
+        prev_hash=prev_hash,
+        impersonated_by=impersonated_by,
     )
     db.add(entry)
     db.commit()
+    db.refresh(entry)
     return entry
 
 
@@ -96,16 +103,14 @@ def log_tenant_event(
     details: dict = None,
     ip_address: str = None,
 ):
-    """Record a tenant-scoped audit event. Caller commits the transaction."""
-    entry = AuditLog(
-        actor_user_id=actor.id,
-        actor_email=actor.email,
-        tenant_id=actor.tenant_id,
+    """Record a tenant-scoped audit event on the same hash chain as log_audit."""
+    return log_audit(
+        db,
+        actor=actor,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        details=json.dumps(details or {}),
+        details=details,
         ip_address=ip_address,
+        tenant_id=actor.tenant_id,
     )
-    db.add(entry)
-    return entry

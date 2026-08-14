@@ -32,6 +32,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/auth/logout",
         "/api/auth/forgot-password",
         "/api/auth/reset-password",
+        "/api/auth/verify-email",
+        "/api/auth/resend-verification",
+        "/api/client-error",
         "/api/billing/webhook",
         "/api/sso/callback",
         "/api/webhooks/",
@@ -48,9 +51,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     }
 
     # Regex patterns for paths that should be CSRF-exempt (e.g. dynamic path segments)
-    EXEMPT_PATTERNS = [
-        re.compile(r"^/api/candidates/\d+/name$"),  # PUT candidate name (auth-protected)
-    ]
+    EXEMPT_PATTERNS = []
 
     def _is_exempt(self, path: str) -> bool:
         """Check if a path is CSRF-exempt (exact match, prefix match, or pattern match)."""

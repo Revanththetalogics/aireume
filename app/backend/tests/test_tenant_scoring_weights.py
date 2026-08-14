@@ -113,7 +113,7 @@ class TestTenantScoringWeights:
             "password": "password123"
         })
         assert response.status_code == 200
-        token = response.json()["access_token"]
+        token = (response.cookies.get("access_token") or response.json().get("access_token"))
         
         # Update tenant weights
         new_weights = {

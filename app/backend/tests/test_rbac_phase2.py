@@ -104,7 +104,7 @@ class TestTemplateOwnership:
             "password": "OtherPass123!",
         })
         assert login.status_code == 200
-        token = login.json()["access_token"]
+        token = (login.cookies.get("access_token") or login.json().get("access_token"))
         auth_client.headers.update({"Authorization": f"Bearer {token}"})
 
         resp = auth_client.put(f"/api/templates/{template.id}", json={"name": "Hijacked"})

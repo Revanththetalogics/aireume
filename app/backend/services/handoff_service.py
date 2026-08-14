@@ -157,6 +157,9 @@ def build_handoff_package(
 
         cand = r.candidate
         cand_name = getattr(cand, "name", None) or parsed.get("contact_info", {}).get("name", "Unknown")
+        if public_view:
+            parts = [p for p in str(cand_name).split() if p]
+            cand_name = " ".join((p[0] + ".") for p in parts) if parts else "Candidate"
         current_role = getattr(cand, "current_role", None) or ""
         total_years = getattr(cand, "total_years_exp", None)
 
@@ -210,12 +213,12 @@ def build_handoff_package(
             "matched_skills": analysis.get("matched_skills", []),
             "missing_skills": analysis.get("missing_skills", []),
             "experience_summary": experience_summary,
-            "education_summary": education_summary,
-            "current_role": current_role,
-            "total_years_exp": total_years,
-            "recruiter_notes": recruiter_notes,
-            "recruiter_recommendation": recruiter_rec,
-            "interview_scores": _build_interview_scores(db, r.id),
+            "education_summary": education_summary if not public_view else "",
+            "current_role": current_role if not public_view else "",
+            "total_years_exp": total_years if not public_view else None,
+            "recruiter_notes": "" if public_view else recruiter_notes,
+            "recruiter_recommendation": "" if public_view else recruiter_rec,
+            "interview_scores": {} if public_view else _build_interview_scores(db, r.id),
         }
         shortlisted_candidates.append(entry)
 

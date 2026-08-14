@@ -18,8 +18,8 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+    if (password.length < 10) {
+      setError('Password must be at least 10 characters with upper, lower, and a number')
       return
     }
     setLoading(true)
@@ -57,7 +57,7 @@ export default function RegisterPage() {
           <p className="text-slate-500 text-sm mb-6">Set up ARIA for your company — free to start</p>
 
           {error && (
-            <div className="mb-5 p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5">
+            <div role="alert" className="mb-5 p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
               <p className="text-sm text-red-700">{error}</p>
             </div>
@@ -65,13 +65,14 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="register-company" className="block text-sm font-semibold text-slate-700 mb-1.5">
                 <span className="inline-flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-brand-500" />
                   Company Name
                 </span>
               </label>
               <input
+                id="register-company"
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
@@ -82,8 +83,9 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Work Email</label>
+              <label htmlFor="register-email" className="block text-sm font-semibold text-slate-700 mb-1.5">Work Email</label>
               <input
+                id="register-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -94,9 +96,10 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+              <label htmlFor="register-password" className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
               <div className="relative">
                 <input
+                  id="register-password"
                   type={showPw ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

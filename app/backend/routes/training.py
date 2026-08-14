@@ -148,8 +148,11 @@ async def _train_model(tenant_id: int, model_name: str, training_data: list):
             "model_name":   model_name,
             "last_trained": datetime.now(timezone.utc),
         }
-    except Exception as e:
-        logger.exception("Model training failed for tenant %s: %s", tenant_id, e)
+    except (httpx.HTTPError, OSError, ValueError, RuntimeError) as e:
+        logger.exception(
+            "Model training failed for tenant %s: %s", tenant_id, e,
+            extra={"error_code": "LLM_ERROR"},
+        )
         _status[tenant_id] = {
             "trained": False,
             "model_name": model_name,

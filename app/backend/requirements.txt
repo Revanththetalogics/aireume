@@ -81,3 +81,12 @@ pdf2image>=1.17.0
 # Language detection for multi-language support
 langdetect>=1.0.9
 langid>=1.1.6
+
+# Shared cache / rate limits across uvicorn workers
+redis>=5.0.0
+
+# MFA
+pyotp>=2.9.0
+
+# Error reporting (optional; enabled when SENTRY_DSN is set)
+sentry-sdk[fastapi]>=2.0.0

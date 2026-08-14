@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Briefcase, Plus, Loader2, Users, ChevronRight, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { listRequisitions, createRequisition, getTeamMembers, deleteRequisition, createRequisitionOpenRequest } from '../lib/api'
@@ -10,6 +10,8 @@ import { PageHeaderCard } from '../components/patterns/PageHeader'
 import usePermissions from '../hooks/usePermissions'
 import { ViewerReadOnlyBanner } from '../components/RequireWriteAccess'
 import { REQUISITIONS } from '../lib/uxLabels'
+import { showSuccess, showError } from '../lib/toast'
+import useConfirm from '../hooks/useConfirm'
 
 const STATUS_STYLES = {
   draft: 'bg-slate-100 text-slate-700 ring-slate-200',
@@ -24,8 +26,73 @@ const STATUS_STYLES = {
 
 const FILTERS = ['all', 'draft', 'intake_in_progress', 'calibrated', 'sourcing', 'interviewing', 'offer', 'filled']
 
+const RequisitionRow = memo(function RequisitionRow({ r, canWrite, deletingId, onEdit, onDelete }) {
+  return (
+    <div className="flex items-center gap-4 bg-white/90 dark:bg-dark-card rounded-2xl ring-1 ring-brand-100 dark:ring-white/10 p-4 hover:ring-brand-300 dark:hover:ring-brand-500/40 transition-all group">
+      <Link to={`/requisitions/${r.id}`} className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="font-bold text-brand-900 dark:text-dark-text-primary truncate">{r.title}</h3>
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 capitalize ${STATUS_STYLES[r.status] || STATUS_STYLES.draft}`}>
+            {(r.status || 'draft').replace(/_/g, ' ')}
+          </span>
+          {!r.is_calibrated && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full ring-1 ring-amber-200 dark:ring-amber-800">
+              <AlertTriangle className="w-3 h-3" />
+              Needs calibration
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 dark:text-dark-text-secondary mt-0.5 truncate">
+          {[r.client_name, r.location].filter(Boolean).join(' · ') || 'No client set'}
+        </p>
+      </Link>
+      <div className="flex items-center gap-2 shrink-0 text-sm text-slate-500 dark:text-dark-text-secondary">
+        <span className="inline-flex items-center gap-1">
+          <Users className="w-4 h-4" />
+          {r.candidate_count ?? 0}
+        </span>
+        {canWrite && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => onEdit(e, r)}
+              className="p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-dark-card-elevated transition-colors"
+              title="Edit requisition"
+              aria-label={`Edit ${r.title}`}
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => onDelete(e, r)}
+              disabled={deletingId === r.id}
+              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+              title="Delete requisition"
+              aria-label={`Delete ${r.title}`}
+            >
+              {deletingId === r.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+            </button>
+          </>
+        )}
+        <Link
+          to={`/requisitions/${r.id}`}
+          className="p-1 text-brand-400 hover:text-brand-600 dark:text-brand-300"
+          aria-label={`Open ${r.title}`}
+        >
+          <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      </div>
+    </div>
+  )
+})
+
 export default function RequisitionsPage() {
   const navigate = useNavigate()
+  const { confirm, dialog } = useConfirm()
   const { completeChecklistItem } = useOnboarding()
   const requisitionsGuide = useFeatureGuide('requisitions')
   const { canWrite, isHiringManager } = usePermissions()
@@ -44,13 +111,19 @@ export default function RequisitionsPage() {
   const handleDelete = async (e, req) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!window.confirm(`Delete requisition "${req.title}"? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: 'Delete requisition',
+      message: `Delete requisition "${req.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     setDeletingId(req.id)
     try {
       await deleteRequisition(req.id)
       setReqs((prev) => prev.filter((r) => r.id !== req.id))
     } catch (err) {
-      window.alert(err.response?.data?.detail || err.message || 'Failed to delete requisition')
+      showError(err.response?.data?.detail || err.message || 'Failed to delete requisition')
     } finally {
       setDeletingId(null)
     }
@@ -109,7 +182,7 @@ export default function RequisitionsPage() {
       completeChecklistItem('createdJob')
       navigate(`/requisitions/${req.id}`)
     } catch (err) {
-      window.alert(err.response?.data?.detail?.message || err.response?.data?.detail || 'Failed to create requisition')
+      showError(err.response?.data?.detail?.message || err.response?.data?.detail || 'Failed to create requisition')
     } finally {
       setCreating(false)
     }
@@ -235,9 +308,9 @@ export default function RequisitionsPage() {
               await createRequisitionOpenRequest(hmRequestForm)
               setShowHmRequestOpening(false)
               setHmRequestForm({ title: '', jd_text: '', notes: '' })
-              window.alert('Opening request submitted — TA will assign a recruiter.')
+              showSuccess('Opening request submitted — TA will assign a recruiter.')
             } catch {
-              window.alert('Failed to submit opening request')
+              showError('Failed to submit opening request')
             } finally {
               setRequestingOpening(false)
             }
@@ -295,71 +368,17 @@ export default function RequisitionsPage() {
       ) : (
         <div className="space-y-3">
           {reqs.map((r) => (
-            <div
+            <RequisitionRow
               key={r.id}
-              className="flex items-center gap-4 bg-white/90 dark:bg-dark-card rounded-2xl ring-1 ring-brand-100 dark:ring-white/10 p-4 hover:ring-brand-300 dark:hover:ring-brand-500/40 transition-all group"
-            >
-              <Link to={`/requisitions/${r.id}`} className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-bold text-brand-900 dark:text-dark-text-primary truncate">{r.title}</h3>
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 capitalize ${STATUS_STYLES[r.status] || STATUS_STYLES.draft}`}>
-                    {(r.status || 'draft').replace(/_/g, ' ')}
-                  </span>
-                  {!r.is_calibrated && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full ring-1 ring-amber-200 dark:ring-amber-800">
-                      <AlertTriangle className="w-3 h-3" />
-                      Needs calibration
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 dark:text-dark-text-secondary mt-0.5 truncate">
-                  {[r.client_name, r.location].filter(Boolean).join(' · ') || 'No client set'}
-                </p>
-              </Link>
-              <div className="flex items-center gap-2 shrink-0 text-sm text-slate-500 dark:text-dark-text-secondary">
-                <span className="inline-flex items-center gap-1">
-                  <Users className="w-4 h-4" />
-                  {r.candidate_count ?? 0}
-                </span>
-                {canWrite && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        navigate(`/requisitions/${r.id}`)
-                      }}
-                      className="p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-dark-card-elevated transition-colors"
-                      title="Edit requisition"
-                      aria-label={`Edit ${r.title}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDelete(e, r)}
-                      disabled={deletingId === r.id}
-                      className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
-                      title="Delete requisition"
-                      aria-label={`Delete ${r.title}`}
-                    >
-                      {deletingId === r.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
-                  </>
-                )}
-                <Link
-                  to={`/requisitions/${r.id}`}
-                  className="p-1 text-brand-400 hover:text-brand-600 dark:text-brand-300"
-                  aria-label={`Open ${r.title}`}
-                >
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                </Link>
-              </div>
-            </div>
+              r={r}
+              canWrite={canWrite}
+              deletingId={deletingId}
+              onEdit={(e, row) => {
+                e.preventDefault()
+                navigate(`/requisitions/${row.id}`)
+              }}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
@@ -368,6 +387,7 @@ export default function RequisitionsPage() {
         guide={requisitionsGuide.guide}
         onDismiss={requisitionsGuide.dismiss}
       />
+      {dialog}
     </div>
   )
 }

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Settings,
-  User,
   Building2,
   CreditCard,
   Bell,
@@ -12,20 +11,9 @@ import {
   Check,
   Loader2,
   AlertTriangle,
-  Sparkles,
   Users,
-  Zap,
-  BarChart3,
-  Calendar,
-  RefreshCw,
   FileText,
-  ChevronDown,
-  ChevronUp,
-  X,
   Receipt,
-  ArrowLeft,
-  ArrowRight,
-  ExternalLink,
   Plug,
   Mic,
   Palette,
@@ -36,264 +24,25 @@ import { useOnboarding } from '../contexts/OnboardingContext'
 import { useUserPreferences } from '../contexts/UserPreferencesContext'
 import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useSubscription } from '../hooks/useSubscription'
-import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice, getTenantBranding, updateTenantBranding } from '../lib/api'
+import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice, getTenantBranding, updateTenantBranding, changePassword } from '../lib/api'
+import { showSuccess, showError } from '../lib/toast'
 import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
-import { formatPlanPrice, isSalesLedPlan, SALES_CONTACT_EMAIL } from '../lib/planDisplay'
+import { isSalesLedPlan, SALES_CONTACT_EMAIL } from '../lib/planDisplay'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
 import RequisitionSettingsPanel from '../components/settings/RequisitionSettingsPanel'
+import MfaSettingsPanel from '../components/settings/MfaSettingsPanel'
+import useConfirm from '../hooks/useConfirm'
+
 import WorkspaceSetupPanel from '../components/settings/WorkspaceSetupPanel'
-
-function Section({ title, icon: Icon, children, description }) {
-  return (
-    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 card-animate">
-      <div className="flex items-start gap-4 mb-5">
-        <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center shrink-0">
-          <Icon className="w-5 h-5 text-brand-600" />
-        </div>
-        <div>
-          <h3 className="font-extrabold text-brand-900 text-lg tracking-tight">{title}</h3>
-          {description && <p className="text-sm text-slate-500 mt-0.5">{description}</p>}
-        </div>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function ProgressBar({ value, max, color = 'brand' }) {
-  const percentage = Math.min(100, Math.round((value / max) * 100))
-  const colorClasses = {
-    brand: 'bg-brand-500',
-    green: 'bg-green-500',
-    amber: 'bg-amber-500',
-    red: 'bg-red-500'
-  }
-  return (
-    <div className="w-full bg-slate-100 rounded-full h-2">
-      <div
-        className={`h-2 rounded-full transition-all duration-500 ${colorClasses[color] || colorClasses.brand}`}
-        style={{ width: `${percentage}%` }}
-      />
-    </div>
-  )
-}
-
-function UsageCard({ label, used, limit, unit = '' }) {
-  const isUnlimited = limit === -1
-  const percentage = isUnlimited ? 0 : Math.round((used / limit) * 100)
-  const color = percentage > 90 ? 'red' : percentage > 70 ? 'amber' : 'brand'
-
-  return (
-    <div className="p-4 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-      <div className="flex justify-between items-center mb-2">
-        <span className="text-sm font-medium text-slate-700">{label}</span>
-        <span className={`text-xs font-bold ${percentage > 90 ? 'text-red-600' : 'text-brand-700'}`}>
-          {isUnlimited ? `${used.toLocaleString()} / ∞` : `${used.toLocaleString()} / ${limit.toLocaleString()} ${unit}`}
-        </span>
-      </div>
-      {!isUnlimited && <ProgressBar value={used} max={limit} color={color} />}
-      {isUnlimited && (
-        <div className="flex items-center gap-1 text-xs text-green-600 font-medium">
-          <Sparkles className="w-3.5 h-3.5" />
-          Unlimited
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Billing Helpers ────────────────────────────────────────────────────────
-
-function formatCurrency(amountCents, currency = 'usd') {
-  const symbols = { usd: '$', eur: '€', gbp: '£' }
-  const symbol = symbols[currency?.toLowerCase()] || '$'
-  return `${symbol}${((amountCents || 0) / 100).toFixed(2)}`
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return 'N/A'
-  return new Date(dateStr).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-const STATUS_STYLES = {
-  paid:      'bg-green-100 text-green-700 ring-green-200',
-  pending:   'bg-amber-100 text-amber-700 ring-amber-200',
-  draft:     'bg-slate-100 text-slate-600 ring-slate-200',
-  void:      'bg-slate-100 text-slate-500 ring-slate-200',
-  refunded:  'bg-blue-100 text-blue-700 ring-blue-200',
-}
-
-function StatusBadge({ status, className = '' }) {
-  const style = STATUS_STYLES[status] || STATUS_STYLES.draft
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-bold rounded-full ring-1 ${style} ${className}`}>
-      {status?.charAt(0).toUpperCase() + status?.slice(1) || 'Unknown'}
-    </span>
-  )
-}
-
-function InvoiceRow({ invoice, isExpanded, onToggle, onViewDetail }) {
-  return (
-    <>
-      <tr className="border-b border-brand-50 hover:bg-brand-50/30 transition-colors">
-        <td className="py-3 px-3 text-sm font-semibold text-brand-900">{invoice.invoice_number}</td>
-        <td className="py-3 px-3 text-sm text-slate-600">{formatDate(invoice.issued_at)}</td>
-        <td className="py-3 px-3 text-sm text-slate-700 max-w-[200px] truncate">{invoice.description || '—'}</td>
-        <td className="py-3 px-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(invoice.amount, invoice.currency)}</td>
-        <td className="py-3 px-3 text-center"><StatusBadge status={invoice.status} /></td>
-        <td className="py-3 px-3 text-right">
-          <div className="flex items-center justify-end gap-1">
-            <button
-              onClick={onViewDetail}
-              className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-              title="View details"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={onToggle}
-              className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-              title={isExpanded ? 'Collapse' : 'Expand'}
-            >
-              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </td>
-      </tr>
-    </>
-  )
-}
-
-function InvoiceCard({ invoice, onViewDetail }) {
-  return (
-    <div className="p-4 bg-brand-50/30 rounded-2xl ring-1 ring-brand-100">
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <p className="font-semibold text-brand-900 text-sm">{invoice.invoice_number}</p>
-          <p className="text-xs text-slate-500 mt-0.5">{formatDate(invoice.issued_at)}</p>
-        </div>
-        <StatusBadge status={invoice.status} />
-      </div>
-      <p className="text-sm text-slate-700 mb-2">{invoice.description || '—'}</p>
-      <div className="flex items-center justify-between">
-        <p className="font-bold text-brand-900">{formatCurrency(invoice.amount, invoice.currency)}</p>
-        <button
-          onClick={onViewDetail}
-          className="flex items-center gap-1 px-3 py-1.5 bg-white text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-50 transition-colors ring-1 ring-brand-200"
-        >
-          <ExternalLink className="w-3 h-3" />
-          Details
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function InvoiceDetailModal({ invoice, loading, onClose }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-white rounded-3xl ring-1 ring-brand-100 shadow-brand-lg max-w-lg w-full max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center">
-                <FileText className="w-5 h-5 text-brand-600" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-brand-900 text-lg">{invoice.invoice_number || 'Invoice'}</h3>
-                <p className="text-xs text-slate-500">Invoice Details</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="Close dialog"
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status</p>
-                  <div className="mt-1"><StatusBadge status={invoice.status} /></div>
-                </div>
-                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Amount</p>
-                  <p className="font-bold text-brand-900 mt-1">{formatCurrency(invoice.amount, invoice.currency)}</p>
-                </div>
-                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Period</p>
-                  <p className="text-sm text-slate-700 mt-1">
-                    {formatDate(invoice.period_start)} — {formatDate(invoice.period_end)}
-                  </p>
-                </div>
-                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Provider</p>
-                  <p className="text-sm text-slate-700 mt-1 capitalize">{invoice.payment_provider || 'N/A'}</p>
-                </div>
-                {invoice.issued_at && (
-                  <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Issued</p>
-                    <p className="text-sm text-slate-700 mt-1">{formatDate(invoice.issued_at)}</p>
-                  </div>
-                )}
-                {invoice.paid_at && (
-                  <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Paid</p>
-                    <p className="text-sm text-slate-700 mt-1">{formatDate(invoice.paid_at)}</p>
-                  </div>
-                )}
-              </div>
-
-              {invoice.description && (
-                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Description</p>
-                  <p className="text-sm text-slate-700 mt-1">{invoice.description}</p>
-                </div>
-              )}
-
-              {invoice.line_items && invoice.line_items.length > 0 && (
-                <div>
-                  <h5 className="font-bold text-slate-800 text-sm mb-2">Line Items</h5>
-                  <div className="space-y-2">
-                    {invoice.line_items.map((item, i) => (
-                      <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200">
-                        <div>
-                          <p className="text-sm font-medium text-slate-700">{item.description}</p>
-                          {item.quantity > 1 && <p className="text-xs text-slate-400">Qty: {item.quantity}</p>}
-                        </div>
-                        <p className="font-semibold text-slate-900">{formatCurrency(item.amount, invoice.currency)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
+import { Section } from '../components/settings/SettingsPrimitives'
+import SubscriptionSettingsPanel from '../components/settings/SubscriptionSettingsPanel'
+import BillingHistoryPanel from '../components/settings/BillingHistoryPanel'
 
 export default function SettingsPage() {
   const navigate = useNavigate()
   const { user, tenant, logout } = useAuth()
+  const { confirm, dialog } = useConfirm()
   const {
     subscription,
     availablePlans,
@@ -422,6 +171,9 @@ export default function SettingsPage() {
       marketing: false,
     },
   })
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
 
   useEffect(() => {
     if (preferences?.notifications) {
@@ -438,21 +190,27 @@ export default function SettingsPage() {
       await updatePreferences({ notifications: profile.notifications })
       trackOnboardingEvent('preferences_updated')
     } catch (err) {
-      window.alert(getUserFriendlyError(err) || 'Failed to save notification preferences')
+      showError(getUserFriendlyError(err) || 'Failed to save notification preferences')
     } finally {
       setSaving(false)
     }
   }
 
   const handleResetUsage = async () => {
-    if (!confirm('Reset usage counters? This is for testing only.')) return
+    const ok = await confirm({
+      title: 'Reset usage',
+      message: 'Reset usage counters? This is for testing only.',
+      confirmLabel: 'Reset',
+      danger: true,
+    })
+    if (!ok) return
     setActionLoading('resetUsage')
     try {
       await adminResetUsage()
       await fetchSubscription(true)
-      alert('Usage counters reset successfully')
+      showSuccess('Usage counters reset successfully')
     } catch (err) {
-      alert('Failed to reset: ' + getUserFriendlyError(err))
+      showError('Failed to reset: ' + getUserFriendlyError(err))
     } finally {
       setActionLoading(null)
     }
@@ -463,14 +221,19 @@ export default function SettingsPage() {
       window.location.href = `mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry&body=Hi, I'd like to learn more about the Enterprise plan for our team.`
       return
     }
-    if (!confirm(`Switch to ${plan.display_name || plan.name} plan?`)) return
+    const ok = await confirm({
+      title: 'Change plan',
+      message: `Switch to ${plan.display_name || plan.name} plan?`,
+      confirmLabel: 'Switch plan',
+    })
+    if (!ok) return
     setActionLoading(`changePlan-${plan.id}`)
     try {
       await adminChangePlan(plan.id)
       await fetchSubscription(true)
-      alert(`Switched to ${plan.display_name || plan.name}`)
+      showSuccess(`Switched to ${plan.display_name || plan.name}`)
     } catch (err) {
-      alert('Failed to change plan: ' + getUserFriendlyError(err))
+      showError('Failed to change plan: ' + getUserFriendlyError(err))
     } finally {
       setActionLoading(null)
     }
@@ -543,453 +306,42 @@ export default function SettingsPage() {
 
           {/* Subscription Tab — admin only */}
           {activeTab === 'subscription' && isAdmin && (
-            <>
-              {loading ? (
-                <div className="flex justify-center py-16">
-                  <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
-                </div>
-              ) : error ? (
-                <div className="p-6 bg-red-50 rounded-2xl ring-1 ring-red-200 text-center">
-                  <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                  <p className="text-red-700">{error}</p>
-                  <button
-                    onClick={() => fetchSubscription(true)}
-                    className="mt-4 px-4 py-2 bg-white text-red-600 text-sm font-semibold rounded-xl hover:bg-red-50 transition-colors"
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Current Plan */}
-                  <Section
-                    title="Current Plan"
-                    icon={Zap}
-                    description={currentPlan?.plan?.description || `You're on the ${currentPlan?.plan?.display_name || 'Free'} plan.`}
-                  >
-                    <div className="flex items-center justify-between p-4 bg-gradient-to-br from-brand-50 to-brand-100/50 rounded-2xl ring-1 ring-brand-200 mb-6">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-extrabold text-brand-900 text-xl">{currentPlan?.plan?.display_name}</h4>
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded-full ring-1 ring-green-200">
-                            {currentPlan?.status === 'active' ? 'Active' : currentPlan?.status}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-600 mt-1">
-                          {currentPlan?.price > 0
-                            ? `$${(currentPlan.price / 100).toFixed(0)}/${currentPlan?.billing_cycle === 'monthly' ? 'mo' : 'yr'}`
-                            : 'Free plan'
-                          }
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        {usageStats?.daysUntilReset !== undefined && (
-                          <p className="text-xs text-slate-500">
-                            Resets in <span className="font-medium text-slate-700">{usageStats.daysUntilReset} days</span>
-                          </p>
-                        )}
-                        {currentPlan?.current_period_end && (
-                          <p className="text-xs text-slate-500 mt-1">
-                            Period ends: <span className="font-medium text-slate-700">{new Date(currentPlan.current_period_end).toLocaleDateString()}</span>
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Usage Stats */}
-                    <h5 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4 text-brand-600" />
-                      Usage This Month
-                    </h5>
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      <UsageCard
-                        label="Resume Analyses"
-                        used={usageStats?.analysesUsed || 0}
-                        limit={usageStats?.analysesLimit || 20}
-                      />
-                      <UsageCard
-                        label="Storage Used"
-                        used={usageStats?.storageUsedMB || 0}
-                        limit={(usageStats?.storageLimitGB || 1) * 1024}
-                        unit="MB"
-                      />
-                      <UsageCard
-                        label="Team Members"
-                        used={usageStats?.teamMembers || 1}
-                        limit={usageStats?.teamMembersLimit || 1}
-                      />
-                      <UsageCard
-                        label="Remaining Analyses"
-                        used={remainingAnalyses === Infinity ? 0 : (usageStats?.analysesLimit || 20) - (usageStats?.analysesUsed || 0)}
-                        limit={remainingAnalyses === Infinity ? -1 : usageStats?.analysesLimit || 20}
-                      />
-                    </div>
-
-                    {/* Features */}
-                    <h5 className="font-bold text-slate-800 text-sm mt-6 mb-3 flex items-center gap-2">
-                      <Check className="w-4 h-4 text-brand-600" />
-                      Plan Features
-                    </h5>
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      {planFeatures.map((feature, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm text-slate-700">
-                          <div className="w-5 h-5 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-                            <Check className="w-3 h-3 text-brand-600" />
-                          </div>
-                          {feature}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Admin Controls */}
-                    {user?.role === 'admin' && (
-                      <>
-                        <h5 className="font-bold text-slate-800 text-sm mt-6 mb-3 flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-brand-600" />
-                          Admin Testing Controls
-                        </h5>
-                        <div className="flex gap-2 flex-wrap">
-                          <button
-                            onClick={handleResetUsage}
-                            disabled={actionLoading === 'resetUsage'}
-                            className="flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 text-xs font-semibold rounded-xl hover:bg-amber-100 transition-colors disabled:opacity-50"
-                          >
-                            <RefreshCw className={`w-3 h-3 ${actionLoading === 'resetUsage' ? 'animate-spin' : ''}`} />
-                            {actionLoading === 'resetUsage' ? 'Resetting...' : 'Reset Usage'}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </Section>
-
-                  {/* Available Plans */}
-                  <Section
-                    title="Available Plans"
-                    icon={CreditCard}
-                    description="Upgrade or change your plan at any time"
-                  >
-                    <div className="grid sm:grid-cols-3 gap-4">
-                      {availablePlans.map((plan, index) => {
-                        const isCurrent = currentPlan?.plan?.id === plan.id
-                        const isPopular = plan.name === 'growth' || plan.name === 'pro'
-                        return (
-                          <div
-                            key={plan.id}
-                            className={`relative p-5 rounded-2xl ring-1 transition-all ${
-                              isCurrent
-                                ? 'bg-brand-50 ring-brand-300'
-                                : isPopular
-                                  ? 'bg-white ring-brand-200 shadow-brand'
-                                  : 'bg-white ring-brand-100'
-                            } ${isCurrent ? '' : 'hover:shadow-brand-lg'}`}
-                          >
-                            {isPopular && !isCurrent && (
-                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded-full shadow-brand-sm">
-                                Most Popular
-                              </div>
-                            )}
-                            {isCurrent && (
-                              <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center">
-                                <Check className="w-4 h-4" />
-                              </div>
-                            )}
-                            <h4 className="font-extrabold text-brand-900 text-lg">{plan.display_name}</h4>
-                            <p className={`mt-1 font-bold text-brand-900 ${isSalesLedPlan(plan) ? 'text-lg' : 'text-2xl'}`}>
-                              {formatPlanPrice(plan)}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1">{plan.description}</p>
-                            <ul className="mt-4 space-y-2">
-                              {sanitizePlanFeatures(plan.features).slice(0, 5).map((feature, i) => (
-                                <li key={i} className="flex items-center gap-2 text-xs text-slate-700">
-                                  <div className="w-4 h-4 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 text-brand-600" />
-                                  </div>
-                                  {feature}
-                                </li>
-                              ))}
-                            </ul>
-                            {user?.role === 'admin' ? (
-                              isSalesLedPlan(plan) ? (
-                                <a
-                                  href={`mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry`}
-                                  className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all block text-center ${
-                                    isCurrent
-                                      ? 'bg-brand-200 text-brand-700 cursor-default pointer-events-none'
-                                      : 'btn-brand text-white shadow-brand-sm'
-                                  }`}
-                                >
-                                  {isCurrent ? 'Current Plan' : 'Contact Sales'}
-                                </a>
-                              ) : (
-                                <button
-                                  onClick={() => handleChangePlan(plan)}
-                                  disabled={isCurrent || actionLoading?.startsWith('changePlan')}
-                                  className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                    isCurrent
-                                      ? 'bg-brand-200 text-brand-700 cursor-default'
-                                      : 'btn-brand text-white shadow-brand-sm disabled:opacity-50'
-                                  }`}
-                                >
-                                  {isCurrent ? 'Current Plan' : actionLoading === `changePlan-${plan.id}` ? 'Changing...' : actionLoading?.startsWith('changePlan') ? 'Please wait...' : 'Switch Plan'}
-                                </button>
-                              )
-                            ) : (
-                              <button
-                                disabled={isCurrent}
-                                className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                  isCurrent
-                                    ? 'bg-brand-200 text-brand-700 cursor-default'
-                                    : isSalesLedPlan(plan)
-                                      ? 'btn-brand text-white shadow-brand-sm'
-                                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                }`}
-                                onClick={isSalesLedPlan(plan) && !isCurrent
-                                  ? () => { window.location.href = `mailto:${SALES_CONTACT_EMAIL}?subject=ARIA Enterprise Plan Inquiry` }
-                                  : undefined}
-                              >
-                                {isCurrent ? 'Current Plan' : isSalesLedPlan(plan) ? 'Contact Sales' : 'Contact Admin'}
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </Section>
-                </>
-              )}
-            </>
+            <SubscriptionSettingsPanel
+              loading={loading}
+              error={error}
+              onRetry={() => fetchSubscription(true)}
+              currentPlan={currentPlan}
+              usageStats={usageStats}
+              remainingAnalyses={remainingAnalyses}
+              planFeatures={planFeatures}
+              availablePlans={availablePlans}
+              user={user}
+              actionLoading={actionLoading}
+              onResetUsage={handleResetUsage}
+              onChangePlan={handleChangePlan}
+            />
           )}
 
           {/* Billing History Tab */}
           {activeTab === 'billing' && isAdmin && (
-            <>
-              {/* Upcoming Billing */}
-              <Section
-                title="Upcoming Billing"
-                icon={Calendar}
-                description="Your next scheduled payment"
-              >
-                {currentPlan?.price > 0 ? (
-                  <div className="p-4 bg-gradient-to-br from-brand-50 to-brand-100/50 rounded-2xl ring-1 ring-brand-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-600">Next billing date</p>
-                        <p className="font-bold text-brand-900 text-lg mt-0.5">
-                          {currentPlan?.current_period_end
-                            ? new Date(currentPlan.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-                            : 'N/A'}
-                        </p>
-                      </div>
-                      <div className="sm:text-right">
-                        <p className="text-sm font-medium text-slate-600">Amount</p>
-                        <p className="font-bold text-brand-900 text-lg mt-0.5">
-                          ${((currentPlan?.price || 0) / 100).toFixed(2)}
-                          <span className="text-sm font-medium text-slate-500">/{currentPlan?.billing_cycle === 'monthly' ? 'mo' : 'yr'}</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-slate-50 rounded-2xl ring-1 ring-slate-200 text-center">
-                    <p className="text-slate-600 text-sm">You're on the free plan. No upcoming charges.</p>
-                  </div>
-                )}
-              </Section>
-
-              {/* Invoice List */}
-              <Section
-                title="Invoice History"
-                icon={FileText}
-                description="View and download your past invoices"
-              >
-                {invoicesLoading ? (
-                  <div className="flex justify-center py-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
-                  </div>
-                ) : invoicesError ? (
-                  <div className="p-4 bg-red-50 rounded-2xl ring-1 ring-red-200 text-center">
-                    <AlertTriangle className="w-6 h-6 text-red-500 mx-auto mb-2" />
-                    <p className="text-red-700 text-sm">{invoicesError}</p>
-                    <button
-                      onClick={() => fetchInvoices(0)}
-                      className="mt-3 px-3 py-1.5 bg-white text-red-600 text-xs font-semibold rounded-xl hover:bg-red-50 transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : invoices.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-500 font-medium">No invoices yet</p>
-                    <p className="text-slate-400 text-sm mt-1">Invoices will appear here once you make a payment</p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Desktop Table */}
-                    <div className="hidden sm:block overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-brand-100">
-                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice #</th>
-                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Description</th>
-                            <th className="text-right py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
-                            <th className="text-center py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                            <th className="text-right py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {invoices.map((inv) => (
-                            <InvoiceRow
-                              key={inv.id}
-                              invoice={inv}
-                              isExpanded={expandedInvoice === inv.id}
-                              onToggle={() => {
-                                if (expandedInvoice === inv.id) {
-                                  setExpandedInvoice(null)
-                                } else {
-                                  setExpandedInvoice(inv.id)
-                                  if (!invoiceDetail || invoiceDetail?.id !== inv.id) {
-                                    fetchInvoiceDetail(inv.id)
-                                  }
-                                }
-                              }}
-                              onViewDetail={() => {
-                                setSelectedInvoice(inv)
-                                fetchInvoiceDetail(inv.id)
-                              }}
-                            />
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Mobile Cards */}
-                    <div className="sm:hidden space-y-3">
-                      {invoices.map((inv) => (
-                        <InvoiceCard
-                          key={inv.id}
-                          invoice={inv}
-                          onViewDetail={() => {
-                            setSelectedInvoice(inv)
-                            fetchInvoiceDetail(inv.id)
-                          }}
-                        />
-                      ))}
-                    </div>
-
-                    {/* Pagination */}
-                    {invoicesTotal > invoicesPerPage && (
-                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-brand-100">
-                        <p className="text-xs text-slate-500">
-                          Showing {invoicesPage * invoicesPerPage + 1}–{Math.min((invoicesPage + 1) * invoicesPerPage, invoicesTotal)} of {invoicesTotal}
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => fetchInvoices(invoicesPage - 1)}
-                            disabled={invoicesPage === 0}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <ArrowLeft className="w-3 h-3" />
-                            Prev
-                          </button>
-                          <button
-                            onClick={() => fetchInvoices(invoicesPage + 1)}
-                            disabled={(invoicesPage + 1) * invoicesPerPage >= invoicesTotal}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            Next
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </Section>
-
-              {/* Expanded Invoice Detail (inline) */}
-              {expandedInvoice && invoiceDetail && invoiceDetail.id === expandedInvoice && (
-                <Section
-                  title={`Invoice ${invoiceDetail.invoice_number}`}
-                  icon={FileText}
-                  description="Invoice details"
-                >
-                  <div className="space-y-4">
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status</p>
-                        <StatusBadge status={invoiceDetail.status} className="mt-1" />
-                      </div>
-                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Amount</p>
-                        <p className="font-bold text-brand-900 mt-1">{formatCurrency(invoiceDetail.amount, invoiceDetail.currency)}</p>
-                      </div>
-                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Period</p>
-                        <p className="text-sm text-slate-700 mt-1">
-                          {formatDate(invoiceDetail.period_start)} — {formatDate(invoiceDetail.period_end)}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Payment Provider</p>
-                        <p className="text-sm text-slate-700 mt-1 capitalize">{invoiceDetail.payment_provider || 'N/A'}</p>
-                      </div>
-                      {invoiceDetail.issued_at && (
-                        <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Issued</p>
-                          <p className="text-sm text-slate-700 mt-1">{formatDate(invoiceDetail.issued_at)}</p>
-                        </div>
-                      )}
-                      {invoiceDetail.paid_at && (
-                        <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Paid</p>
-                          <p className="text-sm text-slate-700 mt-1">{formatDate(invoiceDetail.paid_at)}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Line Items */}
-                    {invoiceDetail.line_items && invoiceDetail.line_items.length > 0 && (
-                      <div>
-                        <h5 className="font-bold text-slate-800 text-sm mb-2">Line Items</h5>
-                        <div className="space-y-2">
-                          {invoiceDetail.line_items.map((item, i) => (
-                            <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200">
-                              <div>
-                                <p className="text-sm font-medium text-slate-700">{item.description}</p>
-                                {item.quantity > 1 && <p className="text-xs text-slate-400">Qty: {item.quantity}</p>}
-                              </div>
-                              <p className="font-semibold text-slate-900">{formatCurrency(item.amount, invoiceDetail.currency)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex justify-end mt-4">
-                    <button
-                      onClick={() => setExpandedInvoice(null)}
-                      className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors"
-                    >
-                      Close Details
-                    </button>
-                  </div>
-                </Section>
-              )}
-
-              {/* Invoice Detail Modal */}
-              {selectedInvoice && (
-                <InvoiceDetailModal
-                  invoice={invoiceDetail || selectedInvoice}
-                  loading={invoiceDetailLoading}
-                  onClose={() => {
-                    setSelectedInvoice(null)
-                    setInvoiceDetail(null)
-                  }}
-                />
-              )}
-            </>
+            <BillingHistoryPanel
+              currentPlan={currentPlan}
+              invoicesLoading={invoicesLoading}
+              invoicesError={invoicesError}
+              invoices={invoices}
+              invoicesTotal={invoicesTotal}
+              invoicesPage={invoicesPage}
+              invoicesPerPage={invoicesPerPage}
+              fetchInvoices={fetchInvoices}
+              expandedInvoice={expandedInvoice}
+              setExpandedInvoice={setExpandedInvoice}
+              invoiceDetail={invoiceDetail}
+              fetchInvoiceDetail={fetchInvoiceDetail}
+              selectedInvoice={selectedInvoice}
+              setSelectedInvoice={setSelectedInvoice}
+              setInvoiceDetail={setInvoiceDetail}
+              invoiceDetailLoading={invoiceDetailLoading}
+            />
           )}
 
           {/* Team & Access Tab */}
@@ -1002,11 +354,11 @@ export default function SettingsPage() {
               >
                 <div className="space-y-4">
                   <div className="p-4 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Organization Name</label>
+                    <p className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Organization Name</p>
                     <p className="font-semibold text-brand-900">{tenant?.name || 'Your Organization'}</p>
                   </div>
                   <div className="p-4 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Tenant ID</label>
+                    <p className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Tenant ID</p>
                     <p className="font-mono text-sm text-slate-600">{tenant?.slug || 'your-org'}</p>
                   </div>
                   <div className="flex gap-2 mt-4">
@@ -1082,9 +434,9 @@ export default function SettingsPage() {
 
           {activeTab === 'integrations' && (
             <Section
-              title="ATS & External Systems"
+              title="API connections"
               icon={Plug}
-              description="Push and pull candidate status with your applicant tracking system"
+              description="Connect your ATS via webhook or HTTP API. ARIA is not an ATS."
             >
               <ATSIntegrationsPanel />
             </Section>
@@ -1113,9 +465,11 @@ export default function SettingsPage() {
                 }].map(({ id, label, description }) => (
                   <label
                     key={id}
+                    htmlFor={`notif-${id}`}
                     className="flex items-start gap-4 p-4 bg-brand-50/30 rounded-2xl ring-1 ring-brand-100 cursor-pointer hover:bg-brand-50/50 transition-colors"
                   >
                     <input
+                      id={`notif-${id}`}
                       type="checkbox"
                       checked={profile.notifications[id]}
                       onChange={(e) => setProfile(prev => ({
@@ -1124,10 +478,10 @@ export default function SettingsPage() {
                       }))}
                       className="mt-0.5 w-5 h-5 rounded-lg border-brand-300 text-brand-600 focus:ring-brand-500"
                     />
-                    <div className="flex-1">
-                      <p className="font-semibold text-slate-800 text-sm">{label}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{description}</p>
-                    </div>
+                    <span className="flex-1 font-semibold text-slate-800 text-sm">
+                      {label}
+                      <span className="block text-xs font-normal text-slate-500 mt-0.5">{description}</span>
+                    </span>
                   </label>
                 ))}
               </div>
@@ -1161,8 +515,8 @@ export default function SettingsPage() {
                   )}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Brand name</label>
-                      <input
+                      <label htmlFor="settingspage-brand-name-1" className="block text-sm font-semibold text-slate-700 mb-1">Brand name</label>
+                      <input id="settingspage-brand-name-1"
                         type="text"
                         value={brandingForm.brand_name}
                         onChange={(e) => setBrandingForm((f) => ({ ...f, brand_name: e.target.value }))}
@@ -1171,8 +525,8 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Primary color</label>
-                      <input
+                      <label htmlFor="settingspage-primary-color-2" className="block text-sm font-semibold text-slate-700 mb-1">Primary color</label>
+                      <input id="settingspage-primary-color-2"
                         type="color"
                         value={brandingForm.brand_primary_color}
                         onChange={(e) => setBrandingForm((f) => ({ ...f, brand_primary_color: e.target.value }))}
@@ -1180,8 +534,8 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Logo URL</label>
-                      <input
+                      <label htmlFor="settingspage-logo-url-3" className="block text-sm font-semibold text-slate-700 mb-1">Logo URL</label>
+                      <input id="settingspage-logo-url-3"
                         type="url"
                         value={brandingForm.brand_logo_url}
                         onChange={(e) => setBrandingForm((f) => ({ ...f, brand_logo_url: e.target.value }))}
@@ -1190,8 +544,8 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Favicon URL</label>
-                      <input
+                      <label htmlFor="settingspage-favicon-url-4" className="block text-sm font-semibold text-slate-700 mb-1">Favicon URL</label>
+                      <input id="settingspage-favicon-url-4"
                         type="url"
                         value={brandingForm.brand_favicon_url}
                         onChange={(e) => setBrandingForm((f) => ({ ...f, brand_favicon_url: e.target.value }))}
@@ -1200,8 +554,8 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Custom domain</label>
-                      <input
+                      <label htmlFor="settingspage-custom-domain-5" className="block text-sm font-semibold text-slate-700 mb-1">Custom domain</label>
+                      <input id="settingspage-custom-domain-5"
                         type="text"
                         value={brandingForm.custom_domain}
                         onChange={(e) => setBrandingForm((f) => ({ ...f, custom_domain: e.target.value }))}
@@ -1235,8 +589,8 @@ export default function SettingsPage() {
               >
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
-                    <input
+                    <label htmlFor="settingspage-email-address-6" className="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
+                    <input id="settingspage-email-address-6"
                       type="email"
                       value={profile.email}
                       disabled
@@ -1247,25 +601,61 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Current Password</label>
+                    <label htmlFor="current-password" className="block text-sm font-medium text-slate-700 mb-1.5">Current Password</label>
                     <input
+                      id="current-password"
                       type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="••••••••"
-                      disabled
                       autoComplete="current-password"
-                      className="w-full px-4 py-2.5 bg-slate-50 rounded-xl text-sm text-slate-500 ring-1 ring-slate-200 cursor-not-allowed"
+                      className="w-full px-4 py-2.5 rounded-xl text-sm ring-1 ring-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="new-password" className="block text-sm font-medium text-slate-700 mb-1.5">New Password</label>
+                    <input
+                      id="new-password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Min. 10 characters"
+                      autoComplete="new-password"
+                      className="w-full px-4 py-2.5 rounded-xl text-sm ring-1 ring-slate-200"
                     />
                   </div>
 
                   <div className="flex gap-2 pt-2">
                     <button
-                      onClick={() => alert('Password change coming soon')}
-                      className="px-4 py-2.5 bg-brand-50 text-brand-700 text-sm font-semibold rounded-xl hover:bg-brand-100 transition-colors"
+                      type="button"
+                      disabled={passwordSaving || !currentPassword || !newPassword}
+                      onClick={async () => {
+                        setPasswordSaving(true)
+                        try {
+                          await changePassword(currentPassword, newPassword)
+                          showSuccess('Password updated')
+                          setCurrentPassword('')
+                          setNewPassword('')
+                        } catch (err) {
+                          showError(err.response?.data?.detail || 'Failed to change password')
+                        } finally {
+                          setPasswordSaving(false)
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-brand-50 text-brand-700 text-sm font-semibold rounded-xl hover:bg-brand-100 transition-colors disabled:opacity-50"
                     >
-                      Change Password
+                      {passwordSaving ? 'Saving…' : 'Change Password'}
                     </button>
                   </div>
                 </div>
+              </Section>
+
+              <Section
+                title="Multi-factor authentication"
+                icon={Key}
+                description="Required for workspace admins and platform roles"
+              >
+                <MfaSettingsPanel />
               </Section>
 
               <Section
@@ -1297,8 +687,14 @@ export default function SettingsPage() {
                       <p className="text-xs text-red-600 mt-0.5">This will permanently delete your account and all data</p>
                     </div>
                     <button
-                      onClick={() => {
-                        if (confirm('Are you sure? This cannot be undone.')) logout()
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Delete account',
+                          message: 'Are you sure? This cannot be undone.',
+                          confirmLabel: 'Delete',
+                          danger: true,
+                        })
+                        if (ok) logout()
                       }}
                       className="px-4 py-2 bg-red-100 text-red-700 text-sm font-semibold rounded-xl hover:bg-red-200 transition-colors"
                     >
@@ -1311,6 +707,7 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+      {dialog}
     </div>
   )
 }

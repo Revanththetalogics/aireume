@@ -171,10 +171,11 @@ export default function ComparePage() {
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
                 {history.map(r => (
-                  <div
+                  <button
+                    type="button"
                     key={r.id}
                     onClick={() => toggleSelect(r.id)}
-                    className={`flex items-center gap-3 p-3 rounded-2xl ring-1 cursor-pointer transition-all ${
+                    className={`flex items-center gap-3 p-3 rounded-2xl ring-1 cursor-pointer transition-all w-full text-left bg-transparent ${
                       selected.includes(r.id)
                         ? 'ring-brand-300 bg-brand-50'
                         : 'ring-slate-200 hover:ring-brand-200 hover:bg-brand-50/40'
@@ -207,7 +208,7 @@ export default function ComparePage() {
                         r.final_recommendation === 'Pending'   ? 'text-slate-400' : 'text-amber-700'
                       }`}>{safeStr(r.final_recommendation)}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

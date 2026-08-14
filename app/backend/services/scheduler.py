@@ -27,50 +27,34 @@ def process_dunning_retries():
 
 
 def recover_stale_jobs():
-    """Reset stale jobs (processing but lease expired) back to queued.
-
-    A job is considered stale when its status is 'processing' but
-    leased_until has already passed, meaning the worker died or timed out.
-    Jobs that have reached max_retries are marked failed instead.
-    """
-    from app.backend.services.queue_manager import AnalysisJob
+    """Single stale-job recovery path — delegates entirely to QueueManager."""
+    import asyncio
+    from app.backend.services.queue_manager import QueueManager
 
     db = SessionLocal()
     try:
-        now = datetime.now(timezone.utc)
-        stale_jobs = (
-            db.query(AnalysisJob)
-            .filter(
-                AnalysisJob.status == "processing",
-                AnalysisJob.leased_until < now,
-            )
-            .all()
-        )
-        for job in stale_jobs:
-            if job.retry_count < job.max_retries:
-                job.status = "queued"
-                job.leased_until = None
-                job.retry_count += 1
-                logger.warning(
-                    "Recovered stale job %s (retry %d/%d)",
-                    job.id,
-                    job.retry_count,
-                    job.max_retries,
-                )
-            else:
-                job.status = "failed"
-                job.error_message = "Job exceeded max retries after lease expiry."
-                logger.error(
-                    "Job %s exceeded max retries (%d), marking failed",
-                    job.id,
-                    job.max_retries,
-                )
-        db.commit()
-        if stale_jobs:
-            logger.info("Recovered %d stale jobs", len(stale_jobs))
+        mgr = QueueManager()
+        asyncio.run(mgr.recover_stale_jobs(db))
     except Exception as exc:
         logger.error("Stale job recovery failed: %s", exc, exc_info=True)
         db.rollback()
+    finally:
+        db.close()
+
+
+def gdpr_cleanup_job():
+    from app.backend.services.gdpr_service import cleanup_expired_data
+    db = SessionLocal()
+    try:
+        result = cleanup_expired_data(db)
+        logger.info("GDPR cleanup complete: %s", result)
+        try:
+            from app.backend.services.metrics import GDPR_PURGE_TOTAL
+            GDPR_PURGE_TOTAL.inc()
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.error("GDPR cleanup failed: %s", exc, exc_info=True)
     finally:
         db.close()
 
@@ -137,6 +121,14 @@ def start_scheduler():
         process_scheduled_reports,
         trigger=IntervalTrigger(hours=1),
         id="scheduled_analytics_reports",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
+    scheduler.add_job(
+        gdpr_cleanup_job,
+        trigger=IntervalTrigger(hours=6),
+        id="gdpr_cleanup",
         replace_existing=True,
         misfire_grace_time=300,
     )

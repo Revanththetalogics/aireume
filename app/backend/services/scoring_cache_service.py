@@ -71,6 +71,17 @@ def get_cached_result(
 
     key = _compute_cache_key(resume_text, jd_text, scoring_weights, tenant_id)
 
+    try:
+        from app.backend.services.shared_cache import cache_get
+        redis_hit = cache_get(key)
+        if isinstance(redis_hit, dict) and redis_hit.get("result"):
+            result = redis_hit["result"]
+            result["_cached"] = True
+            result["_cache_key"] = key[:40]
+            return result
+    except Exception:
+        pass
+
     # Check memory cache
     cached = _memory_cache.get(key)
     if cached:
@@ -135,6 +146,12 @@ def cache_result(
         return ""
 
     key = _compute_cache_key(resume_text, jd_text, scoring_weights, tenant_id)
+
+    try:
+        from app.backend.services.shared_cache import cache_set
+        cache_set(key, {"result": result}, ttl_seconds=int(DEFAULT_CACHE_TTL_HOURS * 3600))
+    except Exception:
+        pass
 
     # Store in memory cache
     _memory_cache[key] = {

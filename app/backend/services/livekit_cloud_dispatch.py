@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from app.backend.services.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
 from app.voice_agent.livekit_dispatch import dispatch_cloud_screening_call
 from app.voice_agent.voice_flow_log import log_step
 
@@ -21,7 +22,20 @@ logger = logging.getLogger(__name__)
 ARIA_BACKEND_URL = os.getenv("ARIA_BACKEND_URL", "http://backend:8000")
 # When running inside the backend container, use the internal URL for self-callbacks.
 BACKEND_INTERNAL_URL = os.getenv("BACKEND_INTERNAL_URL", ARIA_BACKEND_URL)
-INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "dev-internal-service-secret")
+
+def _internal_service_secret() -> str:
+    secret = os.getenv("INTERNAL_SERVICE_SECRET")
+    if secret:
+        return secret
+    if os.getenv("TESTING", "").lower() in ("1", "true"):
+        return "test-internal-service-secret"
+    env = os.getenv("ENVIRONMENT", "development")
+    if env in ("development", "dev"):
+        return ""
+    raise RuntimeError("INTERNAL_SERVICE_SECRET must be set (no hardcoded fallback)")
+
+
+INTERNAL_SERVICE_SECRET = _internal_service_secret()
 INTERNAL_HEADERS = {"X-Internal-Secret": INTERNAL_SERVICE_SECRET}
 
 
@@ -29,34 +43,50 @@ def is_cloud_voice_enabled() -> bool:
     return os.getenv("LIVEKIT_CLOUD_VOICE", "").strip().lower() in ("1", "true", "yes")
 
 
+async def _http_get(url: str) -> httpx.Response:
+    breaker = get_circuit_breaker("outbound_http")
+
+    async def _do_get():
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await client.get(url, headers=INTERNAL_HEADERS)
+
+    try:
+        return await breaker.call(_do_get)
+    except CircuitBreakerOpenError:
+        logger.warning("Outbound HTTP circuit open for %s", url)
+        raise
+
+
 async def _fetch_tenant_config(tenant_id: int, *, session_id: int | str | None = None) -> dict:
     url = f"{BACKEND_INTERNAL_URL}/api/voice/internal/config/{tenant_id}"
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(url, headers=INTERNAL_HEADERS)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if resp.status_code == 200:
-            data = resp.json()
-            log_step(
-                logger,
-                session_id,
-                "internal_config_ok",
-                tenant_id=tenant_id,
-                status=resp.status_code,
-                elapsed_ms=elapsed_ms,
-                company_name=data.get("company_name"),
-            )
-            return data
+    try:
+        resp = await _http_get(url)
+    except CircuitBreakerOpenError:
+        return {}
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if resp.status_code == 200:
+        data = resp.json()
         log_step(
             logger,
             session_id,
-            "internal_config_failed",
-            level=logging.WARNING,
+            "internal_config_ok",
             tenant_id=tenant_id,
             status=resp.status_code,
             elapsed_ms=elapsed_ms,
-            url=url,
+            company_name=data.get("company_name"),
         )
+        return data
+    log_step(
+        logger,
+        session_id,
+        "internal_config_failed",
+        level=logging.WARNING,
+        tenant_id=tenant_id,
+        status=resp.status_code,
+        elapsed_ms=elapsed_ms,
+        url=url,
+    )
     return {}
 
 
@@ -68,33 +98,35 @@ async def _fetch_candidate_context(
 ) -> dict:
     url = f"{BACKEND_INTERNAL_URL}/api/voice/internal/candidate/{tenant_id}/{candidate_id}"
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(url, headers=INTERNAL_HEADERS)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if resp.status_code == 200:
-            data = resp.json()
-            log_step(
-                logger,
-                session_id,
-                "internal_candidate_ok",
-                tenant_id=tenant_id,
-                candidate_id=candidate_id,
-                status=resp.status_code,
-                elapsed_ms=elapsed_ms,
-                candidate_name=data.get("name"),
-            )
-            return data
+    try:
+        resp = await _http_get(url)
+    except CircuitBreakerOpenError:
+        return {}
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if resp.status_code == 200:
+        data = resp.json()
         log_step(
             logger,
             session_id,
-            "internal_candidate_failed",
-            level=logging.WARNING,
+            "internal_candidate_ok",
             tenant_id=tenant_id,
             candidate_id=candidate_id,
             status=resp.status_code,
             elapsed_ms=elapsed_ms,
-            url=url,
+            candidate_name=data.get("name"),
         )
+        return data
+    log_step(
+        logger,
+        session_id,
+        "internal_candidate_failed",
+        level=logging.WARNING,
+        tenant_id=tenant_id,
+        candidate_id=candidate_id,
+        status=resp.status_code,
+        elapsed_ms=elapsed_ms,
+        url=url,
+    )
     return {}
 
 

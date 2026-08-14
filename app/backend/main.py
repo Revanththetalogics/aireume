@@ -82,7 +82,7 @@ def _validate_environment() -> None:
     warnings = []
 
     # Required in production
-    required_production = ["JWT_SECRET_KEY", "DATABASE_URL", "POSTGRES_PASSWORD"]
+    required_production = ["JWT_SECRET_KEY", "DATABASE_URL", "POSTGRES_PASSWORD", "REDIS_URL", "INTERNAL_SERVICE_SECRET"]
     for var in required_production:
         value = os.getenv(var)
         if not value or value.startswith("change-me") or value.startswith("change-this"):
@@ -100,6 +100,10 @@ def _validate_environment() -> None:
     if env == "production":
         if os.getenv("LIVEKIT_API_KEY") == "devkey" or os.getenv("LIVEKIT_API_SECRET") == "devsecret":
             missing_vars.append("LIVEKIT_API_KEY/LIVEKIT_API_SECRET (dev defaults not allowed in production)")
+        if not os.getenv("S3_ENDPOINT") or not os.getenv("S3_BUCKET"):
+            missing_vars.append("S3_ENDPOINT/S3_BUCKET (object storage required in production)")
+        if not os.getenv("SENTRY_DSN"):
+            warnings.append("SENTRY_DSN not set — error reporting will be local-only")
         # CORS_ORIGINS wildcard is a security risk in production.
         cors = os.getenv("CORS_ORIGINS", "")
         if cors.strip() == "*" or "*" in [o.strip() for o in cors.split(",")]:
@@ -135,6 +139,10 @@ from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.middleware.csrf import CSRFMiddleware
 from app.backend.middleware.rate_limit import RateLimitMiddleware
 from app.backend.middleware.auth import require_feature
+from app.backend.middleware.idempotency import IdempotencyMiddleware
+from app.backend.services.observability import init_observability
+
+init_observability()
 from app.backend.routes import analyze
 from app.backend.routes import auth
 from app.backend.routes import compare
@@ -170,6 +178,7 @@ from app.backend.routes import oauth
 from app.backend.routes import crm
 from app.backend.routes import branding
 from app.backend.routes import nps
+from app.backend.routes import client_errors
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -189,7 +198,7 @@ def _check(ok: bool) -> str:
 def _print_startup_banner(checks: dict) -> None:
     """Print a one-glance startup status table to stdout (captured by docker logs)."""
     if not checks:
-        print("\n[ARIA startup] No dependency checks ran.\n", flush=True)
+        logger.info("\n[ARIA startup] No dependency checks ran.")
         return
 
     overall_ok = all(v["ok"] for v in checks.values())
@@ -213,8 +222,7 @@ def _print_startup_banner(checks: dict) -> None:
         _banner_line(f"  Status : {status_label}"),
         f"╚{'═' * (W + 2)}╝",
     ]
-    # Use print so it always appears in docker logs regardless of log level
-    print("\n" + "\n".join(lines) + "\n", flush=True)
+    logger.info("\n" + "\n".join(lines))
 
 
 async def _startup_checks() -> dict:
@@ -370,8 +378,7 @@ async def lifespan(app: FastAPI):
         checks = await _startup_checks()
         _print_startup_banner(checks)
     except Exception as e:
-        log.exception("Startup checks failed — API will still start: %s", e)
-        print(f"\n[ARIA startup ERROR] {type(e).__name__}: {e}\n", flush=True)
+        logger.exception("Startup checks failed — API will still start: %s", e)
 
     # Start Ollama health sentinel only when local/cloud Ollama is used for analysis
     try:
@@ -389,44 +396,55 @@ async def lifespan(app: FastAPI):
     # Start JD cache cleanup task
     jd_cache_cleanup_task = asyncio.create_task(_cleanup_jd_cache())
 
-    # Start queue worker
-    queue_worker_task = None
-    try:
-        from app.backend.services.queue_manager import start_queue_worker
-        await start_queue_worker()
-        log.info("Queue worker started successfully")
-    except Exception as e:
-        log.exception("Failed to start queue worker: %s", e)
+    # Start background workers only in the dedicated worker process (or single-process dev).
+    run_workers = os.getenv("RUN_BACKGROUND_WORKERS", "").strip().lower() in ("1", "true", "yes")
+    if not run_workers and os.getenv("ENVIRONMENT", "development") != "production":
+        # Default on for local/dev/test so existing workflows keep working.
+        run_workers = True
+    if os.getenv("TESTING", "").lower() in ("1", "true"):
+        run_workers = False
 
-    # Start O*NET background sync (daemon thread — non-blocking, graceful on failure)
-    try:
-        def _onet_bg_sync():
-            try:
-                from app.backend.services.onet.onet_sync import sync_if_stale
-                sync_if_stale(max_age_days=30)
-            except Exception as exc:
-                log.warning("O*NET startup sync skipped: %s", exc)
+    if run_workers:
+        # Start queue worker
+        queue_worker_task = None
+        try:
+            from app.backend.services.queue_manager import start_queue_worker
+            await start_queue_worker()
+            log.info("Queue worker started successfully")
+        except Exception as e:
+            log.exception("Failed to start queue worker: %s", e)
 
-        onet_thread = threading.Thread(
-            target=_onet_bg_sync, daemon=True, name="onet-sync"
-        )
-        onet_thread.start()
-    except Exception as e:
-        log.exception("Failed to start O*NET background sync thread: %s", e)
+        # Start O*NET background sync (daemon thread — non-blocking, graceful on failure)
+        try:
+            def _onet_bg_sync():
+                try:
+                    from app.backend.services.onet.onet_sync import sync_if_stale
+                    sync_if_stale(max_age_days=30)
+                except Exception as exc:
+                    log.warning("O*NET startup sync skipped: %s", exc)
 
-    # Start background scheduler (dunning retries, etc.)
-    try:
-        from app.backend.services.scheduler import start_scheduler
-        start_scheduler()
-    except Exception as e:
-        log.exception("Failed to start background scheduler: %s", e)
+            onet_thread = threading.Thread(
+                target=_onet_bg_sync, daemon=True, name="onet-sync"
+            )
+            onet_thread.start()
+        except Exception as e:
+            log.exception("Failed to start O*NET background sync thread: %s", e)
 
-    # Start voice call scheduler (screening call scheduling + retries)
-    try:
-        from app.backend.services.voice_call_scheduler import start_voice_scheduler
-        start_voice_scheduler()
-    except Exception as e:
-        log.exception("Failed to start voice call scheduler: %s", e)
+        # Start background scheduler (dunning retries, etc.)
+        try:
+            from app.backend.services.scheduler import start_scheduler
+            start_scheduler()
+        except Exception as e:
+            log.exception("Failed to start background scheduler: %s", e)
+
+        # Start voice call scheduler (screening call scheduling + retries)
+        try:
+            from app.backend.services.voice_call_scheduler import start_voice_scheduler
+            start_voice_scheduler()
+        except Exception as e:
+            log.exception("Failed to start voice call scheduler: %s", e)
+    else:
+        log.info("Inline background workers disabled (RUN_BACKGROUND_WORKERS not set)")
 
     yield
 
@@ -518,9 +536,53 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-CSRF-Token",
+        "X-Request-ID",
+        "X-Idempotency-Key",
+        "X-Impersonation-Token",
+        "X-ARIA-Token-Grant",
+        "X-Internal-Service-Secret",
+        "X-Metrics-Token",
+        "X-Signature",
+    ],
 )
+
+class _OpsAuthMiddleware(BaseHTTPMiddleware):
+    """Lock down diagnostics in production. /health stays public."""
+    PROTECTED = {"/metrics", "/api/health/deep", "/api/llm-status"}
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in self.PROTECTED:
+            testing = os.getenv("TESTING", "").lower() in ("1", "true")
+            if not testing and os.getenv("ENVIRONMENT") == "production":
+                expected = os.getenv("METRICS_TOKEN") or os.getenv("INTERNAL_SERVICE_SECRET") or ""
+                provided = (
+                    request.headers.get("X-Metrics-Token")
+                    or request.headers.get("X-Internal-Service-Secret")
+                    or ""
+                )
+                if not expected or provided != expected:
+                    return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return await call_next(request)
+
+
+class _APIV1RewriteMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if path.startswith("/api/v1/"):
+            request.scope["path"] = "/api/" + path[len("/api/v1/"):]
+        elif path == "/api/v1":
+            request.scope["path"] = "/api"
+        return await call_next(request)
+
+
+app.add_middleware(_OpsAuthMiddleware)
+app.add_middleware(_APIV1RewriteMiddleware)
+app.add_middleware(IdempotencyMiddleware)
 
 # ─── Rate Limiting ────────────────────────────────────────────────────────────
 
@@ -555,6 +617,7 @@ app.include_router(video.router, dependencies=_plan_gate("video_analysis"))
 app.include_router(transcript.router, dependencies=_plan_gate("transcript_analysis"))
 app.include_router(subscription.router)
 app.include_router(queue_api.router)
+app.include_router(queue_api.router, prefix="/api")
 app.include_router(admin.router)
 app.include_router(crm.router)
 app.include_router(branding.router)
@@ -580,6 +643,7 @@ app.include_router(ats.router)
 app.include_router(tenant_audit.router)
 app.include_router(share_links.router)
 app.include_router(share_links.public_router)
+app.include_router(client_errors.router)
 
 
 # ─── Request Size Limits ───────────────────────────────────────────────────────
@@ -676,10 +740,16 @@ def root():
 
 @app.get("/health")
 async def health_check():
-    """
-    Shallow health check — FAST (<10ms), just confirms the process is alive.
-    Used by Docker/nginx for container health checks. No DB queries or external calls.
-    """
+    """Liveness + cheap DB ping for orchestrators."""
+    try:
+        from sqlalchemy import text
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "database": "disconnected"})
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),

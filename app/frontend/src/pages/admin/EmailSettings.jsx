@@ -277,10 +277,10 @@ export default function EmailSettings() {
           <h3 className="font-extrabold text-brand-900 tracking-tight mb-5">SMTP Configuration</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="md:col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label htmlFor="emailsettings-smtp-host-1" className="block text-sm font-bold text-slate-700 mb-1.5">
                 SMTP Host <span className="text-red-500">*</span>
               </label>
-              <input
+              <input id="emailsettings-smtp-host-1"
                 type="text"
                 value={form.smtp_host}
                 onChange={(e) => handleChange('smtp_host', e.target.value)}
@@ -290,10 +290,10 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label htmlFor="emailsettings-smtp-port-2" className="block text-sm font-bold text-slate-700 mb-1.5">
                 SMTP Port <span className="text-red-500">*</span>
               </label>
-              <input
+              <input id="emailsettings-smtp-port-2"
                 type="number"
                 value={form.smtp_port}
                 onChange={(e) => handleChange('smtp_port', parseInt(e.target.value, 10) || 0)}
@@ -303,8 +303,8 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Encryption Type</label>
-              <select
+              <label htmlFor="emailsettings-encryption-type-3" className="block text-sm font-bold text-slate-700 mb-1.5">Encryption Type</label>
+              <select id="emailsettings-encryption-type-3"
                 value={form.encryption_type}
                 onChange={(e) => handleChange('encryption_type', e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"
@@ -316,8 +316,8 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Username</label>
-              <input
+              <label htmlFor="emailsettings-username-4" className="block text-sm font-bold text-slate-700 mb-1.5">Username</label>
+              <input id="emailsettings-username-4"
                 type="text"
                 value={form.smtp_user}
                 onChange={(e) => handleChange('smtp_user', e.target.value)}
@@ -327,8 +327,8 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Password</label>
-              <input
+              <label htmlFor="emailsettings-password-5" className="block text-sm font-bold text-slate-700 mb-1.5">Password</label>
+              <input id="emailsettings-password-5"
                 type="password"
                 value={form.smtp_password}
                 onChange={(e) => handleChange('smtp_password', e.target.value)}
@@ -343,10 +343,10 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label htmlFor="emailsettings-from-email-6" className="block text-sm font-bold text-slate-700 mb-1.5">
                 From Email <span className="text-red-500">*</span>
               </label>
-              <input
+              <input id="emailsettings-from-email-6"
                 type="email"
                 value={form.smtp_from}
                 onChange={(e) => handleChange('smtp_from', e.target.value)}
@@ -357,8 +357,8 @@ export default function EmailSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">From Name</label>
-              <input
+              <label htmlFor="emailsettings-from-name-7" className="block text-sm font-bold text-slate-700 mb-1.5">From Name</label>
+              <input id="emailsettings-from-name-7"
                 type="text"
                 value={form.from_name}
                 onChange={(e) => handleChange('from_name', e.target.value)}
@@ -368,8 +368,8 @@ export default function EmailSettings() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Reply-To Email</label>
-              <input
+              <label htmlFor="emailsettings-reply-to-email-8" className="block text-sm font-bold text-slate-700 mb-1.5">Reply-To Email</label>
+              <input id="emailsettings-reply-to-email-8"
                 type="email"
                 value={form.reply_to}
                 onChange={(e) => handleChange('reply_to', e.target.value)}

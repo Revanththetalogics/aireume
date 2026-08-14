@@ -5,6 +5,15 @@ without triggering conftest.py re-initialization.
 from app.backend.db import database
 
 
+def access_token_from(resp) -> str:
+    """Read access token from httpOnly cookie, then JSON body (API grant)."""
+    token = resp.cookies.get("access_token")
+    if token:
+        return token
+    data = resp.json() if resp.content else {}
+    return (data or {}).get("access_token")
+
+
 def _verify_user_via_api(email: str):
     """Mark a user's email as verified via the DB session.
 

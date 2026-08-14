@@ -459,7 +459,6 @@ export default function SkillClassificationEditor({
               className="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-50 border border-slate-200
                 text-slate-800 placeholder-slate-400
                 focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-300 transition-all"
-              autoFocus
             />
             <div className="flex justify-end gap-2 mt-4">
               <button
@@ -513,11 +512,17 @@ export default function SkillClassificationEditor({
                     savedTemplates.map((t) => (
                       <div
                         key={t.id}
-                        onClick={() => handleLoadTemplate(t)}
-                        className="flex items-center justify-between px-3 py-2 hover:bg-slate-50 cursor-pointer transition-colors group"
+                        className="flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors group"
                       >
-                        <span className="text-sm text-slate-700 truncate flex-1">{t.name}</span>
                         <button
+                          type="button"
+                          onClick={() => handleLoadTemplate(t)}
+                          className="text-sm text-slate-700 truncate flex-1 text-left bg-transparent border-0 p-0 cursor-pointer"
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          type="button"
                           onClick={(e) => handleDeleteTemplate(e, t.id, t.name)}
                           className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
                           title="Delete template"
@@ -759,11 +764,11 @@ export default function SkillClassificationEditor({
 
       {/* Add Skill Input */}
       <div className="bg-white rounded-2xl p-5 ring-1 ring-slate-200 shadow-brand-sm">
-        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-3">
+        <label htmlFor="skillclassificationeditor-add-custom-skill-1" className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-3">
           Add Custom Skill
         </label>
         <div className="flex flex-col sm:flex-row gap-3">
-          <input
+          <input id="skillclassificationeditor-add-custom-skill-1"
             type="text"
             value={newSkill}
             onChange={(e) => setNewSkill(e.target.value)}

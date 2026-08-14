@@ -8,8 +8,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from jinja2.exceptions import TemplateError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
@@ -158,12 +160,29 @@ def download_pdf_report(
 
     try:
         pdf_bytes = generate_pdf_report(result_id, db, current_user.id)
-    except Exception as e:
-        log.exception("PDF report generation failed for result_id=%s: %s", result_id, str(e))
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        log.warning(
+            "PDF report generation failed for result_id=%s: %s", result_id, e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except (OSError, TemplateError, RuntimeError) as e:
+        log.error(
+            "PDF report generation failed for result_id=%s: %s", result_id, e,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=502, detail="Upstream failure") from e
+    except SQLAlchemyError as e:
+        log.exception(
+            "PDF report generation failed for result_id=%s: %s", result_id, e,
+            extra={"error_code": "DB_ERROR"},
+        )
         raise HTTPException(
             status_code=500,
             detail=f"PDF generation failed: {str(e)}"
-        )
+        ) from e
 
     candidate_name = "Candidate"
     if result.analysis_result:

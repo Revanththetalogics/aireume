@@ -53,12 +53,15 @@ if not _conftest_initialized:
 
     database.engine = test_engine
     database.SessionLocal = TestingSessionLocal
+    database.ReplicaSessionLocal = TestingSessionLocal
     app.dependency_overrides[database.get_db] = override_get_db
+    app.dependency_overrides[database.get_read_db] = override_get_db
 else:
     # Re-import: reuse the already-initialized objects so that fixture
     # references stay consistent with the first-load module scope.
     test_engine = database.engine
     TestingSessionLocal = database.SessionLocal
+    database.ReplicaSessionLocal = TestingSessionLocal
 
 
 # Import all models
@@ -217,6 +220,9 @@ except Exception:
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+from app.backend.tests.test_helpers import access_token_from
+
+
 def _verify_user_via_api(email: str):
     """Mark a user's email as verified via the DB session.
 
@@ -257,6 +263,8 @@ def _clear_rate_limit_buckets():
     if middleware is not None:
         middleware.buckets.clear()
         middleware.config_cache.clear()
+    from app.backend.middleware.rate_limit import _concurrent_llm
+    _concurrent_llm.clear()
     # Also clear the auth route's per-IP rate limiter
     try:
         from app.backend.routes.auth import auth_rate_limiter
@@ -314,7 +322,7 @@ def auth_client(client, db, seed_subscription_plans):
         "password": "TestPass123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
 
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
@@ -360,7 +368,7 @@ def viewer_client(client, db, seed_subscription_plans):
         "password": "ViewerPass123!",
     })
     assert login_resp.status_code == 200, f"Viewer login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -385,7 +393,7 @@ def auth_client_with_token(client):
         "email": "user@tokencorp.com",
         "password": "SecurePass456!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client, token
 
@@ -415,7 +423,7 @@ def platform_admin_client(client, db):
         "password": "PlatformAdmin123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
 
     # Set is_platform_admin=True directly on the user
     user = db.query(User).filter(User.email == "platformadmin@test.com").first()
@@ -849,7 +857,7 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
         "email": "free@freecorp.com",
         "password": "TestPass123!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -886,7 +894,7 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
         "email": "pro@procorp.com",
         "password": "TestPass123!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -919,7 +927,7 @@ def auth_client_with_agency_plan(client, db, seed_subscription_plans):
         "email": "agency@agencycorp.com",
         "password": "TestPass123!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -950,7 +958,7 @@ def auth_client_with_enterprise_plan(client, db, seed_subscription_plans):
         "email": "enterprise@enterprisecorp.com",
         "password": "TestPass123!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -987,7 +995,7 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
         "email": "limited@limitedcorp.com",
         "password": "TestPass123!",
     })
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
@@ -1105,7 +1113,7 @@ def auth_headers(client, sample_user):
         "password": "TestPass123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -1136,7 +1144,7 @@ def admin_auth_headers(client, db, sample_user):
         "password": "AdminPass123!",
     })
     assert login_resp.status_code == 200, f"Admin login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = access_token_from(login_resp)
     return {"Authorization": f"Bearer {token}"}
 
 

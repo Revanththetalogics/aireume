@@ -32,6 +32,7 @@ const CSRF_EXEMPT_PATHS = [
   '/auth/forgot-password',
   '/auth/reset-password',
   '/auth/resend-verification',
+  '/auth/verify-email',
   '/auth/test/verify-email',
   '/billing/webhook',
   '/sso/callback',
@@ -1000,13 +1001,18 @@ export async function getTrainingStatus() {
 
 // ─── Video Analysis ──────────────────────────────────────────────────────────
 
-export async function analyzeVideo(videoFile, candidateId = null) {
+export async function analyzeVideo(videoFile, candidateId = null, onUploadProgress = null) {
   const formData = new FormData()
   formData.append('video', videoFile)
   if (candidateId) formData.append('candidate_id', candidateId)
   const res = await api.post('/analyze/video', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
+    onUploadProgress: onUploadProgress
+      ? (e) => {
+          if (e.total) onUploadProgress(Math.round((e.loaded / e.total) * 100))
+        }
+      : undefined,
   })
   return res.data
 }
@@ -1397,7 +1403,30 @@ export async function getTeamGapAnalysis(profileId) {
 }
 
 export async function verifyEmail(token) {
-  const response = await api.get(`/auth/verify-email/${token}`)
+  const response = await api.post('/auth/verify-email', { token })
+  return response.data
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const response = await api.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+  return response.data
+}
+
+export async function setupMfa() {
+  const response = await api.post('/auth/mfa/setup')
+  return response.data
+}
+
+export async function enableMfa(code) {
+  const response = await api.post('/auth/mfa/enable', { code })
+  return response.data
+}
+
+export async function disableMfa(code) {
+  const response = await api.post('/auth/mfa/disable', { code })
   return response.data
 }
 
@@ -2124,8 +2153,11 @@ export async function getSecurityEvents(params = {}) {
   return response.data
 }
 
-export async function impersonateUser(userId) {
-  const response = await api.post(`/admin/impersonate/${userId}`)
+export async function impersonateUser(userId, { ticket, mfaCode } = {}) {
+  const headers = {}
+  if (ticket) headers['X-Support-Ticket'] = ticket
+  if (mfaCode) headers['X-MFA-Code'] = mfaCode
+  const response = await api.post(`/admin/impersonate/${userId}`, {}, { headers })
   return response.data
 }
 
@@ -2233,6 +2265,43 @@ export async function addUserToTenant(tenantId, data) {
 // @future-use — imported in AdminDashboardPage but not yet wired to UI
 export async function removeUserFromTenant(tenantId, userId) {
   const response = await api.delete(`/admin/tenants/${tenantId}/users/${userId}`)
+  return response.data
+}
+
+export async function setTenantUserStatus(tenantId, userId, isActive) {
+  const response = await api.patch(`/admin/tenants/${tenantId}/users/${userId}/status`, {
+    is_active: isActive,
+  })
+  return response.data
+}
+
+export async function adminResetUserPassword(tenantId, userId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/users/${userId}/reset-password`)
+  return response.data
+}
+
+export async function adminInviteUser(tenantId, userId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/users/${userId}/invite`)
+  return response.data
+}
+
+export async function getAdminUserActivity(tenantId, userId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/users/${userId}/activity`)
+  return response.data
+}
+
+export async function adminResetTenantApiKeys(tenantId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/reset-api-keys`)
+  return response.data
+}
+
+export async function adminExportTenant(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/export`)
+  return response.data
+}
+
+export async function adminNotifyTenant(tenantId, message, title) {
+  const response = await api.post(`/admin/tenants/${tenantId}/notify`, { message, title })
   return response.data
 }
 

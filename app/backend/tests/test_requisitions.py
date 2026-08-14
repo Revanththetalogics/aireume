@@ -114,6 +114,74 @@ class TestRequisitionService:
         assert intake_screening_ready(req, db) is True
         assert intake_gate_blocks(settings, req, db) is False
 
+    def test_save_intake_advances_to_sourcing_when_hm_assigned(self, auth_client, db):
+        user = _admin_user(db)
+        hm = User(
+            email="hm-advance-save@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Advance On Save",
+            jd_text="Playwright and Python required for QA automation.",
+            primary_hiring_manager_id=hm.id,
+        )
+        db.commit()
+        resp = auth_client.put(f"/api/requisitions/{req.id}/intake", json={
+            "intake_json": {
+                "screen_focus_topics": ["Playwright"],
+                "must_haves": ["python", "continuous integration"],
+            },
+            "intake_status": "pending_hm",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "sourcing"
+
+    def test_assign_hm_after_intake_advances_to_sourcing(self, auth_client, db):
+        """HM assigned after intake save must still move status to sourcing."""
+        user = _admin_user(db)
+        hm = User(
+            email="hm-advance-assign@testcorp.com",
+            hashed_password=_hash_password("pass"),
+            tenant_id=user.tenant_id,
+            role="hiring_manager",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(hm)
+        db.flush()
+        req = create_requisition(
+            db,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
+            title="Advance On HM Assign",
+            jd_text="Playwright and Python required for QA automation.",
+        )
+        db.commit()
+        save = auth_client.put(f"/api/requisitions/{req.id}/intake", json={
+            "intake_json": {
+                "screen_focus_topics": ["Playwright"],
+                "must_haves": ["python"],
+            },
+            "intake_status": "pending_hm",
+        })
+        assert save.status_code == 200
+        assert save.json()["status"] == "intake_in_progress"
+
+        assign = auth_client.put(f"/api/requisitions/{req.id}", json={
+            "primary_hiring_manager_id": hm.id,
+        })
+        assert assign.status_code == 200
+        assert assign.json()["status"] == "sourcing"
+
     def test_intake_gate_warn_blocks_without_intake(self, db, auth_client):
         user = _admin_user(db)
         hm = User(
@@ -233,6 +301,33 @@ class TestRequisitionService:
         assert req.legacy_role_template_id == tpl.id
         assert req.title == "Legacy Role"
 
+    def test_migrate_legacy_data_does_not_resurrect_after_delete(self, db, auth_client):
+        """Deleting all requisitions must not re-create them from leftover RoleTemplates."""
+        user = _admin_user(db)
+        tpl = RoleTemplate(
+            tenant_id=user.tenant_id,
+            name="[Sample] Senior Software Engineer",
+            jd_text="Sample JD that previously resurrected requisitions.",
+            created_by=user.id,
+        )
+        db.add(tpl)
+        db.commit()
+
+        first = migrate_legacy_data(db, user.tenant_id)
+        db.commit()
+        assert first >= 1
+
+        for req in db.query(Requisition).filter(Requisition.tenant_id == user.tenant_id).all():
+            db.delete(req)
+        db.commit()
+        assert db.query(Requisition).filter(Requisition.tenant_id == user.tenant_id).count() == 0
+        assert db.query(RoleTemplate).filter(RoleTemplate.tenant_id == user.tenant_id).count() >= 1
+
+        second = migrate_legacy_data(db, user.tenant_id)
+        db.commit()
+        assert second == 0
+        assert db.query(Requisition).filter(Requisition.tenant_id == user.tenant_id).count() == 0
+
     def test_resolve_role_picker_id(self, db, auth_client):
         user = _admin_user(db)
         req = create_requisition(
@@ -340,7 +435,7 @@ class TestRequisitionApi:
             "password": "HmPass123!",
         })
         assert login.status_code == 200
-        token = login.json()["access_token"]
+        token = (login.cookies.get("access_token") or login.json().get("access_token"))
         resp = client.get(
             "/api/requisitions",
             headers={"Authorization": f"Bearer {token}"},
@@ -389,6 +484,11 @@ class TestRequisitionApi:
             "skills": ["python", "fastapi", "postgresql", "docker"],
             "education": [], "work_experience": [],
             "contact_info": {"name": "Jane Dev", "email": "jane@dev.com"},
+        }), patch("app.backend.routes.analyze_helpers.parse_resume", return_value={
+            "raw_text": "Jane Dev python fastapi postgresql docker",
+            "skills": ["python", "fastapi", "postgresql", "docker"],
+            "education": [], "work_experience": [],
+            "contact_info": {"name": "Jane Dev", "email": "jane@dev.com"},
         }), patch("app.backend.routes.analyze.analyze_gaps", return_value={}), \
            patch("app.backend.routes.analyze.run_hybrid_pipeline",
                  new_callable=AsyncMock, return_value=_PIPELINE_RESULT):
@@ -430,7 +530,7 @@ class TestHmRequestGovernance:
         db.commit()
         login = client.post("/api/auth/login", json={"email": user.email, "password": "pass"})
         assert login.status_code == 200, login.text
-        token = login.json()["access_token"]
+        token = (login.cookies.get("access_token") or login.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token}"})
         return user
 
@@ -768,7 +868,7 @@ class TestIcpWorkflow:
 
         login = client.post("/api/auth/login", json={"email": other.email, "password": "pass"})
         assert login.status_code == 200
-        client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+        client.headers.update({"Authorization": f"Bearer {(login.cookies.get('access_token') or login.json().get('access_token'))}"})
         resp = client.post(
             f"/api/requisitions/{req.id}/candidates/{cand.id}/submit",
             json={"submission_json": {"recruiter_note": "x"}},
@@ -843,7 +943,7 @@ class TestIcpWorkflow:
 
         login = client.post("/api/auth/login", json={"email": ta.email, "password": "pass"})
         assert login.status_code == 200
-        client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+        client.headers.update({"Authorization": f"Bearer {(login.cookies.get('access_token') or login.json().get('access_token'))}"})
         resp = client.post(f"/api/requisitions/{req.id}/hm-request/approve")
         assert resp.status_code == 200, resp.text
         assert resp.json()["hm_request_status"] == "approved"

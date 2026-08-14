@@ -672,8 +672,8 @@ class TestWebhookRoute:
         assert resp.status_code == 200
         assert resp.json()["received"] is True
 
-    def test_webhook_returns_200_on_invalid_signature(self, client, db):
-        """Webhook endpoint returns 200 even on invalid signature (logs error internally)."""
+    def test_webhook_returns_401_on_invalid_signature(self, client, db):
+        """Invalid signatures return 401 so providers stop retrying a bad secret."""
         # Set up manual provider with a webhook secret
         db.query(PlatformConfig).filter(
             PlatformConfig.config_key == "billing.active_provider"
@@ -694,9 +694,8 @@ class TestWebhookRoute:
             content=payload,
             headers={"X-Signature": "invalid", "Content-Type": "application/json"},
         )
-        # Always 200 to prevent provider retries
-        assert resp.status_code == 200
-        assert resp.json()["received"] is True
+        assert resp.status_code == 401
+        assert "verification failed" in resp.json()["detail"].lower()
 
 
 from app.backend.models.db_models import PlatformConfig

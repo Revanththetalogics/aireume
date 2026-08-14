@@ -443,7 +443,7 @@ async def run_report_endpoint(
         db.commit()
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request")
 
 
 @router.get("/api/analytics/reports/bi-manifest", dependencies=[Depends(require_feature("analytics"))])
@@ -522,7 +522,7 @@ async def create_analytics_view(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request")
 
 
 @router.put("/api/analytics/views/{view_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -548,7 +548,7 @@ async def update_analytics_view(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.delete("/api/analytics/views/{view_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -564,7 +564,7 @@ async def delete_analytics_view(
         db.commit()
         return {"ok": True}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ── Custom report builder ─────────────────────────────────────────────────────
@@ -603,7 +603,7 @@ async def run_custom_report_endpoint(
         db.commit()
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request")
 
 
 @router.get("/api/analytics/reports/saved", dependencies=[Depends(require_feature("analytics"))])
@@ -634,7 +634,7 @@ async def create_saved_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request")
 
 
 @router.put("/api/analytics/reports/saved/{report_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -658,7 +658,7 @@ async def update_saved_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.delete("/api/analytics/reports/saved/{report_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -674,7 +674,7 @@ async def delete_saved_report_endpoint(
         db.commit()
         return {"ok": True}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.post("/api/analytics/reports/saved/{report_id}/share", dependencies=[Depends(require_feature("analytics"))])
@@ -690,7 +690,7 @@ async def share_saved_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.delete("/api/analytics/reports/saved/{report_id}/share", dependencies=[Depends(require_feature("analytics"))])
@@ -706,7 +706,7 @@ async def unshare_saved_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ── Scheduled reports ─────────────────────────────────────────────────────────
@@ -740,7 +740,7 @@ async def create_scheduled_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request")
 
 
 @router.put("/api/analytics/reports/scheduled/{schedule_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -765,7 +765,7 @@ async def update_scheduled_report_endpoint(
         db.commit()
         return row
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.delete("/api/analytics/reports/scheduled/{schedule_id}", dependencies=[Depends(require_feature("analytics"))])
@@ -781,4 +781,4 @@ async def delete_scheduled_report_endpoint(
         db.commit()
         return {"ok": True}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="Not found")

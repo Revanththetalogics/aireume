@@ -12,12 +12,10 @@ import {
   syncATSRequisitions,
 } from '../../lib/api'
 import { Button } from '../ui'
+import useConfirm from '../../hooks/useConfirm'
 
 const PROVIDERS = [
-  { id: 'greenhouse', label: 'Greenhouse' },
-  { id: 'lever', label: 'Lever' },
-  { id: 'workday', label: 'Workday' },
-  { id: 'generic', label: 'Generic / Webhook' },
+  { id: 'generic', label: 'Webhook / API' },
 ]
 
 const DIRECTIONS = [
@@ -27,7 +25,7 @@ const DIRECTIONS = [
 ]
 
 const EMPTY_FORM = {
-  provider: 'greenhouse',
+  provider: 'generic',
   label: '',
   api_key: '',
   api_secret: '',
@@ -37,6 +35,7 @@ const EMPTY_FORM = {
 }
 
 export default function ATSIntegrationsPanel() {
+  const { confirm, dialog } = useConfirm()
   const [connections, setConnections] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -54,7 +53,7 @@ export default function ATSIntegrationsPanel() {
       setConnections(Array.isArray(data) ? data : [])
     } catch {
       setConnections([])
-      setMessage({ type: 'error', text: 'Could not load ATS connections.' })
+      setMessage({ type: 'error', text: 'Could not load API connections.' })
     } finally {
       setLoading(false)
     }
@@ -105,7 +104,13 @@ export default function ATSIntegrationsPanel() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this ATS connection?')) return
+    const ok = await confirm({
+      title: 'Delete API connection',
+      message: 'Delete this webhook / API connection?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await deleteATSConnection(id)
       if (selectedId === id) {
@@ -147,9 +152,9 @@ export default function ATSIntegrationsPanel() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h3 className="text-lg font-extrabold text-brand-900">ATS Integrations</h3>
+          <h3 className="text-lg font-extrabold text-brand-900">Connect your ATS via API</h3>
           <p className="text-sm text-slate-500 mt-0.5">
-            Connect Greenhouse, Lever, Workday, or a generic webhook to sync candidate status.
+            ARIA is the screening layer. Point a webhook or HTTP endpoint at your applicant tracking system to push or pull candidate status. ARIA is not an ATS.
           </p>
         </div>
         <div className="flex gap-2">
@@ -248,7 +253,7 @@ export default function ATSIntegrationsPanel() {
       ) : connections.length === 0 ? (
         <div className="text-center py-12 rounded-2xl ring-1 ring-brand-100 bg-brand-50/30">
           <Plug className="w-10 h-10 text-brand-300 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">No ATS connections yet.</p>
+          <p className="text-sm text-slate-500">No API connections yet.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -335,6 +340,7 @@ export default function ATSIntegrationsPanel() {
           )}
         </div>
       )}
+      {dialog}
     </div>
   )
 }

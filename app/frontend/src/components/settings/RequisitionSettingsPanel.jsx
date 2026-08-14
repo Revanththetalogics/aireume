@@ -3,6 +3,7 @@ import { Loader2, Shield } from 'lucide-react'
 import { getRequisitionSettings, updateRequisitionSettings } from '../../lib/api'
 import { Button } from '../ui'
 import { REQUISITIONS } from '../../lib/uxLabels'
+import { showError } from '../../lib/toast'
 import usePermissions from '../../hooks/usePermissions'
 import { useOnboarding } from '../../contexts/OnboardingContext'
 
@@ -48,7 +49,7 @@ export default function RequisitionSettingsPanel() {
       setSettings(updated)
       completeChecklistItem('configuredRequisitionWorkflow')
     } catch {
-      window.alert('Failed to save requisition settings')
+      showError('Failed to save requisition settings')
     } finally {
       setSaving(false)
     }
@@ -71,9 +72,9 @@ export default function RequisitionSettingsPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-1">Intake gate before screening</label>
+        <label htmlFor="requisitionsettingspanel-intake-gate-before-screening-1" className="block text-sm font-semibold text-slate-700 mb-1">Intake gate before screening</label>
         <p className="text-xs text-slate-500 mb-2">Controls whether recruiters can screen before HM intake is calibrated.</p>
-        <select
+        <select id="requisitionsettingspanel-intake-gate-before-screening-1"
           value={gateMode}
           onChange={(e) => setGateMode(e.target.value)}
           className="w-full max-w-md rounded-xl border border-brand-200 px-3 py-2 text-sm"
@@ -84,9 +85,9 @@ export default function RequisitionSettingsPanel() {
         </select>
       </div>
       <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-1">{REQUISITIONS.screeningModeLabel}</label>
+        <label htmlFor="requisitionsettingspanel-field-2" className="block text-sm font-semibold text-slate-700 mb-1">{REQUISITIONS.screeningModeLabel}</label>
         <p className="text-xs text-slate-500 mb-2">{REQUISITIONS.screeningModeHint}</p>
-        <select
+        <select id="requisitionsettingspanel-field-2"
           value={screeningMode}
           onChange={(e) => setScreeningMode(e.target.value)}
           className="w-full max-w-md rounded-xl border border-brand-200 px-3 py-2 text-sm"
@@ -96,9 +97,9 @@ export default function RequisitionSettingsPanel() {
         </select>
       </div>
       <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-1">Hiring manager pipeline access</label>
+        <label htmlFor="requisitionsettingspanel-hiring-manager-pipeline-access-3" className="block text-sm font-semibold text-slate-700 mb-1">Hiring manager pipeline access</label>
         <p className="text-xs text-slate-500 mb-2">What HMs can do on requisition pipelines.</p>
-        <select
+        <select id="requisitionsettingspanel-hiring-manager-pipeline-access-3"
           value={hmPerm}
           onChange={(e) => setHmPerm(e.target.value)}
           className="w-full max-w-md rounded-xl border border-brand-200 px-3 py-2 text-sm"
@@ -109,7 +110,7 @@ export default function RequisitionSettingsPanel() {
         </select>
       </div>
       <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-1">Default hiring signal weights</label>
+        <p className="block text-sm font-semibold text-slate-700 mb-1">Default hiring signal weights</p>
         <p className="text-xs text-slate-500 mb-2">Tenant default for combined score (resume vs interview). Per-requisition overrides in requisition scoring settings.</p>
         <div className="flex flex-wrap items-center gap-4 max-w-md">
           <label className="text-sm">

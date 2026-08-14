@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan, User, OnboardingFunnelEvent
 from app.backend.services.metadata_utils import safe_parse_metadata
+
+logger = logging.getLogger(__name__)
 
 VALID_INDUSTRIES = [
     "technology", "finance", "healthcare", "education", "retail",
@@ -80,7 +83,11 @@ def _load_checklist_with_meta(user) -> tuple[dict, bool]:
     raw = getattr(user, "getting_started_progress", None) or "{}"
     try:
         data = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(
+            "Invalid getting_started_progress JSON: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
         data = {}
     dismissed = bool(data.get("_dismissed", False))
     item_data = {k: v for k, v in data.items() if k in DEFAULT_CHECKLIST}
@@ -92,7 +99,11 @@ def _save_checklist(user, checklist: dict, db: Session, *, dismissed: bool | Non
     raw = getattr(user, "getting_started_progress", None) or "{}"
     try:
         existing = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(
+            "Invalid getting_started_progress JSON on save: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
         existing = {}
     payload = {k: checklist.get(k, False) for k in DEFAULT_CHECKLIST}
     if dismissed is not None:
@@ -556,7 +567,11 @@ async def seed_sample_data(
         for r in existing_results:
             try:
                 analysis = json.loads(r.analysis_result or "{}")
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.warning(
+                    "Invalid analysis_result JSON for sample result %s: %s", r.id, e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
                 analysis = {}
             cand = db.query(Candidate).filter(Candidate.id == r.candidate_id).first()
             candidates.append({

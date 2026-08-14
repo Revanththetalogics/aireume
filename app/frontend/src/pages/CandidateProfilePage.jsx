@@ -15,6 +15,7 @@ import {
 } from '../lib/api'
 import { AnalyzeJdSheet, RescoreSheet, ConsolidatedScoreHero } from '../components/patterns'
 import { SegmentedControl } from '../components/ui'
+import useConfirm from '../hooks/useConfirm'
 
 const COMMAND_TABS = [
   { value: 'overview', label: 'Overview' },
@@ -110,7 +111,7 @@ function StatusPill({ status, onChange }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
+          <button type="button" aria-label="Close" className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
           <div className="absolute left-0 top-full mt-1 w-36 bg-white border border-gray-200 shadow-lg rounded-xl py-1 z-50">
             {STATUS_OPTIONS.map(s => {
               const sc = STATUS_CONFIG[s]
@@ -286,6 +287,7 @@ function CardTitle({ children, icon: Icon, badge }) {
 export default function CandidateProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { confirm, dialog } = useConfirm()
   const [candidate, setCandidate] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1172,7 +1174,13 @@ export default function CandidateProfilePage() {
                             {note.is_own && (
                               <button
                                 onClick={async () => {
-                                  if (!window.confirm('Delete this note?')) return
+                                  const ok = await confirm({
+                                    title: 'Delete note',
+                                    message: 'Delete this note?',
+                                    confirmLabel: 'Delete',
+                                    danger: true,
+                                  })
+                                  if (!ok) return
                                   try {
                                     await deleteCandidateNote(candidate.id, note.id)
                                     loadNotes(candidate.id)
@@ -1254,7 +1262,13 @@ export default function CandidateProfilePage() {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm('Permanently delete this candidate and all associated data?')) return
+                      const ok = await confirm({
+                        title: 'Delete candidate',
+                        message: 'Permanently delete this candidate and all associated data?',
+                        confirmLabel: 'Delete',
+                        danger: true,
+                      })
+                      if (!ok) return
                       try {
                         await gdprDeleteCandidate(candidate.id)
                         navigate('/candidates')
@@ -1297,6 +1311,7 @@ export default function CandidateProfilePage() {
           }}
         />
       )}
+      {dialog}
     </div>
   )
 }

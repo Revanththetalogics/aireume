@@ -90,19 +90,18 @@ export default function RequisitionSourcingPanel({
         <div className="space-y-2">
           {SOURCING_CHANNELS.map((ch) => (
             <div key={ch.id} className="rounded-xl ring-1 ring-brand-100 p-3">
-              <label className="flex items-start gap-2 cursor-pointer">
+              <label htmlFor={`sourcing-channel-${ch.id}`} className="flex items-start gap-2 cursor-pointer">
                 <input
+                  id={`sourcing-channel-${ch.id}`}
                   type="checkbox"
                   checked={activeChannels.has(ch.id)}
                   onChange={() => toggleChannel(ch.id)}
                   disabled={!canWrite}
                   className="mt-1"
                 />
-                <span>
-                  <span className="text-sm font-semibold text-brand-900">{ch.label}</span>
-                  <span className="block text-xs text-slate-500">{ch.hint}</span>
-                </span>
+                <span className="text-sm font-semibold text-brand-900">{ch.label}</span>
               </label>
+              <p className="text-xs text-slate-500 ml-6 mt-0.5">{ch.hint}</p>
               {activeChannels.has(ch.id) && canWrite && (
                 <input
                   type="text"
@@ -124,9 +123,9 @@ export default function RequisitionSourcingPanel({
       </div>
 
       <div>
-        <label className="block text-sm font-semibold text-slate-700">{REQUISITIONS.searchBriefTab}</label>
+        <label htmlFor="requisitionsourcingpanel-field-1" className="block text-sm font-semibold text-slate-700">{REQUISITIONS.searchBriefTab}</label>
         <p className="text-xs text-slate-500 mb-2">{REQUISITIONS.searchBriefHint}</p>
-        <textarea
+        <textarea id="requisitionsourcingpanel-field-1"
           value={searchBrief}
           onChange={(e) => onSearchBriefChange({
             ...brief,

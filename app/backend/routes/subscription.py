@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin
@@ -487,8 +488,11 @@ def admin_change_plan(
         from app.backend.services.webhook_service import dispatch_event_background
         from app.backend.db.database import SessionLocal
         dispatch_event_background(SessionLocal, tenant.id, "subscription.changed", {"old_plan": old_plan_name, "new_plan": new_plan.name})
-    except Exception:
-        pass
+    except (OSError, RuntimeError, ValueError, TypeError) as e:
+        logger.warning(
+            "Webhook dispatch failed for subscription.changed: %s", e,
+            extra={"error_code": "WEBHOOK_ERROR"},
+        )
 
     return {
         "message": "Plan changed successfully",
@@ -557,13 +561,33 @@ def record_usage(
                         db, tenant_id, "analyses_per_month",
                         tenant.analyses_count_this_month, analyses_limit,
                     )
-        except Exception:
-            logger.exception("Usage alert check failed for tenant %d", tenant_id)
+        except Exception as e:
+            logger.warning(
+                "Usage alert check failed for tenant %d: %s", tenant_id, e,
+                extra={"error_code": "ALERT_ERROR"},
+            )
         
         return True
     
-    except Exception as e:
-        logger.exception("Failed to record usage: %s", e)
+    except SQLAlchemyError as e:
+        logger.exception(
+            "Failed to record usage: %s", e,
+            extra={"error_code": "DB_ERROR"},
+        )
+        db.rollback()
+        return False
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Failed to record usage: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        db.rollback()
+        return False
+    except (OSError, RuntimeError) as e:
+        logger.exception(
+            "Failed to record usage: %s", e,
+            extra={"error_code": "IO_ERROR"},
+        )
         db.rollback()
         return False
 
@@ -577,8 +601,11 @@ def check_usage_alerts(db: Session, tenant_id: int, metric_name: str, current_va
         if limit_value > 0:
             from app.backend.services.usage_alert_service import usage_alert_service
             usage_alert_service.check_and_alert(db, tenant_id, metric_name, current_value, limit_value)
-    except Exception:
-        logger.exception("Usage alert check failed for tenant %d metric %s", tenant_id, metric_name)
+    except Exception as e:
+        logger.warning(
+            "Usage alert check failed for tenant %d metric %s: %s", tenant_id, metric_name, e,
+            extra={"error_code": "ALERT_ERROR"},
+        )
 
 
 # ─── Usage Alert Routes ──────────────────────────────────────────────────────

@@ -77,9 +77,9 @@ export default function ErasurePage() {
 
       {/* Tenant Selector */}
       <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
-        <label className="block text-sm font-bold text-brand-900 mb-2">Select Tenant</label>
+        <label htmlFor="erasurepage-select-tenant-1" className="block text-sm font-bold text-brand-900 mb-2">Select Tenant</label>
         <div className="flex flex-col sm:flex-row gap-3">
-          <select
+          <select id="erasurepage-select-tenant-1"
             className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 bg-white text-sm"
             value={selectedTenant}
             onChange={(e) => { setSelectedTenant(e.target.value); setError(''); setSuccess('') }}

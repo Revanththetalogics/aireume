@@ -312,6 +312,14 @@ def list_reqs(
         q = q.filter(Requisition.status == status_filter)
     q = q.order_by(Requisition.updated_at.desc())
     rows = q.all()
+    healed = False
+    for r in rows:
+        before = r.status
+        maybe_advance_to_sourcing(db, r)
+        if r.status != before:
+            healed = True
+    if healed:
+        db.commit()
     return [_to_out(db, r, current_user.tenant_id, current_user=current_user) for r in rows]
 
 
@@ -334,6 +342,12 @@ def get_req(
 ):
     req = _load_req(db, req_id, current_user.tenant_id)
     require_requisition_access(current_user, req, db)
+    # Heal stuck intake_in_progress when intake+HM already satisfy screening-ready.
+    before = req.status
+    maybe_advance_to_sourcing(db, req)
+    if req.status != before:
+        db.commit()
+        db.refresh(req)
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
 
 
@@ -381,6 +395,9 @@ def update_req(
             req.intake_status = "pending_hm"
         if req.status == "draft":
             req.status = "intake_in_progress"
+        # Completing the HM half of "intake screening ready" must advance status
+        # even when intake was saved earlier without an HM.
+        maybe_advance_to_sourcing(db, req)
     if body.assigned_recruiter_id is not None:
         if not can_assign_recruiters(current_user) and not can_manage_requisition(current_user, req):
             raise HTTPException(status_code=403, detail="Not allowed to assign recruiter")

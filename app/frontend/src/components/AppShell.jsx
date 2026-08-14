@@ -31,7 +31,7 @@ function AppShellInner({ children }) {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 min-h-0 ${liveScreenActive ? 'overflow-hidden' : 'overflow-y-auto'}`}
+        className={`flex-1 min-h-0 pb-16 md:pb-0 ${liveScreenActive ? 'overflow-hidden' : 'overflow-y-auto'}`}
       >
         {children}
       </main>

@@ -99,8 +99,8 @@ export default function PlanFeaturesPage() {
 
       {/* Plan Selector */}
       <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
-        <label className="block text-sm font-bold text-brand-900 mb-2">Subscription Plan</label>
-        <select
+        <label htmlFor="planfeaturespage-subscription-plan-1" className="block text-sm font-bold text-brand-900 mb-2">Subscription Plan</label>
+        <select id="planfeaturespage-subscription-plan-1"
           className="w-full sm:w-80 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 bg-white text-sm"
           value={selectedPlan}
           onChange={(e) => { setSelectedPlan(e.target.value); setError(''); setSuccess('') }}

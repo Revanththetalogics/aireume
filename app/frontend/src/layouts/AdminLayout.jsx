@@ -27,7 +27,6 @@ const NAV_GROUPS = [
       { label: 'Plan Features', path: '/admin/features',    icon: '⬡' },
       { label: 'Webhooks',      path: '/admin/webhooks',    icon: '⬡' },
       { label: 'Rate Limits',   path: '/admin/rate-limits', icon: '⬡' },
-      { label: 'SSO',           path: '/admin/sso',         icon: '⬡' },
       { label: 'Email Settings',path: '/admin/email',       icon: '⬡' },
     ],
   },
@@ -157,7 +156,9 @@ function Sidebar({ open, onClose }) {
     <>
       {/* Mobile overlay */}
       {open && (
-        <div
+        <button
+          type="button"
+          aria-label="Close"
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
           onClick={onClose}
         />

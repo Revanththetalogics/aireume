@@ -4,6 +4,7 @@ import EmptyState from '../components/EmptyState'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus, getTenantAuditLogs } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useOnboarding } from '../contexts/OnboardingContext'
+import { showError } from '../lib/toast'
 
 const ROLES = ['admin', 'ta_lead', 'recruiter', 'hiring_manager', 'viewer']
 
@@ -53,8 +54,8 @@ function InviteModal({ onSave, onClose }) {
         {!result ? (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Email</label>
-              <input
+              <label htmlFor="teampage-email-1" className="block text-sm font-bold text-slate-700 mb-1.5">Email</label>
+              <input id="teampage-email-1"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -64,8 +65,8 @@ function InviteModal({ onSave, onClose }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Role</label>
-              <select
+              <label htmlFor="teampage-role-2" className="block text-sm font-bold text-slate-700 mb-1.5">Role</label>
+              <select id="teampage-role-2"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
@@ -127,7 +128,7 @@ function TrainingDashboard() {
       await startTraining()
       setTimeout(load, 2000)
     } catch (err) {
-      alert(err.response?.data?.detail || 'Training failed')
+      showError(err.response?.data?.detail || 'Training failed')
     } finally {
       setTraining(false)
     }

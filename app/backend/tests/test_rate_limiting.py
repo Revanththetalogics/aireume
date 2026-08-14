@@ -82,3 +82,22 @@ def test_unauthenticated_requests_not_rate_limited(client):
     for _ in range(5):
         resp = client.get("/api/candidates")
         assert resp.status_code != 429  # expect 401 from auth middleware
+
+
+def test_production_redis_failure_fail_closed(monkeypatch):
+    """Production must not fall back to a per-worker in-memory bucket."""
+    from starlette.applications import Starlette
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    mw = RateLimitMiddleware(Starlette())
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr("app.backend.services.shared_cache._client", lambda: object())
+    monkeypatch.setattr("app.backend.services.shared_cache.cache_incr", _boom)
+
+    allowed, retry_after = mw._consume_token(1, 60)
+    assert allowed is False
+    assert retry_after == -1
+    assert 1 not in mw.buckets

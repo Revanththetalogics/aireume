@@ -16,6 +16,8 @@ import csv
 import io
 import json
 import logging
+
+import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -145,8 +147,26 @@ async def suggest_interview_opening(
             company_about=company_about,
             tone=body.tone or "professional",
         )
-    except Exception as exc:
-        logger.exception("suggest-opening failed for tenant %s: %s", user.tenant_id, exc)
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning(
+            "suggest-opening failed for tenant %s: %s", user.tenant_id, exc,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        from app.backend.services.interview_opening_service import default_opening_text
+
+        script = default_opening_text(
+            candidate_name="there",
+            role_title="open role",
+            company_name=opening["company_name"],
+            bot_name=opening["bot_name"],
+        )
+    except (OSError, RuntimeError, httpx.HTTPError) as exc:
+        logger.exception(
+            "suggest-opening failed for tenant %s: %s", user.tenant_id, exc,
+            extra={"error_code": "LLM_ERROR"},
+        )
         from app.backend.services.interview_opening_service import default_opening_text
 
         script = default_opening_text(

@@ -62,6 +62,11 @@ def _run_analyze(client):
         "skills": ["python", "fastapi", "postgresql", "docker"],
         "education": [], "work_experience": [],
         "contact_info": {"name": "Jane Dev", "email": "jane@dev.com"},
+    }), patch("app.backend.routes.analyze_helpers.parse_resume", return_value={
+        "raw_text": "Jane Dev python fastapi postgresql docker",
+        "skills": ["python", "fastapi", "postgresql", "docker"],
+        "education": [], "work_experience": [],
+        "contact_info": {"name": "Jane Dev", "email": "jane@dev.com"},
     }), patch("app.backend.routes.analyze.analyze_gaps", return_value={}), \
        patch("app.backend.routes.analyze.run_hybrid_pipeline",
              new_callable=AsyncMock, return_value=_PIPELINE_RESULT):
@@ -87,7 +92,7 @@ class TestFullHiringWorkflow:
             "email": "recruiter@hiringco.com", "password": "Recruit123!",
         })
         assert login.status_code == 200
-        token = login.json()["access_token"]
+        token = (login.cookies.get("access_token") or login.json().get("access_token"))
         client.headers.update({"Authorization": f"Bearer {token}"})
 
         from app.backend.tests.test_helpers import allow_ad_hoc_screening
@@ -117,12 +122,13 @@ class TestAuthLifecycleWorkflow:
     def test_login_use_logout_then_blocked(self, client):
         client.post("/api/auth/register", json={
             "company_name": "LifecycleCo", "email": "life@cycle.com",
-            "password": "Cycle123!", "full_name": "Life Cycle",
+            "password": "Cycle1234!", "full_name": "Life Cycle",
         })
         _verify_user_via_api("life@cycle.com")
-        token = client.post("/api/auth/login", json={
-            "email": "life@cycle.com", "password": "Cycle123!",
-        }).json()["access_token"]
+        login = client.post("/api/auth/login", json={
+            "email": "life@cycle.com", "password": "Cycle1234!",
+        })
+        token = login.cookies.get("access_token") or login.json().get("access_token")
         headers = {"Authorization": f"Bearer {token}"}
 
         assert client.get("/api/auth/me", headers=headers).status_code == 200

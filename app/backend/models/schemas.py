@@ -267,6 +267,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    tenant_slug: Optional[str] = None
+    mfa_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):

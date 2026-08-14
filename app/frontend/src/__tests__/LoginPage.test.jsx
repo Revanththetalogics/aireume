@@ -35,12 +35,12 @@ describe('LoginPage', () => {
     renderPage()
 
     fireEvent.change(screen.getByPlaceholderText('your-company'), { target: { value: 'acme' } })
-    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'hr@acme.com' } })
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'hr@acme.com' } })
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'Secret123!' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
-      expect(loginMock).toHaveBeenCalledWith('hr@acme.com', 'Secret123!', 'acme')
+      expect(loginMock).toHaveBeenCalledWith('hr@acme.com', 'Secret123!', 'acme', undefined)
     })
   })
 
@@ -49,7 +49,7 @@ describe('LoginPage', () => {
     renderPage()
 
     fireEvent.change(screen.getByPlaceholderText('your-company'), { target: { value: 'acme' } })
-    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'hr@acme.com' } })
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'hr@acme.com' } })
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'wrong' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 

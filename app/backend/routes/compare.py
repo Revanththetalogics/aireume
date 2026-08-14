@@ -5,6 +5,7 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
@@ -45,9 +46,14 @@ def compare_candidates(
             )
             .all()
         )
-    except Exception as e:
-        log.exception("Database query failed in /compare for ids=%s", body.candidate_ids)
-        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)[:120]}")
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        log.exception(
+            "Database query failed in /compare for ids=%s", body.candidate_ids,
+            extra={"error_code": "DB_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)[:120]}") from e
 
     if len(results) < 2:
         raise HTTPException(status_code=404, detail="Not enough results found")
@@ -182,9 +188,18 @@ def compare_candidates(
             })
     except HTTPException:
         raise
-    except Exception as e:
-        log.exception("Error building comparison data for ids=%s", body.candidate_ids)
-        raise HTTPException(status_code=500, detail=f"Comparison processing error: {str(e)[:200]}")
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError, AttributeError) as e:
+        log.warning(
+            "Error building comparison data for ids=%s", body.candidate_ids,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except SQLAlchemyError as e:
+        log.exception(
+            "Error building comparison data for ids=%s", body.candidate_ids,
+            extra={"error_code": "DB_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail=f"Comparison processing error: {str(e)[:200]}") from e
 
     # Determine category winners
     try:
@@ -208,8 +223,11 @@ def compare_candidates(
                     "education":  c["score_breakdown"].get("education", 0) == max_edu and max_edu > 0,
                     "stability":  c["score_breakdown"].get("stability", 0) == max_stability and max_stability > 0,
                 }
-    except Exception as e:
-        log.exception("Error determining comparison winners for ids=%s", body.candidate_ids)
-        raise HTTPException(status_code=500, detail=f"Winner calculation error: {str(e)[:200]}")
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
+        log.warning(
+            "Error determining comparison winners for ids=%s", body.candidate_ids,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
 
     return {"candidates": comparison, "total": len(comparison)}

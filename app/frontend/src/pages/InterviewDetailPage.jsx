@@ -17,6 +17,7 @@ import RecruiterTranscript from '../components/RecruiterTranscript'
 import VoiceScheduleModal from '../components/VoiceScheduleModal'
 import { ConsolidatedScoreHero } from '../components/patterns'
 import { formatDateTime } from '../lib/utils'
+import useConfirm from '../hooks/useConfirm'
 
 const DEPTH_CONFIG = {
   quick:    { label: 'Quick Screen',     color: 'bg-blue-100 text-blue-700' },
@@ -168,6 +169,7 @@ export default function InterviewDetailPage() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { confirm, dialog } = useConfirm()
   const sourceParam = searchParams.get('source')
   const depthParam = searchParams.get('depth') || 'standard'
 
@@ -311,7 +313,13 @@ export default function InterviewDetailPage() {
   }
 
   async function handleCancel() {
-    if (!confirm('Cancel this interview session?')) return
+    const ok = await confirm({
+      title: 'Cancel session',
+      message: 'Cancel this interview session?',
+      confirmLabel: 'Cancel session',
+      danger: true,
+    })
+    if (!ok) return
     try {
       if (source === 'voice') {
         await cancelVoiceSession(id)
@@ -702,6 +710,7 @@ export default function InterviewDetailPage() {
           />
         )}
       </div>
+      {dialog}
     </div>
   )
 }

@@ -125,8 +125,8 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">URL *</label>
-            <input
+            <label htmlFor="webhookspage-url-1" className="block text-sm font-semibold text-gray-700 mb-1">URL *</label>
+            <input id="webhookspage-url-1"
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -139,7 +139,7 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-semibold text-gray-700">Secret</label>
+              <label htmlFor="webhookspage-secret-2" className="block text-sm font-semibold text-gray-700">Secret</label>
               <button
                 type="button"
                 onClick={() => setAutoSecret(v => !v)}
@@ -152,7 +152,7 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
               <p className="text-xs text-gray-500">A secret will be auto-generated for HMAC-SHA256 signing.</p>
             ) : (
               <div className="flex gap-2">
-                <input
+                <input id="webhookspage-secret-2"
                   type="text"
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
@@ -172,35 +172,38 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Events</label>
+            <p className="block text-sm font-semibold text-gray-700 mb-2">Events</p>
             <div className="space-y-2">
-              <label className="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all bg-white border-gray-200 hover:bg-gray-50">
+              <label htmlFor="webhook-event-all" className="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all bg-white border-gray-200 hover:bg-gray-50">
                 <input
+                  id="webhook-event-all"
                   type="checkbox"
                   checked={selectedEvents.includes('*')}
                   onChange={() => handleToggleEvent('*')}
                   className="w-4 h-4 text-teal-600 rounded"
                 />
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">All Events</p>
-                  <p className="text-xs text-gray-400">Subscribe to every event type</p>
-                </div>
+                <span className="text-sm font-semibold text-gray-800">
+                  All Events
+                  <span className="block text-xs font-normal text-gray-400">Subscribe to every event type</span>
+                </span>
               </label>
               {!selectedEvents.includes('*') && events.map(ev => (
                 <label
                   key={ev.event}
+                  htmlFor={`webhook-event-${ev.event}`}
                   className="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all bg-white border-gray-200 hover:bg-gray-50"
                 >
                   <input
+                    id={`webhook-event-${ev.event}`}
                     type="checkbox"
                     checked={selectedEvents.includes(ev.event)}
                     onChange={() => handleToggleEvent(ev.event)}
                     className="w-4 h-4 text-teal-600 rounded"
                   />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{ev.event}</p>
-                    <p className="text-xs text-gray-400">{ev.description}</p>
-                  </div>
+                  <span className="text-sm font-medium text-gray-800">
+                    {ev.event}
+                    <span className="block text-xs font-normal text-gray-400">{ev.description}</span>
+                  </span>
                 </label>
               ))}
             </div>
@@ -461,9 +464,9 @@ export default function WebhooksPage() {
 
       {/* Tenant selector */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <label className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
+        <label htmlFor="webhookspage-select-tenant-3" className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
         <div className="relative max-w-md">
-          <select
+          <select id="webhookspage-select-tenant-3"
             value={selectedTenantId}
             onChange={(e) => setSelectedTenantId(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm appearance-none cursor-pointer"

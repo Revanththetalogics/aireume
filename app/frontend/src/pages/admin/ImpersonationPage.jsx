@@ -6,6 +6,8 @@ export default function ImpersonationPage() {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
   const [userId, setUserId] = useState('')
+  const [ticket, setTicket] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [token, setToken] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -39,7 +41,7 @@ export default function ImpersonationPage() {
     try {
       const id = parseInt(userId.trim(), 10)
       if (isNaN(id)) throw new Error('User ID must be a number')
-      const data = await impersonateUser(id)
+      const data = await impersonateUser(id, { ticket, mfaCode })
       setToken(data.impersonation_token)
       setSuccess(`Impersonation session created for ${data.target_user?.email || 'user'}. Token expires in ${data.expires_in_minutes} minutes.`)
       setUserId('')
@@ -88,7 +90,8 @@ export default function ImpersonationPage() {
           <UserCheck className="w-5 h-5 text-brand-600" />
           Start Impersonation Session
         </h3>
-        <form onSubmit={handleImpersonate} className="flex flex-col sm:flex-row gap-3">
+        <form onSubmit={handleImpersonate} className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
             inputMode="numeric"
@@ -97,6 +100,22 @@ export default function ImpersonationPage() {
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
           />
+          <input
+            type="text"
+            placeholder="Support ticket ID"
+            className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 bg-white text-sm"
+            value={ticket}
+            onChange={(e) => setTicket(e.target.value)}
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="MFA code"
+            autoComplete="one-time-code"
+            className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 bg-white text-sm"
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value)}
+          />
           <button
             type="submit"
             disabled={actionLoading || !userId.trim()}
@@ -104,6 +123,7 @@ export default function ImpersonationPage() {
           >
             {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Session'}
           </button>
+          </div>
         </form>
 
         {error && (

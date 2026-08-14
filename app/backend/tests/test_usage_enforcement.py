@@ -158,10 +158,29 @@ class TestSingleAnalyzeUsageEnforcement:
         # Should fail validation
         assert response.status_code == 400
 
-        # TODO: Fix implementation to not increment usage on validation failure
-        # Current behavior: usage is incremented before validation
         db.refresh(tenant)
-        # Document current behavior - may be incremented due to implementation order
+        assert tenant.analyses_count_this_month == initial_count
+
+    def test_analyze_no_usage_increment_on_oversized_scoring_weights(
+        self, auth_client_with_pro_plan, db, seed_subscription_plans
+    ):
+        from app.backend.models.db_models import Tenant
+
+        tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
+        initial_count = tenant.analyses_count_this_month
+
+        files = {
+            "resume": ("test_resume.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        }
+        data = {
+            "job_description": LONG_JOB_DESCRIPTION,
+            "scoring_weights": "{" + ("a" * 5000) + "}",
+        }
+
+        response = auth_client_with_pro_plan.post("/api/analyze", files=files, data=data)
+        assert response.status_code == 400
+        db.refresh(tenant)
+        assert tenant.analyses_count_this_month == initial_count
     
     def test_enterprise_unlimited_analyses(
         self, auth_client, db, mock_hybrid_pipeline, seed_subscription_plans
@@ -437,7 +456,7 @@ class TestBatchConcurrencyLimiter:
             "email": "pro@procorp.com",
             "password": "TestPass123!",
         })
-        token = login_resp.json()["access_token"]
+        token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
         auth_client_with_pro_plan.headers.update({"Authorization": f"Bearer {token}"})
         
         # Create exactly MAX_BATCH_SIZE (50) files
@@ -493,7 +512,7 @@ class TestBatchConcurrencyLimiter:
                 raise ValueError("Corrupt PDF file")
         
         
-        with patch("app.backend.routes.analyze._process_single_resume", side_effect=mock_process):
+        with patch("app.backend.routes.analyze_helpers._process_single_resume", side_effect=mock_process):
             files = [
                 ("resumes", ("good.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
                 ("resumes", ("bad.pdf", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),

@@ -57,15 +57,17 @@ function WeightsPanel({ weights, onChange }) {
       <div className="grid grid-cols-2 gap-4">
         {Object.entries(labels).map(([key, label]) => (
           <div key={key}>
-            <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+            <label className="flex justify-between text-xs text-slate-600 mb-1.5" htmlFor={`weight-${key}`}>
               <span className="font-medium">{label}</span>
               <span className="font-bold text-brand-700">{Math.round((weights[key] || 0) * 100)}%</span>
-            </div>
+            </label>
             <input
+              id={`weight-${key}`}
               type="range"
               min="0"
               max="100"
               step="5"
+              aria-valuetext={`${Math.round((weights[key] || 0) * 100)} percent ${label}`}
               value={Math.round((weights[key] || 0) * 100)}
               onChange={(e) => updateWeight(key, e.target.value)}
               className="w-full"
@@ -366,7 +368,7 @@ export default function UploadForm({
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold shrink-0">1</span>
-            <label className="block text-sm font-semibold text-slate-700">Job Description</label>
+            <span className="block text-sm font-semibold text-slate-700">Job Description</span>
 
             {/* Load from saved JDs */}
             <div className="relative" ref={pickerRef}>
@@ -653,7 +655,7 @@ export default function UploadForm({
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-2">
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold shrink-0">2</span>
-            <label className="block text-sm font-semibold text-slate-700">Resume (PDF, DOCX, DOC, TXT, RTF, ODT)</label>
+            <label htmlFor="uploadform-resume-pdf-docx-doc-txt-rtf-odt-1" className="block text-sm font-semibold text-slate-700">Resume (PDF, DOCX, DOC, TXT, RTF, ODT)</label>
           </div>
           <div
             {...getRootProps()}
@@ -665,7 +667,7 @@ export default function UploadForm({
                 : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
             }`}
           >
-            <input {...getInputProps()} />
+            <input id="uploadform-resume-pdf-docx-doc-txt-rtf-odt-1" {...getInputProps()} />
             {selectedFile ? (
               <div className="flex items-center justify-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center">

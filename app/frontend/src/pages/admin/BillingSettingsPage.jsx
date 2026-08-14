@@ -67,11 +67,11 @@ function MaskedInput({ label, value, onChange, placeholder = '', required = fals
   const [show, setShow] = useState(false)
   return (
     <div>
-      <label className="block text-sm font-bold text-slate-700 mb-1.5">
+      <label htmlFor="billingsettingspage-field-1" className="block text-sm font-bold text-slate-700 mb-1.5">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       <div className="relative">
-        <input
+        <input id="billingsettingspage-field-1"
           type={show ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -306,8 +306,8 @@ export default function BillingSettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Publishable Key</label>
-                <input
+                <label htmlFor="billingsettingspage-publishable-key-2" className="block text-sm font-bold text-slate-700 mb-1.5">Publishable Key</label>
+                <input id="billingsettingspage-publishable-key-2"
                   type="text"
                   value={stripeConfig.publishable_key}
                   onChange={(e) => setStripeConfig((prev) => ({ ...prev, publishable_key: e.target.value }))}
@@ -324,9 +324,9 @@ export default function BillingSettingsPage() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Webhook Endpoint URL</label>
+                <label htmlFor="billingsettingspage-webhook-endpoint-url-3" className="block text-sm font-bold text-slate-700 mb-1.5">Webhook Endpoint URL</label>
                 <div className="flex items-center gap-3">
-                  <input
+                  <input id="billingsettingspage-webhook-endpoint-url-3"
                     type="text"
                     readOnly
                     value={webhookUrl}
@@ -368,8 +368,8 @@ export default function BillingSettingsPage() {
             <h3 className="font-extrabold text-brand-900 tracking-tight mb-5">Razorpay Configuration</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Key ID</label>
-                <input
+                <label htmlFor="billingsettingspage-key-id-4" className="block text-sm font-bold text-slate-700 mb-1.5">Key ID</label>
+                <input id="billingsettingspage-key-id-4"
                   type="text"
                   value={razorpayConfig.key_id}
                   onChange={(e) => setRazorpayConfig((prev) => ({ ...prev, key_id: e.target.value }))}
@@ -440,8 +440,8 @@ export default function BillingSettingsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Tenant</label>
-              <select
+              <label htmlFor="billingsettingspage-tenant-5" className="block text-sm font-bold text-slate-700 mb-1.5">Tenant</label>
+              <select id="billingsettingspage-tenant-5"
                 value={selectedTenant}
                 onChange={(e) => setSelectedTenant(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"
@@ -453,8 +453,8 @@ export default function BillingSettingsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Plan</label>
-              <select
+              <label htmlFor="billingsettingspage-plan-6" className="block text-sm font-bold text-slate-700 mb-1.5">Plan</label>
+              <select id="billingsettingspage-plan-6"
                 value={selectedPlan}
                 onChange={(e) => setSelectedPlan(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"

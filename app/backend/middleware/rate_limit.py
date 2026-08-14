@@ -1,6 +1,7 @@
 """
 Per-tenant rate limiting middleware using an in-memory token bucket.
 """
+import os
 import time
 import threading
 import logging
@@ -133,6 +134,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return self._get_rate_limit_config(tenant_id)["rpm"]
 
     def _consume_token(self, tenant_id: int, rpm: int, cost: float = 1.0) -> tuple[bool, float]:
+        production = os.getenv("ENVIRONMENT", "").lower() == "production"
+        try:
+            from app.backend.services.shared_cache import cache_incr, _client
+            client = _client()
+            if client is not None:
+                window = int(time.time() // 60)
+                count = cache_incr(f"rpm:{tenant_id}:{window}", ttl_seconds=120)
+                if count > rpm:
+                    return False, 60.0
+                return True, 0.0
+            if production:
+                return False, -1
+        except Exception:
+            if production:
+                return False, -1
         now = time.time()
         with self.lock:
             bucket = self.buckets.get(tenant_id)
@@ -213,6 +229,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         token_cost = 0.25 if self._is_narrative_poll_path(path, request.method) else 1.0
         allowed, retry_after = self._consume_token(tenant_id, rpm, cost=token_cost)
 
+        if retry_after == -1:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Service temporarily unavailable. Try again later."},
+            )
+
         if not allowed:
             response = JSONResponse(
                 status_code=429,
@@ -228,6 +250,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Check LLM concurrency for LLM endpoints
         is_llm = self._is_llm_path(path)
+        acquired_llm = False
         if is_llm:
             if not self._check_llm_concurrency(tenant_id, config):
                 response = JSONResponse(
@@ -240,13 +263,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     },
                 )
                 return response
+            acquired_llm = True
 
-        response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(rpm)
-        response.headers["X-RateLimit-Remaining"] = str(max(0, int(self.buckets.get(tenant_id, {}).get("tokens", 0))))
-        response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
-
-        if is_llm:
-            self._release_llm_concurrency(tenant_id)
-
-        return response
+        try:
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = str(rpm)
+            response.headers["X-RateLimit-Remaining"] = str(max(0, int(self.buckets.get(tenant_id, {}).get("tokens", 0))))
+            response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
+            return response
+        finally:
+            if acquired_llm:
+                self._release_llm_concurrency(tenant_id)

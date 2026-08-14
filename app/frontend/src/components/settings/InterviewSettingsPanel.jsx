@@ -98,16 +98,16 @@ export default function InterviewSettingsPanel() {
         <Section title="Bot identity" icon={Volume2} description="How ARIA presents on Quick Screen calls">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Bot name</label>
-              <input
+              <label htmlFor="interviewsettingspanel-bot-name-1" className="block text-sm font-semibold text-slate-700 mb-1.5">Bot name</label>
+              <input id="interviewsettingspanel-bot-name-1"
                 value={draft.voice.bot_name ?? ''}
                 onChange={(e) => setDraft({ ...draft, voice: { ...draft.voice, bot_name: e.target.value } })}
                 className={inputClass}
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Caller ID name</label>
-              <input
+              <label htmlFor="interviewsettingspanel-caller-id-name-2" className="block text-sm font-semibold text-slate-700 mb-1.5">Caller ID name</label>
+              <input id="interviewsettingspanel-caller-id-name-2"
                 value={draft.voice.caller_id_name ?? ''}
                 onChange={(e) => setDraft({ ...draft, voice: { ...draft.voice, caller_id_name: e.target.value } })}
                 className={inputClass}
@@ -161,8 +161,8 @@ export default function InterviewSettingsPanel() {
               Auto-trigger on shortlist
             </label>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Min fit score</label>
-              <input
+              <label htmlFor="interviewsettingspanel-min-fit-score-3" className="block text-sm font-semibold text-slate-700 mb-1.5">Min fit score</label>
+              <input id="interviewsettingspanel-min-fit-score-3"
                 type="number"
                 value={draft.recruiter.min_score_threshold ?? 60}
                 onChange={(e) => setDraft({ ...draft, recruiter: { ...draft.recruiter, min_score_threshold: parseInt(e.target.value, 10) || 60 } })}
@@ -172,8 +172,8 @@ export default function InterviewSettingsPanel() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Default duration (min)</label>
-              <input
+              <label htmlFor="interviewsettingspanel-default-duration-min-4" className="block text-sm font-semibold text-slate-700 mb-1.5">Default duration (min)</label>
+              <input id="interviewsettingspanel-default-duration-min-4"
                 type="number"
                 value={draft.recruiter.default_duration_minutes ?? 30}
                 onChange={(e) => setDraft({ ...draft, recruiter: { ...draft.recruiter, default_duration_minutes: parseInt(e.target.value, 10) || 30 } })}

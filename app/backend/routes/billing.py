@@ -1,10 +1,12 @@
 """Billing routes — checkout, webhooks, subscription management."""
 import json
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional
 
 from app.backend.db.database import get_db
@@ -15,6 +17,23 @@ from app.backend.services.billing.invoice_service import get_tenant_invoices, ge
 from app.backend.services.billing.webhook_processor import process_webhook_event
 
 log = logging.getLogger(__name__)
+
+_STRIPE_ERRORS: tuple[type[BaseException], ...] = ()
+try:
+    import stripe
+    stripe_error_mod = getattr(stripe, "error", None)
+    stripe_err_cls = getattr(stripe_error_mod, "StripeError", None) if stripe_error_mod else None
+    if stripe_err_cls is not None:
+        _STRIPE_ERRORS = (stripe_err_cls,)
+except ImportError:
+    pass
+
+_RAZORPAY_ERRORS: tuple[type[BaseException], ...] = ()
+try:
+    from razorpay.errors import BadRequestError, ServerError, SignatureVerificationError
+    _RAZORPAY_ERRORS = (BadRequestError, ServerError, SignatureVerificationError)
+except ImportError:
+    pass
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -69,14 +88,16 @@ async def handle_webhook(
 ):
     """Handle incoming webhook events from the payment provider.
 
-    No authentication — the provider validates the payload via signature.
-    Always returns 200 to prevent provider-side retries.  Errors are
-    logged internally.
+    Signature failures return 401. A missing production webhook secret returns 403.
     """
+    provider = get_payment_provider(db)
+    webhook_secret = getattr(provider, "webhook_secret", None) or ""
+    if os.getenv("ENVIRONMENT", "development") == "production" and not str(webhook_secret).strip():
+        raise HTTPException(status_code=403, detail="Billing webhook secret is not configured")
+
     try:
         body = await request.body()
-        signature = request.headers.get("X-Signature", "")
-        provider = get_payment_provider(db)
+        signature = request.headers.get("X-Signature", "") or request.headers.get("Stripe-Signature", "")
 
         # Verify signature and parse event
         result = provider.handle_webhook_event(body, signature)
@@ -101,14 +122,37 @@ async def handle_webhook(
             "Webhook processed: provider=%s event=%s result=%s",
             provider_name, event_type, process_result.get("reason", "ok"),
         )
-    except Exception as exc:
-        # Always return 200 — log errors internally
-        log.exception("Webhook processing error: %s", exc)
+    except HTTPException:
+        raise
+    except _STRIPE_ERRORS + _RAZORPAY_ERRORS as exc:
+        log.warning(
+            "Webhook processing error: %s", exc,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=401, detail="Webhook verification failed") from exc
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError, UnicodeDecodeError) as exc:
+        log.warning(
+            "Webhook processing error: %s", exc,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=401, detail="Webhook verification failed") from exc
+    except OSError as exc:
+        log.error(
+            "Webhook processing error: %s", exc,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=401, detail="Webhook verification failed") from exc
+    except (SQLAlchemyError, RuntimeError) as exc:
+        log.exception(
+            "Webhook processing error: %s", exc,
+            extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "UPSTREAM_ERROR"},
+        )
+        raise HTTPException(status_code=401, detail="Webhook verification failed") from exc
     finally:
         # Ensure the session is clean even if an error occurred mid-transaction
         try:
             db.rollback()
-        except Exception:
+        except SQLAlchemyError:
             pass
 
     return {"received": True}

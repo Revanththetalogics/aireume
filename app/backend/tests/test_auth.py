@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 
 from app.backend.middleware.auth import SECRET_KEY, ALGORITHM
-from app.backend.tests.test_helpers import _verify_user_via_api
+from app.backend.tests.test_helpers import _verify_user_via_api, access_token_from
 
 
 REGISTER_PAYLOAD = {
@@ -57,8 +57,7 @@ class TestLogin:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert "access_token" in data
-        assert "refresh_token" in data
+        assert access_token_from(resp)
         assert data["token_type"] == "bearer"
 
     def test_login_wrong_password_returns_401(self, client):
@@ -109,13 +108,12 @@ class TestRefresh:
         login = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
-        }).json()
-        refresh_token = login["refresh_token"]
+        })
+        refresh_token = login.cookies.get("refresh_token") or login.json().get("refresh_token")
 
         resp = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
         assert resp.status_code == 200
-        data = resp.json()
-        assert "access_token" in data
+        assert access_token_from(resp)
 
     def test_refresh_with_invalid_token_returns_401(self, client):
         resp = client.post("/api/auth/refresh", json={"refresh_token": "bad.token.here"})
@@ -137,7 +135,7 @@ class TestTokenRevocation:
             "password": REGISTER_PAYLOAD["password"],
         })
         assert login_resp.status_code == 200
-        refresh_token = login_resp.json()["refresh_token"]
+        refresh_token = login_resp.json().get("refresh_token") or login_resp.cookies.get("refresh_token")
         
         # Decode the refresh token to get JTI
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -164,7 +162,7 @@ class TestTokenRevocation:
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
         })
-        refresh_token = login_resp.json()["refresh_token"]
+        refresh_token = login_resp.json().get("refresh_token") or login_resp.cookies.get("refresh_token")
         
         # Decode the refresh token to get JTI
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -195,8 +193,8 @@ class TestTokenRevocation:
             "password": REGISTER_PAYLOAD["password"],
         })
         assert login_resp.status_code == 200
-        access_token = login_resp.json()["access_token"]
-        refresh_token = login_resp.json()["refresh_token"]
+        access_token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
+        refresh_token = login_resp.json().get("refresh_token") or login_resp.cookies.get("refresh_token")
         
         # Use access token to access protected endpoint
         client.headers.update({"Authorization": f"Bearer {access_token}"})
@@ -206,7 +204,7 @@ class TestTokenRevocation:
         # Refresh the token
         refresh_resp = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
         assert refresh_resp.status_code == 200
-        new_refresh_token = refresh_resp.json()["refresh_token"]
+        new_refresh_token = (refresh_resp.cookies.get("refresh_token") or refresh_resp.json().get("refresh_token"))
         
         # Logout
         logout_resp = client.post("/api/auth/logout", json={"refresh_token": new_refresh_token})
@@ -225,14 +223,16 @@ class TestTokenRevocation:
         login = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
-        }).json()
-        
-        access_payload = jwt.decode(login["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        })
+        access = login.cookies.get("access_token") or login.json().get("access_token")
+        refresh = login.cookies.get("refresh_token") or login.json().get("refresh_token")
+
+        access_payload = jwt.decode(access, SECRET_KEY, algorithms=[ALGORITHM])
         assert "jti" in access_payload, "Access token should have JTI"
-        
-        refresh_payload = jwt.decode(login["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
+
+        refresh_payload = jwt.decode(refresh, SECRET_KEY, algorithms=[ALGORITHM])
         assert "jti" in refresh_payload, "Refresh token should have JTI"
-        
+
         assert access_payload["jti"] != refresh_payload["jti"]
 
     def test_tokens_contain_tenant_id(self, client):
@@ -242,12 +242,14 @@ class TestTokenRevocation:
         login = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
-        }).json()
-        
-        access_payload = jwt.decode(login["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+        })
+        access = login.cookies.get("access_token") or login.json().get("access_token")
+        refresh = login.cookies.get("refresh_token") or login.json().get("refresh_token")
+
+        access_payload = jwt.decode(access, SECRET_KEY, algorithms=[ALGORITHM])
         assert "tenant_id" in access_payload, "Access token should have tenant_id"
-        
-        refresh_payload = jwt.decode(login["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM])
+
+        refresh_payload = jwt.decode(refresh, SECRET_KEY, algorithms=[ALGORITHM])
         assert "tenant_id" in refresh_payload, "Refresh token should have tenant_id"
 
 
@@ -278,8 +280,8 @@ class TestEmailVerification:
         verification_token = user.email_verification_token
         assert verification_token is not None
 
-        # Verify email via the endpoint
-        verify_resp = client.get(f"/api/auth/verify-email/{verification_token}")
+        # Verify email via POST (token stays out of the URL / access logs)
+        verify_resp = client.post("/api/auth/verify-email", json={"token": verification_token})
         assert verify_resp.status_code == 200
         assert verify_resp.json()["message"] == "Email verified successfully"
 
@@ -289,11 +291,11 @@ class TestEmailVerification:
             "password": REGISTER_PAYLOAD["password"],
         })
         assert login_resp.status_code == 200
-        assert "access_token" in login_resp.json()
+        assert access_token_from(login_resp)
 
     def test_invalid_verification_token_returns_400(self, client):
         """Invalid token returns 400."""
-        resp = client.get("/api/auth/verify-email/nonexistent-token")
+        resp = client.post("/api/auth/verify-email", json={"token": "nonexistent-token"})
         assert resp.status_code == 400
         assert "invalid" in resp.json()["detail"].lower()
 

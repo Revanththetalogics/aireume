@@ -58,10 +58,12 @@ export default function FloatingInput({
                 : 'ring-slate-200 dark:ring-white/10 hover:ring-slate-300'
             }
           `}
+          id={props.id || `floating-${label.replace(/\s+/g, '-').toLowerCase()}`}
           placeholder=" "
           {...props}
         />
         <label
+          htmlFor={props.id || `floating-${label.replace(/\s+/g, '-').toLowerCase()}`}
           className={`
             absolute left-4 transition-all duration-200 pointer-events-none
             ${isActive

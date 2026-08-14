@@ -1,6 +1,14 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 
-const ThemeContext = createContext()
+type Theme = 'light' | 'dark'
+
+type ThemeContextValue = {
+  theme: Theme
+  setTheme: (theme: Theme) => void
+  toggleTheme: () => void
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 /**
  * ThemeProvider — manages dark mode preference.
@@ -10,18 +18,14 @@ const ThemeContext = createContext()
  * - Applies 'dark' class to <html> element
  */
 
-function getInitialTheme() {
-  // Check localStorage first
+function getInitialTheme(): Theme {
   const stored = localStorage.getItem('theme')
   if (stored === 'dark' || stored === 'light') return stored
-
-  // Fall back to system preference
   if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark'
-
   return 'light'
 }
 
-export function ThemeProvider({ children }) {
+export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState(getInitialTheme)
 
   useEffect(() => {
@@ -58,7 +62,7 @@ export function ThemeProvider({ children }) {
   )
 }
 
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext)
   if (!context) {
     throw new Error('useTheme must be used within a ThemeProvider')

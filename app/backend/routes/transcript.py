@@ -9,18 +9,20 @@ GET  /api/transcript/analyses/{id} — retrieve a single analysis.
 """
 import json
 import logging
+import asyncio
 from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.backend.db.database import get_db
+from app.backend.db.database import get_db, get_read_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import (
     Candidate, RoleTemplate, TranscriptAnalysis, User
 )
 from app.backend.services.transcript_service import parse_transcript, analyze_transcript
+from app.backend.services.file_scan_service import scan_any_upload, UnsafeFileError
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,10 @@ async def analyze_transcript_endpoint(
         content = await transcript_file.read()
         if len(content) > MAX_TRANSCRIPT_SIZE:
             raise HTTPException(status_code=400, detail="Transcript file too large (max 5 MB)")
+        try:
+            scan_any_upload(content, filename)
+        except UnsafeFileError as e:
+            raise HTTPException(status_code=422, detail="File failed security validation.")
         raw_text = content.decode("utf-8", errors="replace")
 
     elif transcript_text:
@@ -73,6 +79,11 @@ async def analyze_transcript_endpoint(
             status_code=400,
             detail="Provide either a transcript_file or transcript_text"
         )
+
+    from app.backend.services.guardrail_service import detect_prompt_injection
+    is_inj, confidence, _ = detect_prompt_injection(raw_text)
+    if is_inj and confidence >= 0.75:
+        raise HTTPException(status_code=400, detail="Transcript failed security screening")
 
     # ── Resolve job description ───────────────────────────────────────────────
     from app.backend.services.requisition_service import resolve_role_picker_id
@@ -106,7 +117,7 @@ async def analyze_transcript_endpoint(
         candidate_name = candidate.name or ""
 
     # ── Parse and analyse ─────────────────────────────────────────────────────
-    clean_text = parse_transcript(raw_text, filename)
+    clean_text = await asyncio.to_thread(parse_transcript, raw_text, filename)
     result     = await analyze_transcript(clean_text, jd_text, candidate_name)
 
     # ── Persist ───────────────────────────────────────────────────────────────
@@ -137,7 +148,7 @@ async def analyze_transcript_endpoint(
 @router.get("/analyses")
 def list_transcript_analyses(
     current_user: User = Depends(get_current_user),
-    db: Session        = Depends(get_db),
+    db: Session        = Depends(get_read_db),
 ):
     analyses = (
         db.query(TranscriptAnalysis)
@@ -146,30 +157,40 @@ def list_transcript_analyses(
         .all()
     )
 
+    candidate_ids = {a.candidate_id for a in analyses if a.candidate_id}
+    template_ids = {a.role_template_id for a in analyses if a.role_template_id}
+    candidates = {
+        c.id: c.name
+        for c in db.query(Candidate).filter(
+            Candidate.tenant_id == current_user.tenant_id,
+            Candidate.id.in_(candidate_ids),
+        ).all()
+    } if candidate_ids else {}
+    templates = {
+        t.id: t.name
+        for t in db.query(RoleTemplate).filter(
+            RoleTemplate.tenant_id == current_user.tenant_id,
+            RoleTemplate.id.in_(template_ids),
+        ).all()
+    } if template_ids else {}
+
     items = []
     for a in analyses:
         result = {}
         try:
             result = json.loads(a.analysis_result)
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse analysis_result for analysis %s: %s", a.id, e)
-
-        candidate_name = None
-        if a.candidate_id:
-            c = db.query(Candidate).filter(Candidate.id == a.candidate_id).first()
-            candidate_name = c.name if c else None
-
-        template_name = None
-        if a.role_template_id:
-            t = db.query(RoleTemplate).filter(RoleTemplate.id == a.role_template_id).first()
-            template_name = t.name if t else None
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(
+                "Non-critical: Failed to parse analysis_result for analysis %s: %s", a.id, e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
 
         items.append({
             "id":                 a.id,
             "candidate_id":       a.candidate_id,
-            "candidate_name":     candidate_name,
+            "candidate_name":     candidates.get(a.candidate_id),
             "role_template_id":   a.role_template_id,
-            "role_template_name": template_name,
+            "role_template_name": templates.get(a.role_template_id),
             "source_platform":    a.source_platform,
             "fit_score":          result.get("fit_score"),
             "recommendation":     result.get("recommendation"),
@@ -196,17 +217,23 @@ def get_transcript_analysis(
     result = {}
     try:
         result = json.loads(a.analysis_result)
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError) as e:
         logger.warning("Non-critical: Failed to parse analysis_result for analysis %s: %s", a.id, e)
 
     candidate_name = None
     if a.candidate_id:
-        c = db.query(Candidate).filter(Candidate.id == a.candidate_id).first()
+        c = db.query(Candidate).filter(
+            Candidate.id == a.candidate_id,
+            Candidate.tenant_id == current_user.tenant_id,
+        ).first()
         candidate_name = c.name if c else None
 
     template_name = None
     if a.role_template_id:
-        t = db.query(RoleTemplate).filter(RoleTemplate.id == a.role_template_id).first()
+        t = db.query(RoleTemplate).filter(
+            RoleTemplate.id == a.role_template_id,
+            RoleTemplate.tenant_id == current_user.tenant_id,
+        ).first()
         template_name = t.name if t else None
 
     return {

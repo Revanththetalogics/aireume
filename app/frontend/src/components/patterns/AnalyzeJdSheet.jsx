@@ -53,8 +53,8 @@ export default function AnalyzeJdSheet({ isOpen, onClose, candidateId, onComplet
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Requisition</label>
-            <select
+            <label htmlFor="analyzejdsheet-requisition-1" className="block text-sm font-semibold text-slate-700 mb-1.5">Requisition</label>
+            <select id="analyzejdsheet-requisition-1"
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
               disabled={loadingTemplates}
@@ -67,8 +67,8 @@ export default function AnalyzeJdSheet({ isOpen, onClose, candidateId, onComplet
             </select>
           </div>
 
-          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Job description</label>
-          <textarea
+          <label htmlFor="analyzejdsheet-job-description-2" className="block text-sm font-semibold text-slate-700 mb-1.5">Job description</label>
+          <textarea id="analyzejdsheet-job-description-2"
             value={jdText}
             onChange={(e) => setJdText(e.target.value)}
             rows={8}

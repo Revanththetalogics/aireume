@@ -7,6 +7,7 @@ import { getEvaluations, saveEvaluation, saveOverallAssessment, generateDebrief,
 import { showSuccess, showError } from '../../lib/toast'
 import { Button, Badge, Card, SegmentedControl } from '../ui'
 import { LIVE_SCREEN, INTERVIEW } from '../../lib/uxLabels'
+import useConfirm from '../../hooks/useConfirm'
 import {
   flattenQuestions,
   hasBriefingContent,
@@ -98,6 +99,7 @@ export default function LiveScreenKit({
   fitScore = null,
   onDebriefGenerated,
 }) {
+  const { confirm, dialog } = useConfirm()
   const [phase, setPhase] = useState('call')
   const [viewMode, setViewMode] = useState('teleprompter')
   const [voiceTone, setVoiceTone] = useState('conversational')
@@ -196,11 +198,13 @@ export default function LiveScreenKit({
     setEditingKey(null)
   }
 
-  const handleEndCall = () => {
+  const handleEndCall = async () => {
     if (ratedCount === 0) {
-      const proceed = window.confirm(
-        'No questions rated yet. End call anyway? Ratings help build the scorecard.',
-      )
+      const proceed = await confirm({
+        title: 'End call',
+        message: 'No questions rated yet. End call anyway? Ratings help build the scorecard.',
+        confirmLabel: 'End call',
+      })
       if (!proceed) return
     }
     setPhase('debrief')
@@ -533,7 +537,6 @@ export default function LiveScreenKit({
                         saveQuestionEdit(currentKey, e.target.value)
                       }
                     }}
-                    autoFocus
                   />
                 ) : (
                   <p className="text-lg sm:text-xl font-semibold text-brand-900 leading-snug">
@@ -685,6 +688,7 @@ export default function LiveScreenKit({
           {LIVE_SCREEN.endCall}
         </Button>
       </div>
+      {dialog}
     </div>
   )
 }

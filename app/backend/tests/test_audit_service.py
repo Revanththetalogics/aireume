@@ -2,7 +2,7 @@
 import json
 import pytest
 from app.backend.models.db_models import AuditLog, Tenant, User
-from app.backend.services.audit_service import log_audit
+from app.backend.services.audit_service import log_audit, log_tenant_event
 
 
 def _create_test_user(db):
@@ -163,3 +163,27 @@ class TestLogAudit:
         ).all()
         assert len(plan_entries) == 1
         assert plan_entries[0].resource_id == 2
+
+
+class TestLogTenantEventHash:
+    def test_tenant_event_is_hash_chained(self, db):
+        user = _create_test_user(db)
+        first = log_audit(
+            db,
+            actor=user,
+            action="user.login",
+            resource_type="user",
+        )
+        db.commit()
+        entry = log_tenant_event(
+            db,
+            actor=user,
+            action="candidate.view",
+            resource_type="candidate",
+            resource_id=1,
+        )
+        db.commit()
+        assert entry.entry_hash
+        assert entry.prev_hash
+        assert entry.prev_hash == first.entry_hash
+        assert entry.entry_hash != entry.prev_hash

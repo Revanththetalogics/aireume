@@ -8,7 +8,7 @@ import {
   Clock, ThumbsUp, HelpCircle, Eye, EyeOff,
   Users, BookOpen, Brain, TrendingDown
 } from 'lucide-react'
-import { getCandidates, analyzeVideoFromUrl } from '../lib/api'
+import { getCandidates, analyzeVideoFromUrl, analyzeVideo } from '../lib/api'
 
 const ALLOWED = ['.mp4', '.webm', '.avi', '.mov', '.mkv']
 const MAX_SIZE = 200 * 1024 * 1024
@@ -115,8 +115,9 @@ function MalpracticePanel({ m }) {
   return (
     <div className={`rounded-xl border-2 ${cfg.bg} overflow-hidden`}>
       {/* Header */}
-      <div
-        className="flex items-center justify-between p-5 cursor-pointer"
+      <button
+        type="button"
+        className="flex items-center justify-between p-5 cursor-pointer w-full text-left bg-transparent border-0"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
@@ -140,7 +141,7 @@ function MalpracticePanel({ m }) {
           <CircularGauge score={m.malpractice_score || 0} size={72} strokeWidth={6} colorFn={malpracticeColorFn} />
           {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
         </div>
-      </div>
+      </button>
 
       {expanded && (
         <div className="px-5 pb-5 space-y-4 border-t border-opacity-30" style={{ borderColor: 'inherit' }}>
@@ -545,35 +546,13 @@ export default function VideoPage() {
     const formData = new FormData()
     formData.append('video', file)
     if (candidateId) formData.append('candidate_id', candidateId)
-    const token   = localStorage.getItem('access_token')
-    const API_URL = import.meta.env.VITE_API_URL || '/api'
 
     try {
-      const data = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhrRef.current = xhr
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100)
-            setUploadProgress(pct)
-            if (pct === 100) setActiveStep('transcribe')
-          }
-        }
-        xhr.onload = () => {
-          setActiveStep('analyze')
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try { resolve(JSON.parse(xhr.responseText)) }
-            catch { reject(new Error('Invalid response')) }
-          } else {
-            try { reject(new Error(JSON.parse(xhr.responseText).detail || `Error ${xhr.status}`)) }
-            catch { reject(new Error(`Server error ${xhr.status}`)) }
-          }
-        }
-        xhr.onerror = () => reject(new Error('Network error'))
-        xhr.open('POST', `${API_URL}/analyze/video`)
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-        xhr.send(formData)
+      const data = await analyzeVideo(file, candidateId || null, (pct) => {
+        setUploadProgress(pct)
+        if (pct === 100) setActiveStep('transcribe')
       })
+      setActiveStep('analyze')
       setActiveStep('done')
       setResult(data)
     } catch (err) {
@@ -670,7 +649,7 @@ export default function VideoPage() {
             {/* File upload tab */}
             {inputMode === 'upload' && (
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Interview Recording</label>
+                <label htmlFor="videopage-interview-recording-1" className="block text-sm font-bold text-slate-700 mb-2">Interview Recording</label>
                 <div
                   {...getRootProps()}
                   className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
@@ -679,7 +658,7 @@ export default function VideoPage() {
                     'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
                   }`}
                 >
-                  <input {...getInputProps()} />
+                  <input id="videopage-interview-recording-1" {...getInputProps()} />
                   {file ? (
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center">
@@ -714,11 +693,11 @@ export default function VideoPage() {
             {inputMode === 'url' && (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Recording URL</label>
+                  <label htmlFor="videopage-recording-url-2" className="block text-sm font-bold text-slate-700 mb-2">Recording URL</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-400" />
-                      <input
+                      <input id="videopage-recording-url-2"
                         type="url"
                         value={url}
                         onChange={e => setUrl(e.target.value)}
@@ -751,10 +730,10 @@ export default function VideoPage() {
             {/* Link to candidate (optional) */}
             {candidates.length > 0 && (
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">
+                <label htmlFor="videopage-link-to-candidate-optional-3" className="block text-sm font-bold text-slate-700 mb-2">
                   Link to Candidate <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
-                <select
+                <select id="videopage-link-to-candidate-optional-3"
                   value={candidateId}
                   onChange={e => setCandidateId(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm text-slate-700 bg-white"

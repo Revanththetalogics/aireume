@@ -209,7 +209,7 @@ class TestSseStreamingHardening:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": oversized_jd
@@ -226,7 +226,7 @@ class TestSseStreamingHardening:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": oversized_jd
@@ -252,7 +252,7 @@ class TestSseStreamingHardening:
         # Create a minimal valid resume
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": self._VALID_JD
@@ -271,7 +271,7 @@ class TestSseStreamingHardening:
         """Test that /analyze/stream includes [DONE] event with successful analysis."""
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": self._VALID_JD
@@ -297,7 +297,7 @@ class TestSseStreamingHardening:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": valid_jd
@@ -332,7 +332,7 @@ class TestScoringWeightsSizeValidation:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": self._VALID_JD,
@@ -352,7 +352,7 @@ class TestScoringWeightsSizeValidation:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": self._VALID_JD,
@@ -372,7 +372,7 @@ class TestScoringWeightsSizeValidation:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = [
-            ("resumes", ("test_resume.pdf", BytesIO(resume_content), "application/pdf")),
+            ("resumes", ("test_resume.txt", BytesIO(resume_content), "text/plain")),
         ]
         data = {
             "job_description": self._VALID_JD,
@@ -391,7 +391,7 @@ class TestScoringWeightsSizeValidation:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
-            "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
+            "resume": ("test_resume.txt", BytesIO(resume_content), "text/plain")
         }
         data = {
             "job_description": self._VALID_JD,
@@ -503,7 +503,7 @@ class TestBatchJdSizeValidation:
 
         resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = [
-            ("resumes", ("test_resume.pdf", BytesIO(resume_content), "application/pdf")),
+            ("resumes", ("test_resume.txt", BytesIO(resume_content), "text/plain")),
         ]
         data = {
             "job_description": oversized_jd

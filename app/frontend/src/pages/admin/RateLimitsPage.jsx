@@ -44,10 +44,10 @@ function Toast({ message, type = 'success', onDone }) {
 function LimitField({ label, value, editValue, editing, onChange, unit }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+      <label htmlFor="ratelimitspage-field-1" className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
       {editing ? (
         <div className="flex items-center gap-2">
-          <input
+          <input id="ratelimitspage-field-1"
             type="number"
             min="1"
             value={editValue}
@@ -252,9 +252,9 @@ export default function RateLimitsPage() {
 
       {/* Tenant selector */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <label className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
+        <label htmlFor="ratelimitspage-select-tenant-2" className="block text-sm font-semibold text-gray-700 mb-2">Select Tenant</label>
         <div className="relative max-w-md">
-          <select
+          <select id="ratelimitspage-select-tenant-2"
             value={selectedTenantId}
             onChange={(e) => setSelectedTenantId(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm appearance-none cursor-pointer"

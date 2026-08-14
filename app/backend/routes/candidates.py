@@ -13,23 +13,21 @@ import json
 import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
-from fastapi import APIRouter, Depends, File, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, File, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional
 
-from app.backend.db.database import get_db, SessionLocal
+from app.backend.db.database import get_db, get_read_db
 from app.backend.middleware.auth import get_current_user, require_admin, require_feature
 from app.backend.middleware.rbac import require_recruiter_or_admin, require_active_recruiter
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
 from app.backend.services.audit_service import log_field_change
-# RecruiterAutoTrigger feeds into the unified interview system (/api/interviews/*).
-# It creates deep interview sessions via the recruiter orchestrator, which is
-# also used by the unified routes/interviews.py. No functional change needed.
-from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
 from app.backend.services.interview_kit_generator import refresh_interview_questions_in_analysis
+from app.backend.routes.candidates_jd import jd_router, _VALID_STATUSES
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
 )
@@ -38,12 +36,6 @@ from app.backend.services.screening_outcome import outcome_fields_from_result
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
-
-# Separate router for JD-scoped candidate endpoints (paths live under /api/jd/)
-jd_router = APIRouter(prefix="/api/jd", tags=["jd-candidates"])
-
-# Allowed statuses for bulk shortlist updates
-_VALID_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
 
 
 # ─── Bulk Import ───────────────────────────────────────────────────────────────
@@ -69,29 +61,7 @@ async def import_candidates_csv(
 
     # Get file from upload service or cache
     # This is a placeholder - actual implementation would retrieve from storage
-    raise HTTPException(status_code=501, detail="CSV import not yet implemented. Use ATS sync instead.")
-
-
-async def _schedule_auto_trigger(
-    tenant_id: int,
-    candidate_id: int,
-    screening_result_id: int,
-    new_status: str,
-) -> None:
-    """Fire-and-forget auto-trigger evaluation using a fresh DB session."""
-    db = SessionLocal()
-    try:
-        trigger = RecruiterAutoTrigger(db)
-        await trigger.evaluate_trigger(
-            tenant_id=tenant_id,
-            candidate_id=candidate_id,
-            screening_result_id=screening_result_id,
-            new_status=new_status,
-        )
-    except Exception as e:
-        logger.warning("Auto-trigger evaluation failed: %s", e)
-    finally:
-        db.close()
+    raise HTTPException(status_code=501, detail="CSV import is not available. Add candidates by uploading resumes.")
 
 
 def _json_default(obj):
@@ -113,7 +83,7 @@ def list_candidates(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_db),
 ):
     # Validate status filter early
     if status and status not in _VALID_STATUSES:
@@ -253,8 +223,11 @@ def list_candidates(
                 
                 if scores:
                     best_score = max(scores)
-            except Exception as e:
-                logger.warning("Non-critical: Failed to parse analysis results for best_score: %s", e)
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
+                logger.warning(
+                    "Non-critical: Failed to parse analysis results for best_score: %s", e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
 
             # Latest result (first in desc-ordered list) provides the status
             latest = candidate_results[0]
@@ -285,8 +258,11 @@ def list_candidates(
             try:
                 latest_analysis = json.loads(candidate_results[0].analysis_result)
                 matched_skills = latest_analysis.get("matched_skills", [])[:5]
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
+                logger.warning(
+                    "Non-critical: Failed to parse matched_skills: %s", e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
 
         result.append({
             "id":              c.id,
@@ -410,21 +386,21 @@ def get_screening_result(
     if result.analysis_result:
         try:
             analysis = json.loads(result.analysis_result) if isinstance(result.analysis_result, str) else result.analysis_result
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             analysis = {}
 
     parsed = {}
     if result.parsed_data:
         try:
             parsed = json.loads(result.parsed_data) if isinstance(result.parsed_data, str) else result.parsed_data
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             parsed = {}
 
     narrative_data = {}
     if result.narrative_json:
         try:
             narrative_data = json.loads(result.narrative_json) if isinstance(result.narrative_json, str) else result.narrative_json
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             narrative_data = {}
 
     # ── Merge analysis + narrative (same logic as get_candidate) ────────────
@@ -632,7 +608,7 @@ def get_candidate_pipeline(
                 try:
                     analysis = json.loads(r.analysis_result)
                     score = analysis.get("fit_score")
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     pass
             if score is not None:
                 if best_score is None or score > best_score:
@@ -661,7 +637,7 @@ def get_candidate_pipeline(
             try:
                 analysis = json.loads(latest.analysis_result)
                 latest_matched_skills = analysis.get("matched_skills", [])[:3]
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
             if latest.role_template_id and latest.role_template_id in templates:
@@ -988,8 +964,11 @@ def get_candidate(
     for r in results:
         try:
             analysis = json.loads(r.analysis_result)
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse analysis_result for result %s: %s", r.id, e)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(
+                "Non-critical: Failed to parse analysis_result for result %s: %s", r.id, e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
             analysis = {}
 
         # Log when analysis_result is empty or missing critical fields
@@ -1005,8 +984,11 @@ def get_candidate(
         if r.narrative_json:
             try:
                 narrative_data = json.loads(r.narrative_json)
-            except Exception as e:
-                logger.warning("Non-critical: Failed to parse narrative_json for result %s: %s", r.id, e)
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.warning(
+                    "Non-critical: Failed to parse narrative_json for result %s: %s", r.id, e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
 
         # Parse parsed_data as fallback source for missing analysis_result fields
         # parsed_data is always saved correctly (not a placeholder like analysis_result can be)
@@ -1014,8 +996,11 @@ def get_candidate(
         if r.parsed_data:
             try:
                 parsed = json.loads(r.parsed_data)
-            except Exception as e:
-                logger.warning("Non-critical: Failed to parse parsed_data for result %s: %s", r.id, e)
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.warning(
+                    "Non-critical: Failed to parse parsed_data for result %s: %s", r.id, e,
+                    extra={"error_code": "VALIDATION_ERROR"},
+                )
 
         # Merge narrative data with analysis - narrative fields take precedence
         # but only for narrative-specific fields (strengths, weaknesses, etc.)
@@ -1169,7 +1154,7 @@ def get_candidate(
             return default
         try:
             return json.loads(raw)
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             return default
 
     full_parsed_skills = _safe_json_parse(candidate.parsed_skills, [])
@@ -1204,8 +1189,11 @@ def get_candidate(
         try:
             snap_ci = json.loads(candidate.parser_snapshot_json)
             contact_info = dict(snap_ci.get("contact_info") or {})
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse parser_snapshot_json: %s", e)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
+            logger.warning(
+                "Non-critical: Failed to parse parser_snapshot_json: %s", e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
             contact_info = {}
     if not contact_info:
         contact_info = {
@@ -1336,7 +1324,7 @@ def get_candidate_timeline(
             fit_score = r.deterministic_score or analysis.get("fit_score")
             if fit_score is not None:
                 score_detail = f"Score: {fit_score}"
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
         # Event 1: Analysis was created
@@ -1549,8 +1537,11 @@ async def analyze_existing_candidate(
                 ci["phone"] = candidate.phone
             if not parsed_data.get("raw_text") and candidate.raw_resume_text:
                 parsed_data["raw_text"] = candidate.raw_resume_text
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse parser_snapshot_json for candidate %s: %s", candidate.id, e)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
+            logger.warning(
+                "Non-critical: Failed to parse parser_snapshot_json for candidate %s: %s", candidate.id, e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
             parsed_data = {
                 "raw_text":       candidate.raw_resume_text,
                 "skills":         json.loads(candidate.parsed_skills   or "[]"),
@@ -1589,8 +1580,20 @@ async def analyze_existing_candidate(
             jd_analysis=jd_analysis,
             db_session=db,
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Analysis failed: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except (OSError, RuntimeError, SQLAlchemyError) as e:
+        logger.exception(
+            "Analysis failed: %s", e,
+            extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "UPSTREAM_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}") from e
 
     # ── Version Management ────────────────────────────────────────────────────
     # When re-analyzing with potentially different weights, create a new version
@@ -1798,7 +1801,7 @@ async def compare_candidates_skill_matrix(
         if result and result.analysis_result:
             try:
                 analysis = json.loads(result.analysis_result) if isinstance(result.analysis_result, str) else result.analysis_result
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 analysis = {}
             jd_analysis = analysis.get("jd_analysis", {}) if isinstance(analysis, dict) else {}
 
@@ -1835,7 +1838,7 @@ async def compare_candidates_skill_matrix(
         if candidate.parsed_skills:
             try:
                 parsed_skills = json.loads(candidate.parsed_skills) if isinstance(candidate.parsed_skills, str) else candidate.parsed_skills
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 parsed_skills = []
         if not isinstance(parsed_skills, list):
             parsed_skills = []
@@ -1896,7 +1899,7 @@ async def compare_candidates_skill_matrix(
         if screening and screening.analysis_result:
             try:
                 sr_data = json.loads(screening.analysis_result) if isinstance(screening.analysis_result, str) else screening.analysis_result
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 sr_data = {}
             fit_score = sr_data.get("fit_score") if isinstance(sr_data, dict) else None
 
@@ -1921,337 +1924,6 @@ async def compare_candidates_skill_matrix(
             "total_team_gaps": len(team_gaps),
         }
     }
-
-
-# ─── JD-scoped candidate ranking & bulk shortlist ─────────────────────────────
-
-
-@jd_router.get("/{jd_id}/candidates")
-def get_jd_candidates(
-    jd_id: int,
-    status: Optional[str] = Query(None),
-    sort_by: str = Query("fit_score"),
-    sort_order: str = Query("desc"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Return all candidates screened against a specific JD, sorted and filtered.
-
-    Joins ScreeningResult → Candidate so we can return name, email, and profile
-    fields alongside the per-JD analysis data (fit_score, matched/missing skills, …).
-    """
-    # ── Verify JD exists and belongs to tenant ──────────────────────────────
-    jd = db.query(RoleTemplate).filter(
-        RoleTemplate.id == jd_id,
-        RoleTemplate.tenant_id == current_user.tenant_id,
-    ).first()
-    if not jd:
-        raise HTTPException(status_code=404, detail="Job description not found")
-
-    # ── Build base query ────────────────────────────────────────────────────
-    query = (
-        db.query(ScreeningResult, Candidate)
-        .join(Candidate, ScreeningResult.candidate_id == Candidate.id)
-        .filter(
-            ScreeningResult.role_template_id == jd_id,
-            ScreeningResult.is_active == True,
-            ScreeningResult.tenant_id == current_user.tenant_id,
-        )
-    )
-
-    # Optional status filter
-    if status:
-        query = query.filter(ScreeningResult.status == status)
-
-    rows = query.all()
-
-    # ── Deduplicate: keep only the latest ScreeningResult per candidate ──────
-    # (a candidate may have been analysed multiple times against the same JD)
-    latest_by_candidate: dict = {}
-    for sr, cand in rows:
-        existing = latest_by_candidate.get(cand.id)
-        if existing is None:
-            latest_by_candidate[cand.id] = (sr, cand)
-        else:
-            existing_sr, _ = existing
-            existing_ts = existing_sr.timestamp or datetime.min.replace(tzinfo=timezone.utc)
-            new_ts = sr.timestamp or datetime.min.replace(tzinfo=timezone.utc)
-            if new_ts > existing_ts or (new_ts == existing_ts and sr.id > existing_sr.id):
-                latest_by_candidate[cand.id] = (sr, cand)
-
-    # ── Build candidate list ────────────────────────────────────────────────
-    candidates = []
-    for sr, cand in latest_by_candidate.values():
-        analysis = {}
-        try:
-            analysis = json.loads(sr.analysis_result) if sr.analysis_result else {}
-        except Exception as e:
-            logger.warning("Failed to parse analysis_result for result %s: %s", sr.id, e)
-
-        # Prefer deterministic_score when available; fall back to analysis_result
-        fit_score = sr.deterministic_score
-        if fit_score is None:
-            fit_score = analysis.get("fit_score")
-
-        # Resolve a usable display name — fall back to email prefix or "Unknown"
-        display_name = cand.name
-        if not display_name:
-            if cand.email:
-                display_name = cand.email.split("@")[0]
-            else:
-                display_name = f"Candidate #{cand.id}"
-
-        # Skip candidates whose analysis is genuinely incomplete (no score, no name
-        # from parsing) — they represent failed or queued analyses that haven't
-        # produced any usable data yet.
-        has_score = fit_score is not None and fit_score > 0
-        has_name = bool(cand.name)
-        if not has_score and not has_name:
-            continue
-
-        candidates.append({
-            "candidate_id":    cand.id,
-            "result_id":       sr.id,
-            "name":            display_name,
-            "email":           cand.email,
-            "fit_score":       fit_score,
-            "status":          sr.status or "pending",
-            "recommendation":  analysis.get("final_recommendation", "Pending"),
-            "matched_skills":  analysis.get("matched_skills", []),
-            "missing_skills":  analysis.get("missing_skills", []),
-            "total_years_exp": cand.total_years_exp,
-            "current_role":    cand.current_role,
-            "analyzed_at":     sr.timestamp,
-            **outcome_fields_from_result(sr),
-        })
-
-    # ── Sort ────────────────────────────────────────────────────────────────
-    reverse = sort_order.lower() == "desc"
-
-    if sort_by == "fit_score":
-        candidates.sort(
-            key=lambda c: (c["fit_score"] is None, c["fit_score"] or 0),
-            reverse=reverse,
-        )
-    elif sort_by == "name":
-        candidates.sort(
-            key=lambda c: (c["name"] or "").lower(),
-            reverse=reverse,
-        )
-    elif sort_by == "date":
-        candidates.sort(
-            key=lambda c: c["analyzed_at"] or datetime.min.replace(tzinfo=timezone.utc),
-            reverse=reverse,
-        )
-
-    return {
-        "jd_id":   jd_id,
-        "jd_name": jd.name,
-        "candidates": candidates,
-        "total": len(candidates),
-    }
-
-
-@jd_router.post("/{jd_id}/shortlist")
-def bulk_update_status(
-    jd_id: int,
-    body: dict,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_recruiter_or_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Bulk-update the status of multiple ScreeningResults for a given JD.
-
-    Body: {"result_ids": [1, 2, 3], "status": "shortlisted"}
-    Valid statuses: pending, shortlisted, rejected, in-review, hired
-    """
-    result_ids = body.get("result_ids")
-    new_status = body.get("status")
-
-    # ── Validate payload ────────────────────────────────────────────────────
-    if not isinstance(result_ids, list) or not result_ids:
-        raise HTTPException(status_code=422, detail="result_ids must be a non-empty list")
-    if not all(isinstance(rid, int) for rid in result_ids):
-        raise HTTPException(status_code=422, detail="All result_ids must be integers")
-    if not new_status or not isinstance(new_status, str):
-        raise HTTPException(status_code=422, detail="status must be a non-empty string")
-    if new_status not in _VALID_STATUSES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid status '{new_status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}",
-        )
-
-    # ── Verify JD belongs to tenant ─────────────────────────────────────────
-    jd = db.query(RoleTemplate).filter(
-        RoleTemplate.id == jd_id,
-        RoleTemplate.tenant_id == current_user.tenant_id,
-    ).first()
-    if not jd:
-        raise HTTPException(status_code=404, detail="Job description not found")
-
-    # ── Bulk update ─────────────────────────────────────────────────────────
-    updated = (
-        db.query(ScreeningResult)
-        .filter(
-            ScreeningResult.id.in_(result_ids),
-            ScreeningResult.tenant_id == current_user.tenant_id,
-            ScreeningResult.role_template_id == jd_id,
-        )
-        .update({ScreeningResult.status: new_status}, synchronize_session="fetch")
-    )
-    db.commit()
-
-    # Fire-and-forget auto-trigger evaluation for each updated screening result.
-    # Uses a fresh session because the request-scoped DB may close after response.
-    results = (
-        db.query(ScreeningResult)
-        .filter(
-            ScreeningResult.id.in_(result_ids),
-            ScreeningResult.tenant_id == current_user.tenant_id,
-            ScreeningResult.role_template_id == jd_id,
-        )
-        .all()
-    )
-    for result in results:
-        if result.candidate_id:
-            background_tasks.add_task(
-                _schedule_auto_trigger,
-                current_user.tenant_id,
-                result.candidate_id,
-                result.id,
-                new_status,
-            )
-
-    return {"updated": updated}
-
-
-@jd_router.get("/{jd_id}/skill-tags")
-def get_jd_skill_tags(
-    jd_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return aggregated skill tags across all candidates analyzed for a JD.
-
-    Response: {"skills": [...], "domain": str, "candidate_count": int}
-    """
-    from app.backend.services.skill_matcher import infer_domain_from_skills
-
-    # Verify JD belongs to tenant
-    jd = db.query(RoleTemplate).filter(
-        RoleTemplate.id == jd_id,
-        RoleTemplate.tenant_id == current_user.tenant_id,
-    ).first()
-    if not jd:
-        raise HTTPException(status_code=404, detail="Job description not found")
-
-    # Get all active screening results for this JD
-    results = db.query(ScreeningResult).filter(
-        ScreeningResult.role_template_id == jd_id,
-        ScreeningResult.tenant_id == current_user.tenant_id,
-        ScreeningResult.is_active == True,
-    ).all()
-
-    # Aggregate matched skills across all candidates
-    skill_counts: dict = {}
-    for r in results:
-        try:
-            analysis = json.loads(r.analysis_result) if r.analysis_result else {}
-            for skill in analysis.get("matched_skills", []):
-                if skill and isinstance(skill, str):
-                    skill_counts[skill] = skill_counts.get(skill, 0) + 1
-        except Exception:
-            pass
-
-    # Sort by frequency descending, take top skills
-    sorted_skills = sorted(skill_counts, key=skill_counts.get, reverse=True)[:20]
-    domain = infer_domain_from_skills(sorted_skills) if sorted_skills else "General"
-
-    return {
-        "skills": sorted_skills,
-        "domain": domain,
-        "candidate_count": len(results),
-    }
-
-
-@jd_router.get("/{jd_id}/stats")
-def get_jd_stats(
-    jd_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return candidate statistics for a specific JD."""
-    # Verify JD belongs to tenant
-    jd = db.query(RoleTemplate).filter(
-        RoleTemplate.id == jd_id,
-        RoleTemplate.tenant_id == current_user.tenant_id
-    ).first()
-    if not jd:
-        raise HTTPException(404, "JD not found")
-
-    # Count results by status
-    results = db.query(ScreeningResult).filter(
-        ScreeningResult.role_template_id == jd_id,
-        ScreeningResult.tenant_id == current_user.tenant_id,
-        ScreeningResult.is_active == True,
-    ).all()
-
-    by_status = {}
-    total = 0
-    score_sum = 0
-    score_count = 0
-    for r in results:
-        total += 1
-        status = r.status or "pending"
-        by_status[status] = by_status.get(status, 0) + 1
-        if r.deterministic_score is not None:
-            score_sum += r.deterministic_score
-            score_count += 1
-
-    return {
-        "total": total,
-        "by_status": by_status,
-        "avg_fit_score": round(score_sum / score_count, 1) if score_count > 0 else None
-    }
-
-
-@jd_router.get("/stats/batch")
-def get_all_jd_stats(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return candidate stats for all JDs belonging to tenant."""
-    results = db.query(
-        ScreeningResult.role_template_id,
-        ScreeningResult.status,
-        ScreeningResult.deterministic_score
-    ).filter(
-        ScreeningResult.tenant_id == current_user.tenant_id,
-        ScreeningResult.is_active == True,
-        ScreeningResult.role_template_id.isnot(None)
-    ).all()
-
-    stats = {}
-    for r in results:
-        jd_id = r.role_template_id
-        if jd_id not in stats:
-            stats[jd_id] = {"total": 0, "by_status": {}, "scores": []}
-        stats[jd_id]["total"] += 1
-        status = r.status or "pending"
-        stats[jd_id]["by_status"][status] = stats[jd_id]["by_status"].get(status, 0) + 1
-        if r.deterministic_score is not None:
-            stats[jd_id]["scores"].append(r.deterministic_score)
-
-    result = {}
-    for jd_id, s in stats.items():
-        result[str(jd_id)] = {
-            "total": s["total"],
-            "by_status": s["by_status"],
-            "avg_fit_score": round(sum(s["scores"]) / len(s["scores"]), 1) if s["scores"] else None
-        }
-    return result
 
 
 # ─── Outcome tracking endpoints ──────────────────────────────────────────────
@@ -2389,47 +2061,7 @@ def get_outcome_patterns(
     )
 
 
-# ─── GDPR endpoints ───────────────────────────────────────────────────────────
+# ─── GDPR endpoints (candidates_privacy.py) ───────────────────────────────────
 
-@router.delete("/{candidate_id}/gdpr-delete")
-def gdpr_hard_delete_candidate(
-    candidate_id: int,
-    reason: str = "gdpr_request",
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """GDPR Article 17 — Right to be forgotten. Permanently deletes candidate and all associated data."""
-    from app.backend.services.gdpr_service import hard_delete_candidate
-    result = hard_delete_candidate(db, candidate_id, current_user.tenant_id, reason=reason)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
-
-
-@router.get("/{candidate_id}/gdpr-export")
-def gdpr_export_candidate_data(
-    candidate_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """GDPR Article 20 — Data portability. Exports all candidate data as JSON."""
-    from app.backend.services.gdpr_service import export_candidate_data
-    data = export_candidate_data(db, candidate_id, current_user.tenant_id)
-    if "error" in data:
-        raise HTTPException(status_code=404, detail=data["error"])
-    return data
-
-
-@router.post("/{candidate_id}/gdpr-anonymize")
-def gdpr_anonymize_candidate(
-    candidate_id: int,
-    reason: str = "retention_expiry",
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """Anonymize candidate PII while preserving aggregate analytics data."""
-    from app.backend.services.gdpr_service import anonymize_candidate
-    result = anonymize_candidate(db, candidate_id, current_user.tenant_id, reason=reason)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
+from app.backend.routes.candidates_privacy import register_privacy_routes
+register_privacy_routes(router)

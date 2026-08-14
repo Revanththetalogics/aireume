@@ -42,11 +42,29 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+_replica_url = os.getenv("DATABASE_READ_REPLICA_URL", "").strip()
+if _replica_url.startswith("postgres://"):
+    _replica_url = _replica_url.replace("postgres://", "postgresql://", 1)
+if _replica_url:
+    replica_engine = create_engine(_replica_url, pool_pre_ping=True, **_pool_kwargs)
+    ReplicaSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=replica_engine)
+else:
+    ReplicaSessionLocal = SessionLocal
+
 Base = declarative_base()
 
 
 def get_db():
     db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_read_db():
+    """Read-replica session when DATABASE_READ_REPLICA_URL is set, else primary."""
+    db = ReplicaSessionLocal()
     try:
         yield db
     finally:

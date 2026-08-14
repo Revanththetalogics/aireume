@@ -401,6 +401,7 @@ class SSOService:
             hashed_password=_hash_password(random_password),
             role=role,
             is_active=True,
+            email_verified=True,
         )
         db.add(user)
         db.commit()

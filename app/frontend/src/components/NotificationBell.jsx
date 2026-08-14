@@ -140,13 +140,14 @@ export default function NotificationBell() {
                       {body}
                     </Link>
                   ) : (
-                    <div
+                    <button
+                      type="button"
                       key={n.id}
-                      className={cls}
+                      className={`${cls} w-full text-left bg-transparent border-0`}
                       onClick={() => markNotificationRead(n.id)}
                     >
                       {body}
-                    </div>
+                    </button>
                   )
                 })
               )}

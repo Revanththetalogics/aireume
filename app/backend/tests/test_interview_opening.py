@@ -117,7 +117,7 @@ class TestOpeningAdminRbac:
             json={"email": sample_user.email, "password": "TestPass123!"},
         )
         assert login.status_code == 200
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        headers = {"Authorization": f"Bearer {(login.cookies.get('access_token') or login.json().get('access_token'))}"}
 
         resp = client.put(
             "/api/voice/settings",

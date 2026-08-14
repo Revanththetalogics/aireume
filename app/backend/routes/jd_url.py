@@ -2,6 +2,8 @@
 JD URL extraction endpoint — paste a job URL and get the JD text back.
 """
 import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import User
@@ -27,8 +29,25 @@ async def extract_jd_from_url(
     try:
         body.url = safe_url
         jd_text = await scrape_jd(body.url)
+    except HTTPException:
+        raise
+    except (ValueError, TypeError, KeyError) as e:
+        logger.warning(
+            "JD extraction failed for URL %s: %s", body.url, e,
+            extra={"error_code": "VALIDATION_ERROR"},
+        )
+        raise HTTPException(status_code=422, detail="Could not extract the job description from that URL.") from e
+    except (OSError, httpx.HTTPError, ImportError) as e:
+        logger.error(
+            "JD extraction failed for URL %s: %s", body.url, e,
+            extra={"error_code": "IO_ERROR"},
+        )
+        raise HTTPException(status_code=422, detail="Could not extract the job description from that URL.") from e
     except Exception as e:
-        logger.warning("JD extraction failed for URL %s: %s", body.url, e)
-        raise HTTPException(status_code=422, detail=f"Failed to extract JD: {str(e)}")
+        logger.warning(
+            "JD extraction failed for URL %s: %s", body.url, e,
+            extra={"error_code": "UPSTREAM_ERROR"},
+        )
+        raise HTTPException(status_code=422, detail="Could not extract the job description from that URL.") from e
 
     return JdUrlResponse(jd_text=jd_text, source_url=body.url)

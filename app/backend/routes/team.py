@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin, require_active_subscription
@@ -74,8 +75,8 @@ def invite_member(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
-    if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+    if db.query(User).filter(User.email == body.email, User.tenant_id == current_user.tenant_id).first():
+        raise HTTPException(status_code=400, detail="Email already registered in this workspace")
 
     from app.backend.services.plan_entitlement_service import check_team_member_capacity
 
@@ -230,14 +231,21 @@ def _get_or_cache_jd(db: Session, jd_text: str) -> dict:
             parsed = json.loads(cached.result_json)
             if parsed.get("_cache_version") == JD_CACHE_VERSION:
                 return parsed
-        except Exception:
-            pass
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
+            logger.warning(
+                "Invalid JD cache JSON for hash %s: %s", jd_hash, e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
     jd_analysis = parse_jd_rules(jd_text)
     jd_analysis["_cache_version"] = JD_CACHE_VERSION
     try:
         db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis)))
         db.commit()
-    except Exception:
+    except SQLAlchemyError as e:
+        logger.warning(
+            "JD cache write failed: %s", e,
+            extra={"error_code": "DB_ERROR"},
+        )
         db.rollback()
     return jd_analysis
 

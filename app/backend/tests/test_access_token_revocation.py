@@ -23,7 +23,7 @@ def _login(client):
         "email": REGISTER["email"], "password": REGISTER["password"],
     })
     assert resp.status_code == 200
-    return resp.json()["access_token"]
+    return (resp.cookies.get("access_token") or resp.json().get("access_token"))
 
 
 class TestAccessTokenRevocation:

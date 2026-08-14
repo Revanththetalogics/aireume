@@ -28,7 +28,7 @@ def billing_admin_client(client, db):
         "password": "BillingAdmin123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
 
     user = db.query(User).filter(User.email == "billingadmin@test.com").first()
     user.is_platform_admin = False
@@ -58,7 +58,7 @@ def super_admin_client(client, db):
         "password": "SuperAdmin123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-    token = login_resp.json()["access_token"]
+    token = (login_resp.cookies.get("access_token") or login_resp.json().get("access_token"))
 
     user = db.query(User).filter(User.email == "superadmin@test.com").first()
     user.is_platform_admin = False
@@ -373,7 +373,7 @@ class TestArchivePlan:
         reg = client.post("/api/auth/register", json={
             "company_name": "ForceCorp",
             "email": "force@forcecorp.com",
-            "password": "Force123!",
+            "password": "Force1234!",
             "full_name": "Force User",
         })
         assert reg.status_code in (200, 201)

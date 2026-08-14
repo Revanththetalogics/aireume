@@ -206,8 +206,8 @@ export default function InvoicesPage() {
       <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 p-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</label>
-            <select
+            <label htmlFor="invoicespage-status-1" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</label>
+            <select id="invoicespage-status-1"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 text-sm rounded-xl ring-1 ring-slate-200 bg-white text-brand-900 focus:outline-none focus:ring-2 focus:ring-brand-400"
@@ -221,8 +221,8 @@ export default function InvoicesPage() {
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenant</label>
-            <select
+            <label htmlFor="invoicespage-tenant-2" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenant</label>
+            <select id="invoicespage-tenant-2"
               value={tenantFilter}
               onChange={(e) => setTenantFilter(e.target.value)}
               className="px-3 py-2 text-sm rounded-xl ring-1 ring-slate-200 bg-white text-brand-900 focus:outline-none focus:ring-2 focus:ring-brand-400"
@@ -234,8 +234,8 @@ export default function InvoicesPage() {
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">From</label>
-            <input
+            <label htmlFor="invoicespage-from-3" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">From</label>
+            <input id="invoicespage-from-3"
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
@@ -243,8 +243,8 @@ export default function InvoicesPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">To</label>
-            <input
+            <label htmlFor="invoicespage-to-4" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">To</label>
+            <input id="invoicespage-to-4"
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}

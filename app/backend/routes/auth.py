@@ -6,6 +6,7 @@ import time
 import os
 import re
 import secrets
+import smtplib
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,7 @@ from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from jose import jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -52,6 +54,21 @@ class InMemoryRateLimiter:
 
     def is_rate_limited(self, key: str, max_attempts: int, window_seconds: int) -> tuple:
         """Returns (is_limited, retry_after_seconds)."""
+        try:
+            from app.backend.services.shared_cache import cache_incr, _client
+            from redis.exceptions import RedisError
+            if _client() is not None:
+                count = cache_incr(f"rl:{key}", ttl_seconds=window_seconds)
+                if count > max_attempts:
+                    return True, window_seconds
+                return False, 0
+        except ImportError:
+            pass
+        except (OSError, RedisError, RuntimeError, ValueError, TypeError) as e:
+            logger.warning(
+                "Rate limiter cache unavailable; using in-memory: %s", e,
+                extra={"error_code": "CACHE_ERROR"},
+            )
         now = time.time()
         with self._lock:
             # Clean old entries
@@ -123,7 +140,19 @@ def _user_dict(user: User) -> dict:
         "email_verified": user.email_verified,
         "is_platform_admin": user.is_platform_admin or (user.platform_role is not None),
         "platform_role": user.platform_role,
+        "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
+        "mfa_required": _mfa_required_for(user),
     }
+
+
+def _mfa_required_for(user: User) -> bool:
+    if os.getenv("TESTING", "").lower() in {"1", "true", "yes"}:
+        return False
+    return (
+        (user.role or "") == "admin"
+        or bool(user.is_platform_admin)
+        or bool(user.platform_role)
+    )
 
 
 def _verification_expired(user: User) -> bool:
@@ -154,8 +183,11 @@ def _send_verification_email(email: str, token: str, tenant: Tenant) -> bool:
             f"This is an automated message from ARIA Resume Intelligence.</p>"
         )
         return email_service.send_email(email, "Verify Your Email — ARIA Platform", html_body)
-    except Exception as e:
-        logger.error("Failed to send verification email: %s", e)
+    except (smtplib.SMTPException, OSError, ValueError, RuntimeError) as e:
+        logger.error(
+            "Failed to send verification email: %s", e,
+            extra={"error_code": "EMAIL_SEND_ERROR"},
+        )
         return False
 
 
@@ -170,20 +202,30 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
-def _create_auth_response(user: User, tenant: Tenant, access_token: str, refresh_token: str) -> JSONResponse:
-    """Create JSON response with tokens in body and httpOnly cookies."""
+def _create_auth_response(
+    user: User,
+    tenant: Tenant,
+    access_token: str,
+    refresh_token: str,
+    request: Request | None = None,
+) -> JSONResponse:
+    """Set httpOnly cookies. Omit tokens from JSON unless an API client opts in."""
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
     
     # Generate CSRF token for non-httpOnly cookie
     csrf_token = secrets.token_hex(32)
-    
-    response = JSONResponse(content={
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+
+    body = {
         "token_type": "bearer",
         "user": _user_dict(user),
         "tenant": _tenant_dict(tenant) if tenant else None,
-    })
+    }
+    grant = (request.headers.get("X-ARIA-Token-Grant") if request else None) or ""
+    if grant.lower() == "api":
+        body["access_token"] = access_token
+        body["refresh_token"] = refresh_token
+
+    response = JSONResponse(content=body)
     
     # Set httpOnly cookies for browser clients
     response.set_cookie(
@@ -237,6 +279,11 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
 
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        from app.backend.services.password_policy import validate_password_strength
+        validate_password_strength(body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Create tenant
     base_slug = _make_slug(body.company_name)
@@ -280,8 +327,25 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
 
 
 @router.get("/verify-email/{token}")
-def verify_email(token: str, db: Session = Depends(get_db)):
-    """Verify a user's email address via the one-time token sent on registration."""
+def verify_email_legacy_get(token: str):
+    """GET verification is disabled — tokens in URLs leak via logs and Referer."""
+    raise HTTPException(
+        status_code=405,
+        detail="Use POST /api/auth/verify-email with {\"token\": \"...\"}",
+    )
+
+
+class VerifyEmailBody(BaseModel):
+    token: str
+
+
+@router.post("/verify-email")
+def verify_email_post(body: VerifyEmailBody, db: Session = Depends(get_db)):
+    """Verify email with token in the request body (avoids leaking tokens in logs/Referer)."""
+    return _complete_email_verification(body.token, db)
+
+
+def _complete_email_verification(token: str, db: Session):
     user = db.query(User).filter(User.email_verification_token == token).first()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification token")
@@ -349,7 +413,20 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
 
     user_agent = request.headers.get("User-Agent")
 
-    user = db.query(User).filter(User.email == body.email, User.is_active == True).first()
+    slug = (body.tenant_slug or "").strip().lower() or None
+    query = db.query(User).filter(User.email == body.email, User.is_active == True)
+    if slug:
+        tenant_row = db.query(Tenant).filter(Tenant.slug == slug).first()
+        user = query.filter(User.tenant_id == tenant_row.id).first() if tenant_row else None
+    else:
+        matches = query.all()
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Multiple workspaces found for this email. Provide a workspace slug.",
+            )
+        user = matches[0] if matches else None
+
     if not user or not _verify_password(body.password, user.hashed_password):
         # Record failed login
         record_login_failure(db, email=body.email, ip_address=ip, user_agent=user_agent, reason="Invalid credentials")
@@ -357,6 +434,11 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
         if is_suspicious(db, ip_address=ip, email=body.email, window_minutes=30, threshold=5):
             record_suspicious_activity(db, ip_address=ip, email=body.email, details={"reason": "brute_force_detected"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if getattr(user, "mfa_enabled", False):
+        from app.backend.services.mfa_service import verify_code
+        if not verify_code(user.mfa_secret, body.mfa_code):
+            raise HTTPException(status_code=401, detail="MFA code required")
 
     # Check email verification
     if not user.email_verified:
@@ -384,9 +466,14 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     record_login_success(db, user=user, ip_address=ip, user_agent=user_agent)
 
     access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    refresh_token = _create_token({
+        "sub": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "type": "refresh",
+        "rfv": getattr(user, "refresh_epoch", 0) or 0,
+    }, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
-    return _create_auth_response(user, tenant, access_token, refresh_token)
+    return _create_auth_response(user, tenant, access_token, refresh_token, request)
 
 
 @router.post("/refresh")
@@ -416,12 +503,21 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
     if jti:
         revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
         if revoked:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.refresh_epoch = (getattr(user, "refresh_epoch", 0) or 0) + 1
+                db.commit()
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
     # Check if user exists at all (regardless of active status)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    user_rfv = getattr(user, "refresh_epoch", 0) or 0
+    token_rfv = payload.get("rfv", 0)
+    if token_rfv != user_rfv:
+        raise HTTPException(status_code=401, detail="Token has been revoked")
 
     if not user.is_active:
         # User was deactivated — revoke this refresh token permanently
@@ -441,10 +537,21 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
-    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    new_refresh   = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    if jti:
+        existing_revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+        if not existing_revoked:
+            db.add(RevokedToken(jti=jti, expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)))
+            db.commit()
 
-    return _create_auth_response(user, tenant, access_token, new_refresh)
+    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    new_refresh   = _create_token({
+        "sub": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "type": "refresh",
+        "rfv": getattr(user, "refresh_epoch", 0) or 0,
+    }, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+
+    return _create_auth_response(user, tenant, access_token, new_refresh, request)
 
 
 @router.get("/me")
@@ -469,8 +576,11 @@ async def logout(request: Request, db: Session = Depends(get_db)):
         try:
             body = await request.json()
             refresh_token_value = body.get("refresh_token")
-        except Exception:
-            pass
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(
+                "Logout body was not valid JSON: %s", e,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
     
     # If we have a refresh token, decode it and store JTI in revoked_tokens
     if refresh_token_value:
@@ -572,8 +682,11 @@ def forgot_password(request: Request, request_data: dict, db: Session = Depends(
             tenant_svc.send_email(user.email, "Password Reset - ARIA Platform", html_body)
         else:
             email_service.send_email(user.email, "Password Reset - ARIA Platform", html_body)
-    except Exception as e:
-        logger.error("Failed to send password reset email: %s", e)
+    except (smtplib.SMTPException, OSError, ValueError, RuntimeError) as e:
+        logger.error(
+            "Failed to send password reset email: %s", e,
+            extra={"error_code": "EMAIL_SEND_ERROR"},
+        )
 
     logger.info("Password reset token generated for user %s", user.id)
 
@@ -591,6 +704,11 @@ def reset_password(request_data: dict, db: Session = Depends(get_db)):
 
     if len(new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        from app.backend.services.password_policy import validate_password_strength
+        validate_password_strength(new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Find valid token
     reset_token = db.query(PasswordResetToken).filter(
@@ -613,6 +731,72 @@ def reset_password(request_data: dict, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Password has been reset successfully"}
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(
+    body: ChangePasswordBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    try:
+        from app.backend.services.password_policy import validate_password_strength
+        validate_password_strength(body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    current_user.hashed_password = _hash_password(body.new_password)
+    db.commit()
+    return {"message": "Password updated"}
+
+
+class MfaCodeBody(BaseModel):
+    code: str
+
+
+@router.post("/mfa/setup")
+def mfa_setup(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.backend.services.mfa_service import new_secret, provisioning_uri
+    secret = new_secret()
+    current_user.mfa_secret = secret
+    current_user.mfa_enabled = False
+    db.commit()
+    return {"secret": secret, "otpauth_url": provisioning_uri(current_user.email, secret)}
+
+
+@router.post("/mfa/enable")
+def mfa_enable(
+    body: MfaCodeBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.mfa_service import verify_code
+    if not verify_code(current_user.mfa_secret, body.code):
+        raise HTTPException(status_code=400, detail="Invalid MFA code")
+    current_user.mfa_enabled = True
+    db.commit()
+    return {"mfa_enabled": True}
+
+
+@router.post("/mfa/disable")
+def mfa_disable(
+    body: MfaCodeBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.backend.services.mfa_service import verify_code
+    if not current_user.mfa_enabled or not verify_code(current_user.mfa_secret, body.code):
+        raise HTTPException(status_code=400, detail="Invalid MFA code")
+    current_user.mfa_enabled = False
+    current_user.mfa_secret = None
+    db.commit()
+    return {"mfa_enabled": False}
 
 
 # ─── E2E / test helpers (disabled in production) ─────────────────────────────

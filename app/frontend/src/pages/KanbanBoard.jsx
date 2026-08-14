@@ -315,8 +315,9 @@ export default function KanbanBoard() {
                 onDrop={(e) => handleDrop(e, status)}
               >
                 {/* Column Header — clickable to toggle collapse */}
-                <div
-                  className={`px-4 py-3 rounded-t-2xl border-b ${cfg.headerBg} ${cfg.headerBorder} flex items-center justify-between cursor-pointer select-none hover:opacity-80 transition-opacity`}
+                <button
+                  type="button"
+                  className={`px-4 py-3 rounded-t-2xl border-b ${cfg.headerBg} ${cfg.headerBorder} flex items-center justify-between cursor-pointer select-none hover:opacity-80 transition-opacity w-full text-left`}
                   onClick={() => toggleCollapse(status)}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -332,7 +333,7 @@ export default function KanbanBoard() {
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${cfg.badgeBg} ${cfg.badgeText} ring-1 ${cfg.ring} flex-shrink-0`}>
                     {count}
                   </span>
-                </div>
+                </button>
 
                 {/* Card List — hidden when collapsed */}
                 {!isCollapsed && (
@@ -346,13 +347,14 @@ export default function KanbanBoard() {
                       />
                     ) : (
                       items.map(candidate => (
-                        <div
+                        <button
+                          type="button"
                           key={candidate.id}
                           draggable={canWrite}
                           onDragStart={(e) => handleDragStart(e, candidate, status)}
                           onDragEnd={handleDragEnd}
                           onClick={() => navigate(`/candidates/${candidate.id}`)}
-                          className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none ${
+                          className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none w-full text-left ${
                             draggingId === candidate.id ? 'opacity-50' : ''
                           }`}
                         >
@@ -389,7 +391,7 @@ export default function KanbanBoard() {
                               {safeStr(candidate.jd_name)}
                             </p>
                           )}
-                        </div>
+                        </button>
                       ))
                     )}
                   </div>

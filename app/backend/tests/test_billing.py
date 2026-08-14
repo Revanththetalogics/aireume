@@ -217,7 +217,7 @@ def test_non_admin_cannot_access_billing_config(client, db):
         "email": "normal@normalcorp.com",
         "password": "NormalPass123!",
     })
-    token = login.json()["access_token"]
+    token = (login.cookies.get("access_token") or login.json().get("access_token"))
     client.headers.update({"Authorization": f"Bearer {token}"})
 
     resp = client.get("/api/admin/billing/config")

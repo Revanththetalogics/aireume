@@ -105,6 +105,10 @@ class User(Base):
     platform_role   = Column(String(50), nullable=True)  # super_admin | billing_admin | support | security_admin | readonly
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
+    mfa_secret      = Column(String(64), nullable=True)
+    mfa_enabled     = Column(Boolean, nullable=False, default=False, server_default="false")
+    refresh_epoch   = Column(Integer, nullable=False, default=0, server_default="0")
+
     # Email verification
     email_verified             = Column(Boolean, nullable=False, server_default='false', default=False)
     email_verification_token   = Column(String(255), nullable=True)
@@ -511,6 +515,9 @@ class TenantRequisitionSettings(Base):
     intake_gate_mode = Column(String(20), nullable=False, default="warn", server_default="warn")
     screening_mode = Column(String(30), nullable=False, default="requisition_required", server_default="requisition_required")
     hm_pipeline_permission = Column(String(30), nullable=False, default="view_only", server_default="view_only")
+    # One-time RoleTemplate/project → requisition migration. Prevents resurrecting
+    # deleted requisitions from leftover shadow RoleTemplates on every list/dashboard.
+    legacy_jd_migrated = Column(Boolean, nullable=False, default=False, server_default="false")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     tenant = relationship("Tenant", backref="requisition_settings", uselist=False)
@@ -701,6 +708,9 @@ class AuditLog(Base):
     details = Column(Text, nullable=True)
     ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    entry_hash = Column(String(64), nullable=True)
+    prev_hash = Column(String(64), nullable=True)
+    impersonated_by = Column(Integer, nullable=True)
 
 
 class FieldAuditLog(Base):
@@ -1038,6 +1048,7 @@ class HandoffShareLink(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     view_count = Column(Integer, nullable=False, default=0)
+    passcode_hash = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     role_template = relationship("RoleTemplate")

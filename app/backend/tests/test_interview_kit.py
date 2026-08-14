@@ -143,6 +143,24 @@ class TestInterviewKitEvaluation:
         resp = auth_client.get(f"/api/results/{result.id}/evaluations")
         assert resp.status_code == 403
 
+    def test_null_tenant_result_is_not_found(self, auth_client, db):
+        result = ScreeningResult(
+            tenant_id=0,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+
+        resp = auth_client.put(
+            f"/api/results/{result.id}/evaluations",
+            json={"question_category": "technical", "question_index": 0, "rating": "strong"},
+        )
+        assert resp.status_code == 404
+
     def test_evaluation_category_validation(self, auth_client, db):
         """Test that invalid categories are rejected with 422."""
         tenant, user = _get_auth_tenant_and_user(db, auth_client)

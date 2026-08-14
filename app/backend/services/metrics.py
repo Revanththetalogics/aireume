@@ -5,7 +5,7 @@ This module defines custom metrics used across the application.
 Import metrics from here to avoid circular imports.
 """
 
-from prometheus_client import Histogram, Counter
+from prometheus_client import Histogram, Counter, Gauge
 
 # Custom metrics for LLM operations
 LLM_CALL_DURATION = Histogram(
@@ -46,6 +46,21 @@ GUARDRAIL_HITL_FLAG_TOTAL = Counter(
     "aria_guardrail_hitl_flag_total",
     "Total HITL flags generated",
     ["severity"]
+)
+
+GDPR_PURGE_TOTAL = Counter(
+    "aria_gdpr_purge_total",
+    "Expired personal data purge runs",
+)
+
+DLQ_MOVED_TOTAL = Counter(
+    "aria_dlq_moved_total",
+    "Jobs moved to the dead-letter queue",
+)
+
+DLQ_DEPTH = Gauge(
+    "aria_dlq_depth",
+    "Pending dead-letter jobs awaiting retry or discard",
 )
 
 GUARDRAIL_CIRCUIT_BREAKER_TOTAL = Counter(

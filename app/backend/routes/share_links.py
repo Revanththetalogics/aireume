@@ -1,4 +1,6 @@
 """HM magic links — tokenized public handoff access."""
+import hashlib
+import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -11,7 +13,7 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.middleware.rbac import require_recruiter_or_admin
 from app.backend.models.db_models import HandoffShareLink, RoleTemplate, User
-from app.backend.services.audit_service import log_tenant_event
+from app.backend.services.audit_service import log_audit, log_tenant_event
 from app.backend.services.handoff_service import build_handoff_package
 
 router = APIRouter(prefix="/api", tags=["share-links"])
@@ -21,6 +23,11 @@ public_router = APIRouter(prefix="/api/public", tags=["public-handoff"])
 class ShareLinkCreate(BaseModel):
     label: Optional[str] = None
     expires_in_days: int = Field(default=14, ge=1, le=90)
+    passcode: Optional[str] = Field(default=None, min_length=4, max_length=128)
+
+
+def _hash_passcode(passcode: str) -> str:
+    return hashlib.sha256(passcode.encode("utf-8")).hexdigest()
 
 
 class ShareLinkOut(BaseModel):
@@ -91,6 +98,7 @@ def create_share_link(
         created_by=current_user.id,
         label=body.label or f"HM Handoff — {jd.name}",
         expires_at=expires_at,
+        passcode_hash=_hash_passcode(body.passcode) if body.passcode else None,
     )
     db.add(link)
     log_tenant_event(
@@ -161,9 +169,22 @@ def revoke_share_link(
 
 
 @public_router.get("/handoff/{token}")
-def get_public_handoff(token: str, db: Session = Depends(get_db)):
+def get_public_handoff(token: str, request: Request, db: Session = Depends(get_db)):
     """Public read-only HM handoff via magic link (no login required)."""
+    from app.backend.services.shared_cache import cache_incr
+    ip = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+    if cache_incr(f"handoff:{ip}", ttl_seconds=3600) > 60:
+        raise HTTPException(status_code=429, detail="Too many requests")
+
     link = _get_valid_link(db, token)
+    passcode = request.query_params.get("passcode") or request.headers.get("X-Handoff-Passcode")
+    if link.passcode_hash:
+        provided = _hash_passcode(passcode or "")
+        if not hmac.compare_digest(provided, link.passcode_hash):
+            raise HTTPException(status_code=401, detail="Passcode required")
     package = build_handoff_package(
         db,
         tenant_id=link.tenant_id,
@@ -176,6 +197,23 @@ def get_public_handoff(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Handoff package not found")
 
     link.view_count = (link.view_count or 0) + 1
+    db.commit()
+
+    class _PublicActor:
+        id = None
+        email = "public-handoff"
+        _impersonated_by = None
+
+    log_audit(
+        db,
+        actor=_PublicActor(),
+        action="handoff.view",
+        resource_type="handoff_share_link",
+        resource_id=link.id,
+        details={"token_suffix": token[-6:], "ip": ip},
+        ip_address=ip,
+        tenant_id=link.tenant_id,
+    )
     db.commit()
 
     package["share_link"] = {

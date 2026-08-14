@@ -155,12 +155,13 @@ function MobileTabBar({ location, canWrite, primaryNav, menuLinks }) {
     <>
       {/* Backdrop */}
       {moreOpen && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden" onClick={() => setMoreOpen(false)} />
+        <button type="button" aria-label="Close" className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden" onClick={() => setMoreOpen(false)} />
       )}
 
       {/* More sheet */}
       {moreOpen && (
         <div
+          id="mobile-more-sheet"
           ref={sheetRef}
           className="fixed bottom-16 left-0 right-0 popover-surface rounded-t-2xl shadow-brand-xl z-50 md:hidden animate-fade-up border-t-0"
         >
@@ -200,6 +201,10 @@ function MobileTabBar({ location, canWrite, primaryNav, menuLinks }) {
             )
           })}
           <button
+            type="button"
+            aria-label="More navigation"
+            aria-expanded={moreOpen}
+            aria-controls="mobile-more-sheet"
             onClick={() => setMoreOpen(v => !v)}
             className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors ${
               moreOpen ? 'text-brand-600' : 'text-slate-400'
@@ -290,8 +295,10 @@ export default function NavBar() {
     (item) => !item.assignOnly || canAssign,
   )
   const location = useLocation()
+  const navigate = useNavigate()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef(null)
+  const mobileMenuRef = useRef(null)
   const initials = user?.email ? user.email[0].toUpperCase() : '?'
   const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
   const brandName = branding?.brand_name || 'ARIA'
@@ -301,9 +308,13 @@ export default function NavBar() {
   // Close user menu on outside click
   useEffect(() => {
     function handleClick(e) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
-        setUserMenuOpen(false)
+      if (
+        (userMenuRef.current && userMenuRef.current.contains(e.target)) ||
+        (mobileMenuRef.current && mobileMenuRef.current.contains(e.target))
+      ) {
+        return
       }
+      setUserMenuOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -317,7 +328,7 @@ export default function NavBar() {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
             {brandLogo ? (
-              <img src={brandLogo} alt="" className="w-8 h-8 rounded-xl object-contain" />
+              <img src={brandLogo} alt={brandName} className="w-8 h-8 rounded-xl object-contain" />
             ) : (
               <div
                 className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-600 to-brand-500 flex items-center justify-center shadow-brand-sm group-hover:shadow-brand transition-shadow"
@@ -400,8 +411,21 @@ export default function NavBar() {
           {/* Mobile: logo already shown, just show progress + avatar on right */}
           <div className="md:hidden flex items-center gap-2">
             <JobCenter />
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-xs font-bold">
-              {initials}
+            <div ref={mobileMenuRef} className="relative">
+              <button
+                type="button"
+                aria-label="Open account menu"
+                aria-expanded={userMenuOpen}
+                onClick={() => setUserMenuOpen(v => !v)}
+                className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-xs font-bold"
+              >
+                {initials}
+              </button>
+              <AnimatePresence>
+                {userMenuOpen && (
+                  <UserMenu user={user} tenant={tenant} logout={logout} onClose={() => setUserMenuOpen(false)} menuLinks={menuLinks} />
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>

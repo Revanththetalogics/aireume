@@ -15,6 +15,7 @@ import RecruiterTranscript from '../components/RecruiterTranscript'
 import InterviewStrategyPreview from '../components/InterviewStrategyPreview'
 import { flattenStrategyQuestions } from '../lib/liveScreenKitUtils'
 import { isInterviewKitReady } from '../lib/enrichmentUtils'
+import useConfirm from '../hooks/useConfirm'
 
 const STATUS_CONFIG = {
   pending_strategy: { label: 'Preparing',   color: 'bg-slate-100 text-slate-700' },
@@ -61,6 +62,7 @@ function parseStrategyQuestions(strategy) {
 export default function RecruiterSessionDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { confirm, dialog } = useConfirm()
   const [session, setSession] = useState(null)
   const [transcript, setTranscript] = useState(null)
   const [scorecard, setScorecard] = useState(null)
@@ -114,7 +116,13 @@ export default function RecruiterSessionDetailPage() {
   }
 
   async function handleCancel() {
-    if (!confirm('Cancel this interview session?')) return
+    const ok = await confirm({
+      title: 'Cancel session',
+      message: 'Cancel this interview session?',
+      confirmLabel: 'Cancel session',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await cancelRecruiterSession(id)
       const updated = await getRecruiterSession(id)
@@ -313,6 +321,7 @@ export default function RecruiterSessionDetailPage() {
           </motion.div>
         )}
       </div>
+      {dialog}
     </div>
   )
 }

@@ -281,7 +281,7 @@ export default function TranscriptPage() {
 
             {/* Candidate dropdown */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+              <label htmlFor="transcriptpage-candidate-profile-optional-1" className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                 <User className="w-4 h-4 text-brand-500" />
                 Candidate Profile
                 <span className="text-slate-400 font-normal">(optional)</span>
@@ -289,7 +289,7 @@ export default function TranscriptPage() {
               {loadingMeta ? (
                 <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
               ) : (
-                <select
+                <select id="transcriptpage-candidate-profile-optional-1"
                   value={candidateId}
                   onChange={(e) => setCandidateId(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-slate-700 text-sm bg-white"
@@ -311,7 +311,7 @@ export default function TranscriptPage() {
 
             {/* Job Description dropdown */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+              <label htmlFor="transcriptpage-job-description-required-2" className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                 <Briefcase className="w-4 h-4 text-brand-500" />
                 Job Description
                 <span className="text-red-500 text-xs ml-1">*required</span>
@@ -319,7 +319,7 @@ export default function TranscriptPage() {
               {loadingMeta ? (
                 <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
               ) : (
-                <select
+                <select id="transcriptpage-job-description-required-2"
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-slate-700 text-sm bg-white"
@@ -339,10 +339,10 @@ export default function TranscriptPage() {
 
             {/* Platform selector */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+              <p className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                 <Video className="w-4 h-4 text-brand-400" />
                 Interview Platform
-              </label>
+              </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {PLATFORMS.map((p) => (
                   <button

@@ -558,6 +558,7 @@ def approve_hm_request(
     if req.intake_status == "draft":
         req.intake_status = "pending_hm"
     req.hm_request_status = "approved"
+    maybe_advance_to_sourcing(db, req)
     db.flush()
     return req, user
 
@@ -750,13 +751,24 @@ def calibrate_requisition(
 
 
 def migrate_legacy_data(db: Session, tenant_id: int) -> int:
-    """One-time migration: role templates + projects → requisitions."""
+    """One-time migration: role templates + projects → requisitions.
+
+    Guarded by tenant_requisition_settings.legacy_jd_migrated so deleting all
+    requisitions does not re-create them from leftover RoleTemplate shadows
+    (create_requisition / sample JD always leave templates behind).
+    """
+    settings = get_or_create_tenant_settings(db, tenant_id)
+    if settings.legacy_jd_migrated:
+        return 0
+
     existing = (
         db.query(Requisition)
         .filter(Requisition.tenant_id == tenant_id)
         .count()
     )
     if existing:
+        settings.legacy_jd_migrated = True
+        db.flush()
         return 0
 
     created = 0
@@ -867,6 +879,7 @@ def migrate_legacy_data(db: Session, tenant_id: int) -> int:
         if req_row:
             backfill_pipeline_from_screenings(db, req_row)
 
+    settings.legacy_jd_migrated = True
     db.flush()
     logger.info("Migrated %s requisitions for tenant %s", created, tenant_id)
     return created

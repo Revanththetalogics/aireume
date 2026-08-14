@@ -27,6 +27,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Q
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import update, func
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user
@@ -70,1249 +71,59 @@ from app.backend.services.outcome_service import compute_skill_patterns
 from app.backend.services.team_service import get_team_profile
 from app.backend.services.skill_trend_service import get_skill_trends
 
+from app.backend.routes.analyze_helpers import (
+    ALLOWED_EXTENSIONS,
+    MAX_BATCH_SIZE,
+    MAX_JD_SIZE,
+    MAX_SCORING_WEIGHTS_SIZE,
+    FILE_SIGNATURES,
+    MAX_PDF_PAGES,
+    PARSE_TIMEOUT_SECONDS,
+    _schedule_auto_trigger,
+    _validate_file_content,
+    _get_tenant_lock,
+    _json_default,
+    _populate_denormalized_columns,
+    _should_preserve_analysis_scores,
+    _restore_preserved_scores,
+    _upsert_screening_result,
+    _write_ai_decision_log,
+    _apply_skill_overrides,
+    _persist_skill_overrides_to_template,
+    _get_or_cache_jd,
+    _link_to_project,
+    _resolve_requisition,
+    _enforce_screening_mode,
+    _finalize_analyze_context,
+    _link_to_requisition,
+    _build_duplicate_info,
+    _parser_snapshot_json,
+    _store_candidate_profile,
+    _get_or_create_candidate,
+    _fallback_result,
+    _resolve_jd,
+    _check_jd_length,
+    _check_jd_size,
+    _build_phase3_context,
+    _enrich_skills_with_confidence,
+    _get_excluded_skills,
+    _get_suggested_additions,
+    _enrich_skills_with_market_data,
+    _check_scoring_weights_size,
+    _validate_optional_analyze_payloads,
+    _assert_custom_weights_allowed,
+    _assert_custom_weights_allowed_if_provided,
+    _parse_resume_with_doc_conversion,
+    _reject_injected_text,
+    _process_single_resume,
+    _check_and_increment_usage,
+    _process_with_semaphore,
+    _spawn_background_narrative,
+)
+
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
 
-
-async def _schedule_auto_trigger(
-    tenant_id: int,
-    candidate_id: int,
-    screening_result_id: int,
-    new_status: str,
-) -> None:
-    """Fire-and-forget auto-trigger evaluation using a fresh DB session."""
-    db = SessionLocal()
-    try:
-        trigger = RecruiterAutoTrigger(db)
-        await trigger.evaluate_trigger(
-            tenant_id=tenant_id,
-            candidate_id=candidate_id,
-            screening_result_id=screening_result_id,
-            new_status=new_status,
-        )
-    except Exception as e:
-        log.warning("Auto-trigger evaluation failed: %s", e)
-    finally:
-        db.close()
-
-
-ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc', '.txt', '.rtf', '.odt')
-
-# Maximum JD size (50KB)
-MAX_JD_SIZE = 50 * 1024  # 50KB
-
-# Maximum scoring_weights size (4KB)
-MAX_SCORING_WEIGHTS_SIZE = 4 * 1024  # 4KB
-
-# ─── File content (magic bytes) validation ─────────────────────────────────────
-
-FILE_SIGNATURES = {
-    '.pdf':  [b'%PDF'],
-    '.docx': [b'PK\x03\x04'],          # ZIP-based format
-    '.doc':  [b'\xd0\xcf\x11\xe0'],   # OLE2 Compound Document
-    '.odt':  [b'PK\x03\x04'],           # ZIP-based format (like DOCX)
-    '.rtf':  [b'{\\rtf'],
-    '.txt':  None,                        # No signature check for plain text
-}
-
-# PDF resource limits
-MAX_PDF_PAGES = 500
-PARSE_TIMEOUT_SECONDS = 30
-
-
-def _validate_file_content(content: bytes, filename: str) -> None:
-    """Verify that file content matches its extension via magic-byte signatures.
-
-    Additional layers beyond the existing extension allowlist:
-      1. Magic-byte check — the first bytes of the file must match the
-         expected signature for the declared extension.
-      2. For .txt files — heuristic check that content is not binary.
-
-    Raises HTTPException(400) on validation failure.
-    """
-    ext = os.path.splitext(filename.lower())[1]
-    signatures = FILE_SIGNATURES.get(ext)
-
-    # Extension not in signature table — skip content check
-    if signatures is None and ext != '.txt':
-        return
-
-    # ── .txt: heuristic binary detection ────────────────────────────────────
-    if ext == '.txt':
-        if not content:
-            return  # empty file is acceptable for .txt
-        sample = content[:1000]
-        non_printable = sum(
-            1 for b in sample
-            if b < 0x20 and b not in (0x09, 0x0A, 0x0D)  # TAB, LF, CR
-        )
-        if len(sample) and non_printable / len(sample) > 0.30:
-            log.warning("File signature mismatch for %s: expected %s format", filename, ext)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
-            )
-        return
-
-    # ── Magic-byte check for binary formats ─────────────────────────────────
-    # Empty files or files shorter than the shortest signature automatically fail
-    if not content:
-        log.warning("File signature mismatch for %s: expected %s format", filename, ext)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
-        )
-
-    min_sig_len = min(len(s) for s in signatures)
-    if len(content) < min_sig_len:
-        log.warning("File signature mismatch for %s: expected %s format", filename, ext)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
-        )
-
-    for sig in signatures:
-        if content.startswith(sig):
-            # For PDFs, additionally check page count to prevent resource exhaustion
-            if ext == '.pdf':
-                try:
-                    import pdfplumber, io
-                    with pdfplumber.open(io.BytesIO(content)) as _pdf:
-                        if len(_pdf.pages) > MAX_PDF_PAGES:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"PDF exceeds maximum {MAX_PDF_PAGES} pages",
-                            )
-                except HTTPException:
-                    raise
-                except Exception:
-                    pass  # Page-count check is best-effort; parsing errors handled later
-            return  # signature matches
-
-    log.warning("File signature mismatch for %s: expected %s format", filename, ext)
-    raise HTTPException(
-        status_code=400,
-        detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
-    )
-
-# ─── Batch processing concurrency control ───────────────────────────────────────
-
-_BATCH_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BATCH_MAX_CONCURRENT", "30")))
-MAX_BATCH_SIZE = 50
-
-# ─── Per-tenant quota locks (prevents double-spend on concurrent requests) ──────
-
-_tenant_quota_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-
-
-def _get_tenant_lock(tenant_id: int) -> asyncio.Lock:
-    """Return the asyncio.Lock for this tenant, creating one on first access."""
-    return _tenant_quota_locks[tenant_id]
-
-
-# ─── JSON serialization helper ────────────────────────────────────────────────
-
-def _json_default(obj):
-    """Handle non-serializable types for json.dumps (datetime, date, Decimal, bytes)."""
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, Decimal):
-        return float(obj)
-    if isinstance(obj, bytes):
-        import base64
-        return base64.b64encode(obj).decode("ascii")
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
-
-def _populate_denormalized_columns(sr: ScreeningResult, result: dict) -> None:
-    """Populate denormalized score columns on ScreeningResult from pipeline result dict.
-
-    The pipeline computes deterministic_score, core_skill_score, domain_match_score,
-    eligibility_status, and eligibility_reason but stores them only inside the
-    analysis_result JSON blob.  Several consumers (voice screening UI, recruiter
-    context engine, auto-trigger, project lists) read these columns directly
-    without parsing the JSON blob, so they must be populated.
-    """
-    if not isinstance(result, dict):
-        return
-    try:
-        sr.deterministic_score = result.get("deterministic_score")
-        if sr.deterministic_score is None:
-            sr.deterministic_score = result.get("fit_score")
-
-        skill_analysis = result.get("skill_analysis", {})
-        if isinstance(skill_analysis, dict):
-            sr.core_skill_score = skill_analysis.get("core_match_ratio")
-
-        candidate_domain = result.get("candidate_domain", {})
-        if isinstance(candidate_domain, dict):
-            sr.domain_match_score = candidate_domain.get("confidence")
-
-        eligibility = result.get("eligibility", {})
-        if isinstance(eligibility, dict):
-            sr.eligibility_status = eligibility.get("eligible")
-            sr.eligibility_reason = eligibility.get("reason")
-    except Exception as e:
-        log.warning("Non-critical: Failed to populate denormalized columns: %s", e)
-
-
-def _should_preserve_analysis_scores(
-    existing: ScreeningResult | None,
-    resume_text: str,
-    jd_text: str,
-) -> bool:
-    """Same candidate + same JD + unchanged inputs → keep prior analysis scores."""
-    if existing is None:
-        return False
-    if existing.deterministic_score is None:
-        return False
-    return (
-        (existing.resume_text or "").strip() == (resume_text or "").strip()
-        and (existing.jd_text or "").strip() == (jd_text or "").strip()
-    )
-
-
-def _restore_preserved_scores(existing: ScreeningResult, pipeline_result: dict) -> dict:
-    """Restore fit scores from prior analysis when re-running against same JD."""
-    try:
-        prior = json.loads(existing.analysis_result or "{}")
-    except json.JSONDecodeError:
-        prior = {}
-    restored = dict(pipeline_result)
-    for key in ("fit_score", "deterministic_score", "final_recommendation", "overall_score"):
-        if prior.get(key) is not None:
-            restored[key] = prior[key]
-    if existing.deterministic_score is not None:
-        restored["deterministic_score"] = existing.deterministic_score
-        restored["fit_score"] = existing.deterministic_score
-    return restored
-
-
-def _upsert_screening_result(
-    db: Session,
-    tenant_id: int,
-    candidate_id: int,
-    role_template_id: int | None,
-    resume_text: str,
-    jd_text: str,
-    parsed_data: str,
-    analysis_result: str,
-    narrative_status: str | None = None,
-    pipeline_result: dict | None = None,
-    requisition_id: int | None = None,
-) -> ScreeningResult:
-    """Insert or update a ScreeningResult, respecting the unique constraint."""
-    q = db.query(ScreeningResult).filter(
-        ScreeningResult.tenant_id == tenant_id,
-        ScreeningResult.candidate_id == candidate_id,
-    )
-    if requisition_id is not None:
-        q = q.filter(ScreeningResult.requisition_id == requisition_id)
-    else:
-        q = q.filter(ScreeningResult.role_template_id == role_template_id)
-    existing = q.first()
-
-    if existing:
-        preserve_scores = _should_preserve_analysis_scores(existing, resume_text, jd_text)
-        existing.resume_text = resume_text
-        existing.jd_text = jd_text
-        existing.parsed_data = parsed_data
-        existing.analysis_result = analysis_result
-        existing.is_active = True
-        existing.version_number = (existing.version_number or 1) + 1
-        existing.status_updated_at = datetime.now(timezone.utc)
-        if requisition_id is not None:
-            existing.requisition_id = requisition_id
-        if narrative_status is not None:
-            existing.narrative_status = narrative_status
-        if pipeline_result is not None:
-            if preserve_scores:
-                pipeline_result = _restore_preserved_scores(existing, pipeline_result)
-            _populate_denormalized_columns(existing, pipeline_result)
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    new_result = ScreeningResult(
-        tenant_id=tenant_id,
-        candidate_id=candidate_id,
-        role_template_id=role_template_id,
-        requisition_id=requisition_id,
-        resume_text=resume_text,
-        jd_text=jd_text,
-        parsed_data=parsed_data,
-        analysis_result=analysis_result,
-    )
-    if pipeline_result is not None:
-        _populate_denormalized_columns(new_result, pipeline_result)
-    if narrative_status is not None:
-        new_result.narrative_status = narrative_status
-
-    db.add(new_result)
-    db.commit()
-    db.refresh(new_result)
-    _write_ai_decision_log(db, new_result, pipeline_result)
-    return new_result
-
-
-def _write_ai_decision_log(db: Session, result: ScreeningResult, pipeline_result: dict | None) -> None:
-    """Persist an auditable AI decision record (GDPR Art. 22 / EU AI Act).
-
-    Best-effort: never raises into the analysis path.
-    """
-    if pipeline_result is None:
-        return
-    try:
-        from app.backend.models.db_models import AIDecisionLog
-
-        meta = pipeline_result.get("_meta", {}) if isinstance(pipeline_result, dict) else {}
-        guardrails = meta.get("guardrails_triggered") or pipeline_result.get("guardrails_triggered") or []
-        final_score = (
-            pipeline_result.get("fit_score")
-            or pipeline_result.get("overall_score")
-            or pipeline_result.get("score")
-        )
-        db.add(AIDecisionLog(
-            tenant_id=result.tenant_id,
-            screening_result_id=result.id,
-            candidate_id=result.candidate_id,
-            model_name=meta.get("model_name") or pipeline_result.get("model_used"),
-            model_version=meta.get("model_version"),
-            prompt_template_version=meta.get("prompt_template_version"),
-            prompt_hash=meta.get("prompt_hash"),
-            guardrails_triggered=guardrails if isinstance(guardrails, list) else [],
-            fallback_used=bool(meta.get("fallback_used") or pipeline_result.get("fallback_used")),
-            deterministic_score=meta.get("deterministic_score"),
-            llm_score=meta.get("llm_score"),
-            final_score=final_score,
-        ))
-        db.commit()
-    except Exception as e:
-        log.warning("Non-critical: failed to write AIDecisionLog: %s", e)
-        try:
-            db.rollback()
-        except Exception:
-            pass
-
-
-def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
-    """Apply user-specified skill overrides to jd_analysis in-place.
-
-    Preserves original skills as ``original_required_skills`` /
-    ``original_nice_to_have_skills`` and sets ``skill_overrides_applied``
-    so downstream consumers can detect overrides.
-
-    Supports proficiency-aware overrides where each skill can be a dict:
-        {"skill": "Python", "proficiency": "advanced"}
-    Proficiency data is stored separately in
-    ``jd_analysis["skill_proficiency_requirements"]`` for downstream scoring.
-    """
-    if not overrides:
-        return jd_analysis
-
-    proficiency_map: dict[str, str] = {}
-
-    def _extract_skills(skill_list: list) -> list[str]:
-        """Normalise a skill list that may contain strings or proficiency dicts."""
-        result: list[str] = []
-        for item in skill_list:
-            if isinstance(item, str):
-                result.append(item)
-            elif isinstance(item, dict) and "skill" in item:
-                result.append(item["skill"])
-                prof = item.get("proficiency")
-                if isinstance(prof, str) and prof.lower() in (
-                    "basic", "intermediate", "advanced", "expert",
-                ):
-                    proficiency_map[item["skill"].lower()] = prof.lower()
-        return result
-
-    if "required_skills" in overrides and isinstance(overrides["required_skills"], list):
-        jd_analysis["original_required_skills"] = jd_analysis.get("required_skills", [])
-        jd_analysis["required_skills"] = _extract_skills(overrides["required_skills"])
-    if "nice_to_have_skills" in overrides and isinstance(overrides["nice_to_have_skills"], list):
-        jd_analysis["original_nice_to_have_skills"] = jd_analysis.get("nice_to_have_skills", [])
-        jd_analysis["nice_to_have_skills"] = _extract_skills(overrides["nice_to_have_skills"])
-    jd_analysis["skill_overrides_applied"] = True
-
-    # Store proficiency requirements separately for downstream scoring
-    if proficiency_map:
-        jd_analysis["skill_proficiency_requirements"] = proficiency_map
-    else:
-        jd_analysis.pop("skill_proficiency_requirements", None)
-
-    log.info("Skill overrides applied: required=%d, nice_to_have=%d, proficiency_entries=%d",
-             len(overrides.get("required_skills", [])),
-             len(overrides.get("nice_to_have_skills", [])),
-             len(proficiency_map))
-    return jd_analysis
-
-
-def _persist_skill_overrides_to_template(
-    db: Session,
-    template_id: Optional[int],
-    tenant_id: int,
-    parsed_skill_overrides: Optional[dict],
-) -> None:
-    """Persist recruiter skill overrides to the RoleTemplate and global Skill registry.
-
-    Saves the override lists on the template so they are reused for future candidates,
-    then upserts any new skill names into the global Skill DB registry so they are
-    available for extraction across the system.
-    """
-    if not template_id or not parsed_skill_overrides:
-        return
-    try:
-        template = db.query(RoleTemplate).filter(
-            RoleTemplate.id == template_id,
-            RoleTemplate.tenant_id == tenant_id,
-        ).first()
-        if not template:
-            return
-        template.required_skills_override = json.dumps(
-            parsed_skill_overrides.get("required_skills", [])
-        )
-        template.nice_to_have_skills_override = json.dumps(
-            parsed_skill_overrides.get("nice_to_have_skills", [])
-        )
-        db.commit()
-        log.info("Persisted skill overrides to template %s", template_id)
-
-        # Add any new skills to the global registry so they can be extracted from resumes
-        all_skills = (
-            parsed_skill_overrides.get("required_skills", []) +
-            parsed_skill_overrides.get("nice_to_have_skills", [])
-        )
-        from app.backend.services.skill_matcher import add_user_skills_to_registry
-        added = add_user_skills_to_registry(all_skills, db)
-        if added:
-            log.info("Added %d new skills to global registry from template %s", len(added), template_id)
-    except Exception as e:
-        log.warning("Failed to persist skill overrides to template: %s", e)
-
-
-# ─── JD cache helpers ─────────────────────────────────────────────────────────
-
-def _get_or_cache_jd(db: Session, job_description: str) -> dict:
-    """Parse the JD or return the cached result. Shared across all workers via DB.
-
-    Cached entries are automatically invalidated when JD_CACHE_VERSION changes,
-    ensuring stale skill-extraction results are never reused after logic updates.
-    """
-    jd_hash = hashlib.md5(job_description.encode()).hexdigest()
-    cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
-    if cached:
-        try:
-            parsed = json.loads(cached.result_json)
-            if parsed.get("_cache_version") == JD_CACHE_VERSION:
-                return parsed
-            log.info("JD cache invalidated (version mismatch: cached=%s current=%s)",
-                     parsed.get("_cache_version"), JD_CACHE_VERSION)
-        except Exception as e:
-            log.warning("Non-critical: Failed to parse cached JD JSON, re-parsing: %s", e)
-    jd_analysis = parse_jd_rules(job_description)
-    jd_analysis["_cache_version"] = JD_CACHE_VERSION
-    jd_analysis.setdefault("_profile_source", "rules")
-    try:
-        db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
-        db.commit()
-    except Exception as e:
-        log.warning("Non-critical: Failed to cache JD analysis: %s", e)
-        try:
-            db.rollback()
-        except Exception as rollback_err:
-            log.warning("Non-critical: Rollback also failed: %s", rollback_err)
-    return jd_analysis
-
-
-def _link_to_project(
-    db: Session,
-    project_id: int,
-    tenant_id: int,
-    candidate_id: int,
-    screening_result_id: int,
-    added_by: int,
-) -> None:
-    """Link a candidate + screening result to a ScreeningProject.
-
-    Non-critical: failures are logged and ignored so analysis never fails
-    because of project linking.
-    """
-    try:
-        project = db.query(ScreeningProject).filter(
-            ScreeningProject.id == project_id,
-            ScreeningProject.tenant_id == tenant_id,
-        ).first()
-        if not project:
-            log.warning("Cannot link to project %s: not found for tenant %s", project_id, tenant_id)
-            return
-
-        existing = db.query(ScreeningProjectCandidate).filter(
-            ScreeningProjectCandidate.project_id == project_id,
-            ScreeningProjectCandidate.candidate_id == candidate_id,
-        ).first()
-        if existing:
-            existing.screening_result_id = screening_result_id
-        else:
-            db.add(ScreeningProjectCandidate(
-                project_id=project_id,
-                candidate_id=candidate_id,
-                screening_result_id=screening_result_id,
-                status="pending",
-                added_by=added_by,
-            ))
-        db.commit()
-    except Exception as e:
-        log.warning("Non-critical: Failed to link candidate to project %s: %s", project_id, e)
-        try:
-            db.rollback()
-        except Exception:
-            pass
-
-
-def _resolve_requisition(
-    db: Session,
-    requisition_id: int | None,
-    tenant_id: int,
-    job_description: str,
-    parsed_skill_overrides: dict | None,
-    weights: dict | None,
-    current_user: Any | None = None,
-) -> tuple[int | None, str, dict | None, dict | None, int | None]:
-    """Load requisition context — JD, skills, intake gate, legacy template id."""
-    if not requisition_id:
-        return None, job_description, parsed_skill_overrides, weights, None
-    from app.backend.services.requisition_service import (
-        get_calibrated_skills_for_matching,
-        get_or_create_tenant_settings,
-        intake_gate_blocks,
-        intake_gate_message,
-        ensure_legacy_role_template,
-    )
-
-    req = db.query(Requisition).filter(
-        Requisition.id == requisition_id,
-        Requisition.tenant_id == tenant_id,
-    ).first()
-    if not req:
-        raise HTTPException(status_code=404, detail="Requisition not found")
-    ensure_legacy_role_template(db, req)
-    settings = get_or_create_tenant_settings(db, tenant_id)
-    if intake_gate_blocks(settings, req, db, user=current_user):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": intake_gate_message(settings, req, db, user=current_user),
-                "error_code": "INTAKE_GATE_BLOCKED",
-                "requisition_id": requisition_id,
-            },
-        )
-    jd = req.jd_text or job_description
-    skills = get_calibrated_skills_for_matching(req)
-    overrides = dict(parsed_skill_overrides or {})
-    overrides.setdefault("required_skills", skills.get("required_skills") or [])
-    overrides.setdefault("nice_to_have_skills", skills.get("nice_to_have_skills") or [])
-    if not weights and req.scoring_weights:
-        try:
-            weights = json.loads(req.scoring_weights)
-        except Exception:
-            pass
-    return requisition_id, jd, overrides, weights, req.legacy_role_template_id
-
-
-def _enforce_screening_mode(db, tenant_id: int, requisition_id: int | None) -> None:
-    from app.backend.services.requisition_service import get_or_create_tenant_settings
-    settings = get_or_create_tenant_settings(db, tenant_id)
-    mode = getattr(settings, "screening_mode", None) or "requisition_required"
-    if mode == "requisition_required" and not requisition_id:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": "Your workspace requires screening through a requisition. Select an opening before analyzing.",
-                "error_code": "REQUISITION_REQUIRED",
-            },
-        )
-
-
-def _finalize_analyze_context(
-    db,
-    tenant_id: int,
-    job_description: str,
-    weights: dict | None,
-    parsed_skill_overrides: dict | None,
-    requisition_id: int | None,
-    template_id: int | None,
-    current_user: Any | None = None,
-) -> tuple[str, dict | None, dict | None, int | None, int | None]:
-    """Apply requisition resolution and legacy template bridge."""
-    _enforce_screening_mode(db, tenant_id, requisition_id)
-    req_id, jd, overrides, wts, legacy_tpl = _resolve_requisition(
-        db, requisition_id, tenant_id, job_description, parsed_skill_overrides, weights,
-        current_user=current_user,
-    )
-    tpl = template_id
-    if legacy_tpl and not tpl:
-        tpl = legacy_tpl
-    return jd, overrides, wts, req_id, tpl
-
-
-def _link_to_requisition(
-    db: Session,
-    requisition_id: int,
-    tenant_id: int,
-    candidate_id: int,
-    screening_result_id: int,
-    added_by: int,
-) -> None:
-    try:
-        req = db.query(Requisition).filter(
-            Requisition.id == requisition_id,
-            Requisition.tenant_id == tenant_id,
-        ).first()
-        if not req:
-            return
-        existing = db.query(RequisitionCandidate).filter(
-            RequisitionCandidate.requisition_id == requisition_id,
-            RequisitionCandidate.candidate_id == candidate_id,
-        ).first()
-        if existing:
-            existing.screening_result_id = screening_result_id
-        else:
-            db.add(RequisitionCandidate(
-                requisition_id=requisition_id,
-                candidate_id=candidate_id,
-                screening_result_id=screening_result_id,
-                added_by=added_by,
-            ))
-        db.commit()
-    except Exception as e:
-        log.warning("Non-critical: Failed to link candidate to requisition %s: %s", requisition_id, e)
-        try:
-            db.rollback()
-        except Exception:
-            pass
-
-
-# ─── Candidate deduplication & profile storage ────────────────────────────────
-
-def _build_duplicate_info(db: Session, candidate: Candidate) -> DuplicateCandidateInfo:
-    """Build the DuplicateCandidateInfo payload from an existing Candidate row."""
-    last_result = (
-        db.query(ScreeningResult)
-        .filter(ScreeningResult.candidate_id == candidate.id)
-        .order_by(ScreeningResult.timestamp.desc())
-        .first()
-    )
-    result_count = (
-        db.query(ScreeningResult)
-        .filter(ScreeningResult.candidate_id == candidate.id)
-        .count()
-    )
-    skills_snapshot = []
-    if candidate.parsed_skills:
-        try:
-            skills_snapshot = json.loads(candidate.parsed_skills)[:10]
-        except Exception as e:
-            log.warning("Non-critical: Failed to parse skills snapshot for candidate %s: %s", candidate.id, e)
-
-    return DuplicateCandidateInfo(
-        id=candidate.id,
-        name=candidate.name,
-        email=candidate.email,
-        current_role=candidate.current_role,
-        current_company=candidate.current_company,
-        total_years_exp=candidate.total_years_exp,
-        skills_snapshot=skills_snapshot,
-        result_count=result_count,
-        last_analyzed=last_result.timestamp.isoformat() if last_result and last_result.timestamp else None,
-        profile_quality=candidate.profile_quality,
-    )
-
-
-_SNAPSHOT_JSON_MAX = 500_000  # bytes of UTF-8 JSON; keeps row size bounded
-
-
-def _parser_snapshot_json(parsed_data: dict) -> str | None:
-    """Serialize full parser output so DB retains every field (not only pattern-derived columns)."""
-    try:
-        s = json.dumps(parsed_data, ensure_ascii=False, default=_json_default)
-        return s[:_SNAPSHOT_JSON_MAX]
-    except (TypeError, ValueError):
-        return None
-
-
-def _store_candidate_profile(
-    candidate: Candidate,
-    parsed_data: dict,
-    gap_analysis: dict,
-    file_hash: str,
-    profile_quality: str,
-    file_content: bytes | None = None,
-    filename: str | None = None,
-    converted_pdf_content: bytes | None = None,
-    db: Session | None = None,
-) -> None:
-    """Write parsed profile data into the Candidate row."""
-    # Track old storage bytes for incremental update
-    old_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8")) if candidate.raw_resume_text else 0
-    old_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8")) if candidate.parser_snapshot_json else 0
-
-    work_exp = parsed_data.get("work_experience", [])
-    candidate.resume_file_hash   = file_hash
-    if filename:
-        candidate.resume_filename = filename
-
-    # Store resume file in object storage when available, else fall back to BYTEA
-    from app.backend.services.object_storage import ObjectStorageService
-    use_object_storage = ObjectStorageService.is_available()
-
-    if file_content:
-        if use_object_storage:
-            key = ObjectStorageService.build_key(candidate.tenant_id, candidate.id, filename or "resume")
-            if ObjectStorageService.upload(key, file_content):
-                candidate.resume_file_key = key
-                candidate.resume_file_data = None  # clear legacy BYTEA
-            else:
-                candidate.resume_file_data = file_content  # fallback to BYTEA
-        else:
-            candidate.resume_file_data = file_content
-
-    if converted_pdf_content:
-        if use_object_storage:
-            pdf_key = ObjectStorageService.build_key(candidate.tenant_id, candidate.id, filename or "resume", suffix="converted.pdf")
-            if ObjectStorageService.upload(pdf_key, converted_pdf_content, content_type="application/pdf"):
-                candidate.resume_pdf_key = pdf_key
-                candidate.resume_converted_pdf_data = None
-            else:
-                candidate.resume_converted_pdf_data = converted_pdf_content
-        else:
-            candidate.resume_converted_pdf_data = converted_pdf_content
-    candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
-    candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
-    candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []), default=_json_default)
-    candidate.parsed_education   = json.dumps(parsed_data.get("education", []), default=_json_default)
-    candidate.parsed_work_exp    = json.dumps(work_exp, default=_json_default)
-    candidate.gap_analysis_json  = json.dumps(gap_analysis, default=_json_default)
-
-    # Incrementally update tenant storage_used_bytes
-    if db is not None:
-        try:
-            new_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8"))
-            new_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8"))
-            delta = (new_raw_bytes + new_snapshot_bytes) - (old_raw_bytes + old_snapshot_bytes)
-            if delta != 0:
-                from app.backend.models.db_models import Tenant as _Tenant
-                tenant_row = db.query(_Tenant).filter(_Tenant.id == candidate.tenant_id).first()
-                if tenant_row:
-                    tenant_row.storage_used_bytes = (tenant_row.storage_used_bytes or 0) + delta
-        except Exception:
-            log.warning("Failed to update storage_used_bytes for candidate %s", candidate.id, exc_info=True)
-
-    # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
-    _raw_role = work_exp[0].get("title", "") if work_exp else None
-    _raw_company = work_exp[0].get("company", "") if work_exp else None
-    if _raw_role and len(_raw_role) > 255:
-        log.warning("Truncating current_role from %d to 255 chars", len(_raw_role))
-        _raw_role = _raw_role[:255]
-    if _raw_company and len(_raw_company) > 255:
-        log.warning("Truncating current_company from %d to 255 chars", len(_raw_company))
-        _raw_company = _raw_company[:255]
-    candidate.current_role       = _raw_role
-    candidate.current_company    = _raw_company
-
-    candidate.total_years_exp    = gap_analysis.get("total_years", 0)
-    candidate.profile_quality    = profile_quality
-    candidate.profile_updated_at = datetime.now(timezone.utc)
-    if not candidate.name:
-        candidate.name = parsed_data.get("contact_info", {}).get("name")
-    if not candidate.email:
-        candidate.email = parsed_data.get("contact_info", {}).get("email")
-    if not candidate.phone:
-        candidate.phone = parsed_data.get("contact_info", {}).get("phone")
-
-
-def _get_or_create_candidate(
-    db: Session,
-    parsed_data: dict,
-    tenant_id: int,
-    file_hash: str | None = None,
-    gap_analysis: dict | None = None,
-    profile_quality: str = "medium",
-    action: str | None = None,
-    file_content: bytes | None = None,
-    filename: str | None = None,
-    converted_pdf_content: bytes | None = None,
-    resume_text: str | None = None,
-) -> tuple[int, bool]:
-    """
-    4-layer deduplication. Returns (candidate_id, is_duplicate).
-
-    action values:
-      None / unrecognised  → deduplicate, return duplicate_info in result
-      "use_existing"       → load stored profile, skip re-parse (caller's responsibility)
-      "update_profile"     → update existing candidate's stored profile
-      "create_new"         → skip all dedup, always create new row
-    """
-    contact = parsed_data.get("contact_info", {})
-    email   = contact.get("email")
-    name    = contact.get("name")
-    phone   = contact.get("phone")
-
-    existing: Candidate | None = None
-
-    if action != "create_new":
-        # Layer 1 — email match
-        if email:
-            existing = db.query(Candidate).filter(
-                Candidate.email    == email,
-                Candidate.tenant_id == tenant_id,
-            ).first()
-
-        # Layer 2 — file hash match
-        if existing is None and file_hash:
-            existing = db.query(Candidate).filter(
-                Candidate.resume_file_hash == file_hash,
-                Candidate.tenant_id        == tenant_id,
-            ).first()
-
-        # Layer 2b — content hash match (normalized resume text)
-        if existing is None and resume_text:
-            try:
-                from app.backend.services.dedup_service import compute_resume_hash
-                content_hash = compute_resume_hash(resume_text)
-                if content_hash:
-                    existing = db.query(Candidate).filter(
-                        Candidate.resume_file_hash == content_hash,
-                        Candidate.tenant_id        == tenant_id,
-                    ).first()
-            except Exception:
-                pass  # non-fatal — fall through to Layer 3
-
-        # Layer 3 — name + phone
-        if existing is None and name and phone:
-            existing = db.query(Candidate).filter(
-                Candidate.name      == name,
-                Candidate.phone     == phone,
-                Candidate.tenant_id == tenant_id,
-            ).first()
-
-    if existing is not None:
-        # Update profile when explicitly requested
-        if action == "update_profile" and gap_analysis is not None:
-            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
-        return existing.id, True
-
-    # Create new candidate
-    candidate = Candidate(
-        tenant_id=tenant_id,
-        name=name,
-        email=email,
-        phone=phone,
-    )
-    db.add(candidate)
-    db.flush()  # get the new id
-
-    if gap_analysis is not None:
-        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
-
-    return candidate.id, False
-
-
-# ─── Misc helpers ─────────────────────────────────────────────────────────────
-
-def _fallback_result(gap_analysis: dict) -> dict:
-    return {
-        "fit_score": None, "job_role": None,
-        "strengths": [], "weaknesses": [],
-        "employment_gaps": gap_analysis.get("employment_gaps", []),
-        "education_analysis": None,
-        "risk_signals": [{"type": "analysis", "severity": "low",
-                          "description": "Automated analysis unavailable — manual review required"}],
-        "final_recommendation": "Pending",
-        "score_breakdown": {}, "matched_skills": [], "missing_skills": [],
-        "risk_level": None, "interview_questions": None,
-        "required_skills_count": 0, "work_experience": [], "contact_info": {},
-        "jd_analysis": {}, "candidate_profile": {}, "skill_analysis": {},
-        "edu_timeline_analysis": {}, "explainability": {}, "adjacent_skills": [],
-        "pipeline_errors": ["Pipeline unavailable"],
-        "analysis_quality": "low", "narrative_pending": False,
-        "deterministic_score": None,
-        "decision_explanation": None,
-        "jd_domain": None,
-        "candidate_domain": None,
-        "eligibility": None,
-        "deterministic_features": None,
-    }
-
-
-def _resolve_jd(
-    job_description: str | None,
-    job_file_bytes: bytes | None,
-    job_filename: str | None,
-) -> str:
-    if job_file_bytes and job_filename:
-        try:
-            extracted = extract_jd_text(job_file_bytes, job_filename)
-            if extracted.strip():
-                return extracted
-        except Exception as e:
-            log.warning("Non-critical: JD file extraction failed: %s", e)
-    if not (job_description and job_description.strip()):
-        raise HTTPException(status_code=400, detail="Job description (text or file) is required")
-    return job_description
-
-
-def _check_jd_length(job_description: str) -> None:
-    """Reject JD that is too short to produce meaningful analysis."""
-    if len(job_description.split()) < 80:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Job description is too brief (under 80 words). "
-                "Please include the role title, required skills, and years of experience "
-                "for accurate matching."
-            ),
-        )
-
-
-def _check_jd_size(job_description: str) -> None:
-    """Reject JD that exceeds maximum size limit."""
-    if job_description and len(job_description.encode('utf-8')) > MAX_JD_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="Job description exceeds maximum size of 50KB"
-        )
-
-
-def _build_phase3_context(
-    db: Session,
-    tenant_id: int,
-    jd_analysis: dict,
-    team_id: Optional[str] = None,
-) -> Optional[dict]:
-    """Build Phase 3 scoring context (outcome patterns, skill trends, team gaps).
-
-    Returns None if no Phase 3 data is available, so scoring falls back to
-    the default behaviour.  Failures are caught and logged — never break scoring.
-    """
-    try:
-        all_jd_skills = [s.lower().strip() for s in (
-            jd_analysis.get("required_skills", []) +
-            jd_analysis.get("nice_to_have_skills", [])
-        ) if isinstance(s, str)]
-
-        # 1. Outcome patterns
-        outcome_patterns = []
-        if all_jd_skills:
-            patterns = db.query(OutcomeSkillPattern).filter(
-                OutcomeSkillPattern.tenant_id == tenant_id,
-                OutcomeSkillPattern.skill_name.in_(all_jd_skills),
-            ).all()
-            for p in patterns:
-                outcome_patterns.append({
-                    "skill": p.skill_name,
-                    "success_rate": (p.present_in_hired_pct / 100) if p.present_in_hired_pct else 0.5,
-                    "sample_size": p.total_outcomes or 0,
-                })
-
-        # 2. Skill trends
-        skill_trends = []
-        if all_jd_skills:
-            latest_date = db.query(func.max(SkillTrendSnapshot.period_date)).filter(
-                SkillTrendSnapshot.tenant_id == tenant_id,
-            ).scalar()
-            if latest_date:
-                snapshots = db.query(SkillTrendSnapshot).filter(
-                    SkillTrendSnapshot.tenant_id == tenant_id,
-                    SkillTrendSnapshot.period_date == latest_date,
-                    SkillTrendSnapshot.skill_name.in_(all_jd_skills),
-                ).all()
-                for snap in snapshots:
-                    skill_trends.append({
-                        "skill": snap.skill_name,
-                        "direction": snap.trend_direction or "stable",
-                        "growth_pct": snap.growth_pct or 0,
-                    })
-
-        # 3. Team gaps
-        team_gaps = []
-        if team_id:
-            try:
-                profile = get_team_profile(db, int(team_id), tenant_id)
-                if profile and profile.skills_json:
-                    team_skills_raw = json.loads(profile.skills_json)
-                    team_skill_names = set(
-                        e.get("skill", "").lower().strip()
-                        for e in team_skills_raw
-                        if e.get("skill")
-                    )
-                    team_gaps = [s for s in all_jd_skills if s not in team_skill_names]
-            except Exception as exc:
-                log.warning("team_gaps query failed in _build_phase3_context: %s", exc)
-
-        # Only return context if there's something useful
-        if outcome_patterns or skill_trends or team_gaps:
-            return {
-                "team_gaps": team_gaps,
-                "skill_trends": skill_trends,
-                "outcome_patterns": outcome_patterns,
-            }
-        return None
-    except Exception as e:
-        log.warning("Phase 3 context retrieval failed: %s", e)
-        return None
-
-
-# ─── JD Parse Preview helpers ────────────────────────────────────────────────
-
-def _enrich_skills_with_confidence(
-    skills: list[str],
-    jd_text: str,
-    is_nice_to_have: bool = False,
-    seniority: str = "mid",
-) -> list[dict]:
-    """Post-process skill list to add confidence/source and proficiency metadata
-    based on linguistic cues in the original JD text.
-
-    Heuristic rules:
-      - Nice-to-have near preferred/bonus/plus cues  → high / preferred_section
-      - Required near must-have/required/essential    → high / explicit_requirement
-      - Inferred from Qualifications/Requirements hdr → medium / qualifications_section
-      - Default                                         → medium / inferred
-    """
-    jd_lower = jd_text.lower()
-
-    # Pre-compute section boundaries for "Qualifications" / "Requirements" headers
-    _SECTION_HEADERS = [
-        "qualifications", "requirements", "what you'll need",
-        "what we're looking for", "job requirements",
-        "minimum qualifications", "basic qualifications",
-        "preferred qualifications", "desired qualifications",
-    ]
-    section_ranges: list[tuple[int, int]] = []
-    for hdr in _SECTION_HEADERS:
-        idx = jd_lower.find(hdr)
-        if idx >= 0:
-            # Section extends to the next header-like line or end of text
-            end = len(jd_text)
-            for nxt in _SECTION_HEADERS:
-                nxt_idx = jd_lower.find(nxt, idx + len(hdr))
-                if nxt_idx > idx and nxt_idx < end:
-                    end = nxt_idx
-            section_ranges.append((idx, end))
-
-    def _skill_in_section(skill_name: str) -> bool:
-        """Check if the skill appears within a known section header range."""
-        s_lower = skill_name.lower()
-        for start, end in section_ranges:
-            if s_lower in jd_lower[start:end]:
-                return True
-        return False
-
-    enriched = []
-    for skill in skills:
-        skill_lower = skill.lower()
-
-        # Determine surrounding context (±120 chars around the skill mention)
-        pos = jd_lower.find(skill_lower)
-        context = ""
-        if pos >= 0:
-            ctx_start = max(0, pos - 120)
-            ctx_end = min(len(jd_text), pos + len(skill_lower) + 120)
-            context = jd_lower[ctx_start:ctx_end].lower()
-
-        if is_nice_to_have:
-            # Nice-to-have: check for preferred/bonus cues
-            if any(cue in context for cue in NICE_TO_HAVE_CUES):
-                confidence, source = "high", "preferred_section"
-            elif _skill_in_section(skill):
-                confidence, source = "medium", "qualifications_section"
-            else:
-                confidence, source = "medium", "inferred"
-        else:
-            # Required: check for must-have/required/essential cues
-            if any(cue in context for cue in MUST_HAVE_CUES):
-                confidence, source = "high", "explicit_requirement"
-            elif _skill_in_section(skill):
-                confidence, source = "medium", "qualifications_section"
-            else:
-                confidence, source = "medium", "inferred"
-
-        proficiency = _estimate_skill_proficiency(
-            skill, seniority, jd_text, is_nice_to_have=is_nice_to_have,
-        )
-        enriched.append({
-            "skill": skill,
-            "confidence": confidence,
-            "source": source,
-            "proficiency_expected": proficiency,
-        })
-
-    return enriched
-
-
-# ─── Proficiency estimation (moved to shared service) ────────────────────────
-from app.backend.services.skill_proficiency_service import (
-    PROFICIENCY_CUE_MAP,
-    _SENIORITY_DEFAULT_PROFICIENCY,
-    estimate_skill_proficiency as _estimate_skill_proficiency,
-)
-
-
-def _get_excluded_skills(
-    jd_text: str,
-    required_skills: list[str],
-    nice_to_have_skills: list[str],
-) -> list[str]:
-    """Return skills that were detected in the JD but excluded because they
-    are generic soft skills (per GENERIC_SOFT_SKILLS constant)."""
-    jd_lower = jd_text.lower()
-    excluded: list[str] = []
-    for soft in GENERIC_SOFT_SKILLS:
-        if soft in jd_lower and soft not in (s.lower() for s in required_skills) and soft not in (s.lower() for s in nice_to_have_skills):
-            excluded.append(soft)
-    return excluded
-
-
-def _get_suggested_additions(
-    job_function: str,
-    required_skills: list[str],
-    nice_to_have_skills: list[str],
-    role_title: str,
-) -> list[str]:
-    """Return common skills for the detected job_function that are not already
-    in required_skills or nice_to_have_skills.
-
-    Tries O*NET first; falls back to JOB_FUNCTION_SKILL_TAXONOMY mapping.
-    """
-    existing = {s.lower() for s in required_skills + nice_to_have_skills}
-
-    # ── Attempt O*NET lookup ───────────────────────────────────────────────
-    try:
-        from app.backend.services.onet.onet_validator import ONETValidator
-        validator = ONETValidator()
-        if validator.available and role_title:
-            occ = validator.resolve_occupation(role_title)
-            if occ:
-                occ_skills = validator.get_expected_skills(occ["soc_code"])
-                hot_skills = [
-                    s["skill_name"]
-                    for s in occ_skills
-                    if s.get("is_hot_technology") or s.get("is_in_demand")
-                ]
-                suggestions = [
-                    s for s in hot_skills
-                    if s.lower() not in existing
-                ]
-                if suggestions:
-                    return suggestions[:8]
-    except Exception as e:
-        log.debug("O*NET lookup failed, falling back to taxonomy: %s", e)
-
-    # ── Fallback: JOB_FUNCTION_SKILL_TAXONOMY mapping ──────────────────────
-    taxonomy = JOB_FUNCTION_SKILL_TAXONOMY.get(job_function, {})
-    core = taxonomy.get("core_skills", [])
-    adjacent = taxonomy.get("adjacent_skills", [])
-    candidates = core + adjacent
-    suggestions = [s for s in candidates if s.lower() not in existing]
-    return suggestions[:8]
-
-
-def _enrich_skills_with_market_data(
-    skills_list: list, role_title: str
-) -> tuple[list, dict]:
-    """Enrich skills with O*NET market intelligence (hot/demand flags, category).
-
-    Returns (enriched_skills_list, market_summary).
-    If O*NET is unavailable, market fields are set to None and market_summary
-    contains an error message.
-    """
-    try:
-        from app.backend.services.onet.onet_validator import ONETValidator
-
-        validator = ONETValidator()
-        if not validator.available or not role_title:
-            raise RuntimeError("O*NET unavailable or no role title")
-
-        # Extract skill names from the enriched skill objects
-        skill_names = [
-            s["skill"] for s in skills_list if isinstance(s, dict) and s.get("skill")
-        ]
-
-        # Batch validate against the role title's occupation
-        batch_result = validator.validate_skills_batch(skill_names, role_title)
-
-        # Build a commodity_title lookup from occupation skills
-        # (validate_skills_batch doesn't include commodity_title)
-        commodity_lookup: dict[str, str] = {}
-        soc_code = batch_result.get("soc_code")
-        if soc_code:
-            occ_skills = validator.get_expected_skills(soc_code)
-            for occ_s in occ_skills:
-                commodity_lookup[occ_s["skill_name"].lower()] = (
-                    occ_s.get("commodity_title") or "Unclassified"
-                )
-
-        # Index validation results by skill name (case-insensitive)
-        validated_lookup: dict[str, dict] = {}
-        for v in batch_result.get("validated", []):
-            if v.get("skill"):
-                validated_lookup[v["skill"].lower()] = v
-
-        # Enrich each skill with market flags
-        hot_count = 0
-        in_demand_count = 0
-        rare_skills: list[str] = []
-
-        for skill_obj in skills_list:
-            skill_name = skill_obj.get("skill", "")
-            key = skill_name.lower()
-
-            v = validated_lookup.get(key)
-            if v and v.get("recognized"):
-                skill_obj["is_hot"] = v["is_hot"]
-                skill_obj["is_in_demand"] = v["is_in_demand"]
-                skill_obj["category"] = commodity_lookup.get(key, "Unclassified")
-
-                if v["is_hot"]:
-                    hot_count += 1
-                if v["is_in_demand"]:
-                    in_demand_count += 1
-            else:
-                # Not found in O*NET
-                skill_obj["is_hot"] = False
-                skill_obj["is_in_demand"] = False
-                skill_obj["category"] = "Unclassified"
-                rare_skills.append(skill_name)
-
-        # Compute market alignment ratio
-        total = max(len(skills_list), 1)
-        demand_ratio = in_demand_count / total
-        if demand_ratio > 0.7:
-            alignment = "high"
-        elif demand_ratio >= 0.4:
-            alignment = "medium"
-        else:
-            alignment = "low"
-
-        market_summary = {
-            "hot_skills_count": hot_count,
-            "in_demand_count": in_demand_count,
-            "rare_skills": rare_skills,
-            "market_alignment": alignment,
-        }
-
-        return skills_list, market_summary
-
-    except Exception:
-        # O*NET unavailable — set all market fields to None
-        for skill_obj in skills_list:
-            skill_obj["is_hot"] = None
-            skill_obj["is_in_demand"] = None
-            skill_obj["category"] = None
-
-        market_summary = {"error": "Market data unavailable"}
-        return skills_list, market_summary
 
 
 # ─── JD Parse Preview Endpoint ────────────────────────────────────────────────
@@ -1414,8 +225,11 @@ async def jd_parse_preview(
                 "correlation": p.correlation_score,
             })
         historical_insights = {"patterns": patterns_list}
-    except Exception as exc:
-        log.warning("historical_insights query failed: %s", exc)
+    except (ValueError, TypeError, KeyError, SQLAlchemyError) as exc:
+        log.warning(
+            "historical_insights query failed: %s", exc,
+            extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+        )
         historical_insights = {"patterns": []}
 
     # 2. Team context — team has / gaps if team_id provided
@@ -1442,8 +256,11 @@ async def jd_parse_preview(
                 }
             else:
                 team_context = {"team_has": [], "team_gaps": all_jd_skills}
-        except Exception as exc:
-            log.warning("team_context query failed: %s", exc)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError, SQLAlchemyError) as exc:
+            log.warning(
+                "team_context query failed: %s", exc,
+                extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
             team_context = {"team_has": [], "team_gaps": []}
 
     # 3. Skill trends — direction + growth_pct from SkillTrendSnapshot
@@ -1468,8 +285,11 @@ async def jd_parse_preview(
                         "direction": snap.trend_direction or "stable",
                         "growth_pct": snap.growth_pct or 0,
                     })
-    except Exception as exc:
-        log.warning("skill_trends query failed: %s", exc)
+    except (ValueError, TypeError, KeyError, SQLAlchemyError) as exc:
+        log.warning(
+            "skill_trends query failed: %s", exc,
+            extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+        )
         skill_trends = []
 
     return {
@@ -1490,153 +310,6 @@ async def jd_parse_preview(
         "skill_trends": skill_trends,
     }
 
-
-def _check_scoring_weights_size(scoring_weights: str | None) -> None:
-    """Reject scoring_weights that exceeds maximum size limit."""
-    if scoring_weights and len(scoring_weights.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="Scoring weights exceed maximum size of 4KB"
-        )
-
-
-def _assert_custom_weights_allowed(db: Session, tenant_id: int) -> None:
-    """Reject custom scoring weights when the tenant's plan does not include them."""
-    from app.backend.services.feature_flag_service import is_feature_enabled
-    from app.backend.services.plan_entitlement_service import plan_feature_detail
-
-    if not is_feature_enabled(db, tenant_id, "custom_weights"):
-        detail = plan_feature_detail(db, tenant_id, "custom_weights")
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "detail": detail.get("upgrade_hint") or "Custom scoring weights are not available on your plan",
-                "error_code": "PLAN_FEATURE_LOCKED",
-                "feature": "custom_weights",
-                "plan": detail.get("plan"),
-            },
-        )
-
-
-def _assert_custom_weights_allowed_if_provided(
-    db: Session, tenant_id: int, scoring_weights: str | None
-) -> None:
-    if scoring_weights:
-        _assert_custom_weights_allowed(db, tenant_id)
-
-
-async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tuple[dict, bytes | None]:
-    """Parse resume with automatic DOC-to-PDF conversion for better accuracy.
-
-    Returns:
-        (parsed_data, converted_pdf_bytes or None)
-    """
-    ext = os.path.splitext(filename.lower())[1]
-    pdf_bytes = None
-
-    if ext == ".doc":
-        pdf_bytes = await asyncio.to_thread(convert_to_pdf, content, filename)
-        if pdf_bytes:
-            log.info("DOC converted to PDF (%d bytes), parsing from PDF for better accuracy", len(pdf_bytes))
-            parsed_data = await asyncio.wait_for(
-                asyncio.to_thread(parse_resume, pdf_bytes, "converted.pdf"),
-                timeout=PARSE_TIMEOUT_SECONDS,
-            )
-            await enrich_parsed_resume_async(parsed_data, filename)
-            return parsed_data, pdf_bytes
-        log.warning("DOC-to-PDF conversion failed for %s, falling back to legacy parser", filename)
-
-    try:
-        parsed_data = await asyncio.wait_for(
-            asyncio.to_thread(parse_resume, content, filename),
-            timeout=PARSE_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        raise HTTPException(
-            status_code=400,
-            detail="Resume parsing timed out — file may be too complex or contain too many pages",
-        )
-    await enrich_parsed_resume_async(parsed_data, filename)
-    return parsed_data, pdf_bytes
-
-
-async def _process_single_resume(
-    content: bytes,
-    filename: str,
-    job_description: str,
-    scoring_weights: dict | None,
-    db: Session | None = None,
-    skill_overrides: dict | None = None,
-) -> dict:
-    """Core analysis logic — parse in thread, run Python scoring, return result.
-
-    Returns Python scoring results with a fallback narrative. The caller
-    (batch endpoint) is responsible for spawning a background LLM task
-    after persisting the ScreeningResult to DB.
-    """
-    # Parse resume in thread pool (blocks event loop otherwise for large PDFs)
-    pdf_bytes = None
-    try:
-        parsed_data, pdf_bytes = await _parse_resume_with_doc_conversion(content, filename)
-    except ValueError as e:
-        # Scanned PDF or unreadable file — return graceful error
-        return {
-            **_fallback_result({}),
-            "pipeline_errors": [str(e)],
-            "analysis_quality": "low",
-        }
-    except Exception as e:
-        log.warning("Resume parse error for %s: %s", filename, e)
-        return {
-            **_fallback_result({}),
-            "pipeline_errors": [f"Parse error: {str(e)}"],
-        }
-
-    work_exp     = parsed_data.get("work_experience", [])
-    gap_analysis = analyze_gaps(work_exp)
-
-    # Cached JD parse
-    jd_analysis = None
-    if db is not None:
-        try:
-            jd_analysis = _get_or_cache_jd(db, job_description)
-        except Exception as e:
-            log.warning("Non-critical: JD cache fetch failed: %s", e)
-
-    if skill_overrides:
-        _apply_skill_overrides(jd_analysis, skill_overrides)
-
-    try:
-        from app.backend.services.hybrid_pipeline import (
-            _run_python_phase,
-            _build_fallback_narrative,
-            _merge_llm_into_result,
-        )
-        result = _run_python_phase(
-            resume_text=parsed_data["raw_text"],
-            job_description=job_description,
-            parsed_data=parsed_data,
-            gap_analysis=gap_analysis,
-            scoring_weights=scoring_weights,
-            jd_analysis=jd_analysis,
-        )
-        # Preserve internal _scores before merge (needed for background LLM spawn)
-        _scores = result.get("_scores", {})
-        fallback = _build_fallback_narrative(result, result.get("skill_analysis", {}))
-        result = _merge_llm_into_result(result, fallback)
-        result["_scores"] = _scores
-        result["narrative_pending"] = True
-        log.info("Fast batch path for %s: fit_score=%s (LLM deferred)",
-                 filename, result.get("fit_score"))
-    except Exception as e:
-        log.warning("Pipeline error for %s: %s", filename, e)
-        result = _fallback_result(gap_analysis)
-        result["pipeline_errors"] = [f"Pipeline error: {str(e)}"]
-
-    result["_parsed_data"]  = parsed_data
-    result["_gap_analysis"] = gap_analysis
-    result["_pdf_bytes"]    = pdf_bytes  # DOC-to-PDF conversion result (if applicable)
-    return result
 
 
 # ─── Weight Suggestion Endpoint ───────────────────────────────────────────────
@@ -1661,108 +334,19 @@ async def suggest_weights_endpoint(
         return suggestion
     except HTTPException:
         raise
-    except Exception as e:
-        log.exception("Weight suggestion failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to generate weight suggestions")
-
-
-# ─── Single resume analysis (non-streaming, JSON response) ────────────────────
-
-def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quantity: int = 1) -> tuple[bool, str]:
-    """Check usage limits and increment counter atomically. Returns (allowed, message).
-    
-    Uses atomic UPDATE to prevent race conditions:
-    - For limited plans: UPDATE ... SET count = count + 1 WHERE count + quantity <= limit
-    - Checks affected rows to determine if limit was reached
-    - Uses SAVEPOINT to isolate quota-check failure from the rest of the session
-      (avoids full rollback that would lose other pending session state)
-    """
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant:
-        return False, "Tenant not found"
-    
-    # Get plan limits (read-only, no side effects)
-    plan = tenant.plan
-    if not plan:
-        from app.backend.services.plan_entitlement_service import get_default_plan
-        plan = get_default_plan(db)
-    
-    analyses_limit = None
-    if plan:
-        limits = _get_plan_limits(plan)
-        analyses_limit = limits.get("analyses_per_month", 20)
-    
-    # If unlimited, just increment without check
-    if analyses_limit is None or analyses_limit < 0:
-        _ensure_monthly_reset(tenant)
-        success = record_usage(db, tenant_id, user_id, "resume_analysis", quantity)
-        if not success:
-            return False, "Failed to record usage"
-        return True, ""
-    
-    # Atomic increment with limit check — the ONLY write path for the counter.
-    # _ensure_monthly_reset is applied inside a SAVEPOINT so that a quota
-    # failure only rolls back the savepoint, not the entire session.
-    savepoint = db.begin_nested()
-    try:
-        _ensure_monthly_reset(tenant)
-        db.flush()  # Apply reset to DB so atomic UPDATE sees current count
-        
-        result = db.execute(
-            update(Tenant)
-            .where(
-                Tenant.id == tenant_id,
-                Tenant.analyses_count_this_month + quantity <= analyses_limit
-            )
-            .values(
-                analyses_count_this_month=Tenant.analyses_count_this_month + quantity
-            )
-            .execution_options(synchronize_session=False)
+    except (ValueError, TypeError, json.JSONDecodeError, KeyError) as e:
+        log.warning(
+            "Weight suggestion failed: %s", e,
+            extra={"error_code": "VALIDATION_ERROR"},
         )
-        
-        # Check if the update affected any rows
-        if result.rowcount == 0:
-            savepoint.rollback()
-            # Re-read tenant for accurate remaining count (post-savepoint rollback)
-            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-            if tenant:
-                _ensure_monthly_reset(tenant)
-                remaining = analyses_limit - tenant.analyses_count_this_month
-                return False, f"Monthly analysis limit exceeded. Remaining: {remaining}, Requested: {quantity}. Please upgrade your plan."
-            return False, "Monthly analysis limit exceeded. Please upgrade your plan."
-        
-        savepoint.commit()
-    except Exception:
-        savepoint.rollback()
-        raise
-    
-    # Log the usage
-    from app.backend.models.db_models import UsageLog
-    usage_log = UsageLog(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        action="resume_analysis",
-        quantity=quantity,
-        details=None,
-    )
-    db.add(usage_log)
-    db.commit()
-    
-    # ── Check usage thresholds (non-blocking) ──────────────────────────────────
-    try:
-        if analyses_limit and analyses_limit > 0:
-            from app.backend.services.usage_alert_service import usage_alert_service
-            # Re-read tenant for current count after commit
-            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-            if tenant:
-                usage_alert_service.check_and_alert(
-                    db, tenant_id, "analyses_per_month",
-                    tenant.analyses_count_this_month, analyses_limit,
-                )
-    except Exception:
-        pass  # Alert failures must never break the main flow
-    
-    return True, ""
+        raise HTTPException(status_code=400, detail="Invalid request") from e
+    except (OSError, RuntimeError) as e:
+        log.exception(
+            "Weight suggestion failed: %s", e,
+            extra={"error_code": "UPSTREAM_ERROR"},
+        )
+        raise HTTPException(status_code=500, detail="Failed to generate weight suggestions") from e
+
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
@@ -1828,28 +412,20 @@ async def analyze_endpoint(
     _check_jd_length(job_description)
     _check_jd_size(job_description)
     
+    _validate_optional_analyze_payloads(scoring_weights, skill_overrides)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
+
     # ─── CHECK AND INCREMENT USAGE (after validation) ─────────────────────────
     async with _get_tenant_lock(current_user.tenant_id):
         allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
-    # Validate scoring_weights size before parsing
-    _check_scoring_weights_size(scoring_weights)
-    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
-
-    # Validate skill_overrides size before parsing
-    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="Skill overrides exceed maximum size of 4KB"
-        )
-
     weights = None
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
     
     # Parse skill_overrides JSON (accepts strings or proficiency dicts)
@@ -1891,8 +467,11 @@ async def analyze_endpoint(
                 if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
                     weights = json.loads(tenant.scoring_weights)
                     log.info("Loaded tenant default weights for tenant %s", current_user.tenant_id)
-        except Exception as e:
-            log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError, SQLAlchemyError) as e:
+            log.warning(
+                "Non-critical: Failed to load tenant weights, using defaults: %s", e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
 
     job_description, parsed_skill_overrides, weights, requisition_id, legacy_tpl = _finalize_analyze_context(
         db, current_user.tenant_id, job_description, weights, parsed_skill_overrides,
@@ -1998,8 +577,13 @@ async def analyze_endpoint(
         }
         pdf_bytes = None
         # Continue with fallback - will set analysis_quality to "low"
-    except Exception as e:
-        log.warning(f"Resume parse error for {resume.filename}: {e}")
+    except HTTPException:
+        raise
+    except (OSError, TypeError, RuntimeError, KeyError) as e:
+        log.warning(
+            "Resume parse error for %s: %s", resume.filename, e,
+            extra={"error_code": "IO_ERROR" if isinstance(e, OSError) else "VALIDATION_ERROR"},
+        )
         parsed_data = {
             "raw_text": "",
             "skills": [],
@@ -2127,10 +711,14 @@ async def analyze_endpoint(
         from app.backend.services.webhook_service import dispatch_event_background
         from app.backend.db.database import SessionLocal
         dispatch_event_background(SessionLocal, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
-    except Exception:
-        pass
+    except (OSError, RuntimeError, ValueError, TypeError) as e:
+        log.warning(
+            "Webhook dispatch failed: %s", e,
+            extra={"error_code": "UPSTREAM_ERROR"},
+        )
 
     return result
+
 
 
 # ─── Single resume analysis (SSE streaming) ───────────────────────────────────
@@ -2204,29 +792,21 @@ async def analyze_stream_endpoint(
     _check_jd_length(job_description)
     _check_jd_size(job_description)
     
+    _validate_optional_analyze_payloads(scoring_weights, skill_overrides)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
+
     # ─── CHECK AND INCREMENT USAGE (after validation) ─────────────────────────
     async with _get_tenant_lock(current_user.tenant_id):
         allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
-    # Validate scoring_weights size before parsing
-    _check_scoring_weights_size(scoring_weights)
-    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
-
-    # Validate skill_overrides size before parsing
-    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="Skill overrides exceed maximum size of 4KB"
-        )
-
     weights = None
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
             log.info("Received custom weights from frontend: %s", weights)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
     # Parse skill_overrides JSON (accepts strings or proficiency dicts)
@@ -2268,8 +848,11 @@ async def analyze_stream_endpoint(
                 if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
                     weights = json.loads(tenant.scoring_weights)
                     log.info("Loaded tenant default weights for tenant %s: %s", current_user.tenant_id, weights)
-        except Exception as e:
-            log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError, SQLAlchemyError) as e:
+            log.warning(
+                "Non-critical: Failed to load tenant weights, using defaults: %s", e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
     
     if weights:
         log.info("Final weights to be used for scoring: %s", weights)
@@ -2288,7 +871,15 @@ async def analyze_stream_endpoint(
     # Parse resume and JD in thread pool before entering the generator
     try:
         parsed_data, pdf_bytes = await _parse_resume_with_doc_conversion(content, resume.filename)
-    except Exception as parse_exc:
+    except HTTPException as parse_exc:
+        error_msg = str(parse_exc.detail)
+        async def _error_stream():
+            error = {"stage": "error", "result": {"message": error_msg}}
+            yield f"data: {json.dumps(error, default=_json_default)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_error_stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    except (ValueError, TypeError, OSError, RuntimeError, KeyError) as parse_exc:
         error_msg = str(parse_exc)
         async def _error_stream():
             error = {"stage": "error", "result": {"message": error_msg}}
@@ -2389,8 +980,11 @@ async def analyze_stream_endpoint(
                                         log.error("ScreeningResult id=%s not found for disconnect save", screening_result_id)
                                 finally:
                                     disc_db.close()
-                        except Exception as db_exc:
-                            log.warning("Failed to save early DB results: %s", db_exc)
+                        except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as db_exc:
+                            log.warning(
+                                "Failed to save early DB results: %s", db_exc,
+                                extra={"error_code": "DB_ERROR" if isinstance(db_exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+                            )
                     break
 
                 if isinstance(event, str):
@@ -2424,14 +1018,28 @@ async def analyze_stream_endpoint(
                                     log.error("ScreeningResult id=%s not found for early save", screening_result_id)
                             finally:
                                 early_db.close()
-                    except Exception as db_exc:
-                        log.warning("Failed to save early DB results after parsing: %s", db_exc)
+                    except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as db_exc:
+                        log.warning(
+                            "Failed to save early DB results after parsing: %s", db_exc,
+                            extra={"error_code": "DB_ERROR" if isinstance(db_exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+                        )
 
                 if event.get("stage") == "complete":
                     final_result = event.get("result", {})
 
-        except Exception as exc:
-            log.exception("Streaming analysis failed: %s", exc)
+        except HTTPException as exc:
+            log.warning(
+                "Streaming analysis failed: %s", exc.detail,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
+            error_event = {"stage": "error", "result": {"message": str(exc.detail)}}
+            yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
+            final_result = _fallback_result(gap_analysis)
+        except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as exc:
+            log.exception(
+                "Streaming analysis failed: %s", exc,
+                extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
             error_event = {"stage": "error", "result": {"message": str(exc)}}
             yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
             final_result = _fallback_result(gap_analysis)
@@ -2484,14 +1092,17 @@ async def analyze_stream_endpoint(
                     )
                 else:
                     log.error("ScreeningResult id=%s not found for final save", screening_result_id)
-            except Exception as inner_db_exc:
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as inner_db_exc:
                 save_db.rollback()
                 raise inner_db_exc
             finally:
                 save_db.close()
                 save_db = None
-        except Exception as db_exc:
-            log.error("Final DB save failed for screening_result_id=%s: %s", screening_result_id, db_exc)
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as db_exc:
+            log.error(
+                "Final DB save failed for screening_result_id=%s: %s", screening_result_id, db_exc,
+                extra={"error_code": "DB_ERROR" if isinstance(db_exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
             # DB save failed — yield error event instead of complete so the frontend
             # knows the result was not persisted and should not poll for it.
             yield f"data: {json.dumps({'stage': 'error', 'message': 'Failed to save analysis result'}, default=_json_default)}\n\n"
@@ -2516,16 +1127,22 @@ async def analyze_stream_endpoint(
                     _link_to_project(_link_db, project_id, tenant_id, candidate_id, screening_result_id, current_user.id)
                 finally:
                     _link_db.close()
-            except Exception as link_exc:
-                log.warning("Non-critical: Failed to link to project in stream: %s", link_exc)
+            except (ValueError, TypeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as link_exc:
+                log.warning(
+                    "Non-critical: Failed to link to project in stream: %s", link_exc,
+                    extra={"error_code": "DB_ERROR" if isinstance(link_exc, SQLAlchemyError) else "VALIDATION_ERROR"},
+                )
 
         # Webhook dispatch — never let webhook failure affect analysis
         try:
             from app.backend.services.webhook_service import dispatch_event_background
             from app.backend.db.database import SessionLocal
             dispatch_event_background(SessionLocal, tenant_id, "analysis.completed", {"result_id": screening_result_id})
-        except Exception:
-            pass
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
+            log.warning(
+                "Webhook dispatch failed: %s", e,
+                extra={"error_code": "UPSTREAM_ERROR"},
+            )
 
         # Yield final complete ONLY after successful DB save
         complete_payload = {"stage": "complete", "result": final_result}
@@ -2536,8 +1153,17 @@ async def analyze_stream_endpoint(
         try:
             async for chunk in event_stream():
                 yield chunk
-        except Exception as e:
-            log.exception("Stream error: %s", e)
+        except HTTPException as e:
+            log.warning(
+                "Stream error: %s", e.detail,
+                extra={"error_code": "VALIDATION_ERROR"},
+            )
+            yield f"data: {json.dumps({'error': str(e.detail)})}\n\n"
+        except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as e:
+            log.exception(
+                "Stream error: %s", e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
             # Guaranteed [DONE] event
@@ -2548,6 +1174,7 @@ async def analyze_stream_endpoint(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
 
 
 # ─── Batch resume analysis (chunked upload) ─────────────────────────────────
@@ -2623,6 +1250,15 @@ async def batch_analyze_chunked_endpoint(
         # Sanitise to prevent directory traversal
         safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
         safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+        try:
+            from app.backend.routes.upload import assert_upload_owned
+            assert_upload_owned(safe_uid, current_user)
+        except HTTPException:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Upload {upload_id} not found or expired. Please re-upload.",
+            ))
+            continue
         assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
 
         if not assembled_path.exists():
@@ -2635,8 +1271,11 @@ async def batch_analyze_chunked_endpoint(
 
         try:
             content = assembled_path.read_bytes()
-        except Exception as e:
-            log.warning("Failed to read assembled file for upload_id=%s: %s", upload_id, e)
+        except OSError as e:
+            log.warning(
+                "Failed to read assembled file for upload_id=%s: %s", upload_id, e,
+                extra={"error_code": "IO_ERROR"},
+            )
             failed_items.append(BatchFailedItem(
                 filename=filename,
                 error=f"Failed to read assembled file: {str(e)}",
@@ -2701,21 +1340,20 @@ async def batch_analyze_chunked_endpoint(
             detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more.",
         )
 
+    _validate_optional_analyze_payloads(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
+
     # CHECK AND INCREMENT USAGE
     async with _get_tenant_lock(current_user.tenant_id):
         allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
-    # Validate scoring_weights size
-    _check_scoring_weights_size(scoring_weights)
-    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
-
     weights = None
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
     job_description, _, weights, requisition_id, template_id = _finalize_analyze_context(
@@ -2777,9 +1415,12 @@ async def batch_analyze_chunked_endpoint(
             _spawn_background_narrative(raw, db_result.id, current_user.tenant_id)
 
             batch_results.append({"filename": filename, "result": raw})
-        except Exception as e:
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as e:
             db.rollback()
-            log.error("Failed to save analysis for %s: %s", filename, e)
+            log.error(
+                "Failed to save analysis for %s: %s", filename, e,
+                extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+            )
             failed_items.append(BatchFailedItem(
                 filename=filename,
                 error=f"Database error: {str(e)}",
@@ -2794,8 +1435,11 @@ async def batch_analyze_chunked_endpoint(
             if assembled_path.exists():
                 assembled_path.unlink()
                 log.info("Cleaned up assembled file: %s", assembled_path)
-        except Exception as e:
-            log.warning("Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e)
+        except OSError as e:
+            log.warning(
+                "Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e,
+                extra={"error_code": "IO_ERROR"},
+            )
 
     # Sort by fit score
     batch_results.sort(key=lambda x: x["result"].get("fit_score") or 0, reverse=True)
@@ -2811,6 +1455,7 @@ async def batch_analyze_chunked_endpoint(
         successful=len(ranked),
         failed_count=len(failed_items),
     )
+
 
 
 # ─── Batch resume analysis (SSE streaming) ───────────────────────────────────
@@ -2893,6 +1538,15 @@ async def batch_analyze_stream_endpoint(
         # Sanitise to prevent directory traversal
         safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
         safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+        try:
+            from app.backend.routes.upload import assert_upload_owned
+            assert_upload_owned(safe_uid, current_user)
+        except HTTPException:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Upload {upload_id} not found or expired. Please re-upload.",
+            ))
+            continue
         assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
 
         if not assembled_path.exists():
@@ -2905,8 +1559,11 @@ async def batch_analyze_stream_endpoint(
 
         try:
             content = assembled_path.read_bytes()
-        except Exception as e:
-            log.warning("Failed to read assembled file for upload_id=%s: %s", upload_id, e)
+        except OSError as e:
+            log.warning(
+                "Failed to read assembled file for upload_id=%s: %s", upload_id, e,
+                extra={"error_code": "IO_ERROR"},
+            )
             failed_items.append(BatchFailedItem(
                 filename=filename,
                 error=f"Failed to read assembled file: {str(e)}",
@@ -2983,29 +1640,21 @@ async def batch_analyze_stream_endpoint(
             detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more.",
         )
 
+    _validate_optional_analyze_payloads(scoring_weights, skill_overrides)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
+
     # CHECK AND INCREMENT USAGE
     async with _get_tenant_lock(current_user.tenant_id):
         allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
-    # Validate scoring_weights size
-    _check_scoring_weights_size(scoring_weights)
-    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
-
     parsed_weights = None
     if scoring_weights:
         try:
             parsed_weights = json.loads(scoring_weights)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
-
-    # Validate skill_overrides size before parsing
-    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="Skill overrides exceed maximum size of 4KB"
-        )
 
     # Parse skill_overrides JSON (accepts strings or proficiency dicts)
     parsed_skill_overrides = None
@@ -3102,7 +1751,11 @@ async def batch_analyze_stream_endpoint(
         for coro in asyncio.as_completed(tasks):
             try:
                 raw, content, filename, upload_id = await coro
-            except Exception as e:
+            except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as e:
+                log.warning(
+                    "Batch stream task failed: %s", e,
+                    extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+                )
                 failed_count += 1
                 completed += 1
                 evt = BatchStreamEvent(
@@ -3164,9 +1817,12 @@ async def batch_analyze_stream_endpoint(
 
                 # Spawn background LLM narrative generation
                 _spawn_background_narrative(raw, screening_result_id, tenant_id)
-            except Exception as e:
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError, RuntimeError, SQLAlchemyError) as e:
                 save_db.rollback()
-                log.error("Failed to save analysis for %s: %s", filename, e)
+                log.error(
+                    "Failed to save analysis for %s: %s", filename, e,
+                    extra={"error_code": "DB_ERROR" if isinstance(e, SQLAlchemyError) else "VALIDATION_ERROR"},
+                )
                 failed_count += 1
                 completed += 1
                 evt = BatchStreamEvent(
@@ -3215,8 +1871,11 @@ async def batch_analyze_stream_endpoint(
                 if assembled_path.exists():
                     assembled_path.unlink()
                     log.info("Cleaned up assembled file: %s", assembled_path)
-            except Exception as e:
-                log.warning("Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e)
+            except OSError as e:
+                log.warning(
+                    "Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e,
+                    extra={"error_code": "IO_ERROR"},
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -3224,55 +1883,6 @@ async def batch_analyze_stream_endpoint(
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
-
-# ─── Batch resume analysis ────────────────────────────────────────────────────
-
-async def _process_with_semaphore(
-    content: bytes,
-    filename: str,
-    job_description: str,
-    scoring_weights: dict | None,
-    db: Session | None = None,
-    skill_overrides: dict | None = None,
-) -> dict:
-    """Wrap resume processing with semaphore for concurrency control."""
-    async with _BATCH_SEMAPHORE:
-        return await _process_single_resume(
-            content, filename, job_description, scoring_weights, db, skill_overrides,
-        )
-
-
-def _spawn_background_narrative(
-    result: dict,
-    screening_result_id: int,
-    tenant_id: int,
-) -> None:
-    """Build llm_context from Python result and spawn background LLM narrative task."""
-    llm_context = {
-        "jd_analysis":       result.get("jd_analysis", {}),
-        "candidate_profile": result.get("candidate_profile", {}),
-        "skill_analysis":    result.get("skill_analysis", {}),
-        "scores": {
-            **result.get("_scores", {}),
-            "fit_score":            result.get("fit_score"),
-            "final_recommendation": result.get("final_recommendation"),
-        },
-        "score_rationales":  result.get("score_rationales", {}),
-        "risk_summary":      result.get("risk_summary", {}),
-        "skill_depth":       result.get("skill_depth", {}),
-    }
-    # Strip internal keys for background task
-    python_result = {k: v for k, v in result.items() if not k.startswith("_")}
-
-    task = asyncio.create_task(
-        _background_llm_narrative(
-            screening_result_id=screening_result_id,
-            tenant_id=tenant_id,
-            llm_context=llm_context,
-            python_result=python_result,
-        )
-    )
-    register_background_task(task)
 
 
 @router.post("/analyze/batch", response_model=BatchAnalysisResponse)
@@ -3348,21 +1958,20 @@ async def batch_analyze_endpoint(
             detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more."
         )
     
+    _validate_optional_analyze_payloads(scoring_weights)
+    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
+
     # ─── CHECK AND INCREMENT USAGE (after validation, before processing) ────────
     async with _get_tenant_lock(current_user.tenant_id):
         allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
-    # Validate scoring_weights size before parsing
-    _check_scoring_weights_size(scoring_weights)
-    _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
-
     weights = None
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
     job_description, parsed_skill_overrides, weights, requisition_id, template_id = _finalize_analyze_context(
@@ -3456,608 +2065,5 @@ async def batch_analyze_endpoint(
         failed_count=len(failed_items),
     )
 
-
-# ─── History ──────────────────────────────────────────────────────────────────
-
-@router.get("/history")
-def get_analysis_history(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    results = (
-        db.query(ScreeningResult)
-        .filter(ScreeningResult.tenant_id == current_user.tenant_id)
-        .order_by(ScreeningResult.timestamp.desc())
-        .limit(100)
-        .all()
-    )
-    def _safe_loads(data):
-        try:
-            return json.loads(data or "{}")
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    output = []
-    for r in results:
-        analysis = _safe_loads(r.analysis_result)
-        parsed = _safe_loads(r.parsed_data)
-
-        # Resolve candidate name: Candidate.name (possibly edited) takes priority
-        cand = db.get(Candidate, r.candidate_id) if r.candidate_id else None
-        candidate_name = (
-            (cand.name or "").strip() if cand and cand.name else None
-        ) or (
-            (analysis.get("candidate_name") or "").strip() or
-            (analysis.get("contact_info", {}).get("name") or "").strip() or
-            (analysis.get("candidate_profile", {}).get("name") or "").strip() or
-            (parsed.get("contact_info", {}).get("name") or "").strip() or
-            None
-        )
-
-        job_role = (
-            analysis.get("job_role") or
-            analysis.get("jd_analysis", {}).get("role_title") or
-            None
-        )
-
-        output.append({
-            "id": r.id,
-            "timestamp": r.timestamp,
-            "status": r.status,
-            "candidate_id": r.candidate_id,
-            "fit_score": analysis.get("fit_score"),
-            "final_recommendation": analysis.get("final_recommendation"),
-            "risk_level": analysis.get("risk_level"),
-            "candidate_name": candidate_name,
-            "job_role": job_role,
-        })
-
-    return output
-
-
-# ─── Result status update ─────────────────────────────────────────────────────
-
-@router.put("/results/{result_id}/status")
-def update_status(
-    result_id: int,
-    body: dict,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_active_recruiter),
-    db: Session = Depends(get_db),
-):
-    result = db.query(ScreeningResult).filter(
-        ScreeningResult.id == result_id,
-        ScreeningResult.tenant_id == current_user.tenant_id,
-    ).first()
-    if not result:
-        raise HTTPException(status_code=404, detail="Result not found")
-
-    allowed_statuses = {"pending", "shortlisted", "rejected", "in-review", "hired"}
-    new_status = body.get("status", "")
-    if new_status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {allowed_statuses}")
-
-    old_status = result.status
-    result.status = new_status
-    result.status_updated_at = datetime.now(timezone.utc)
-    log_field_change(
-        db=db,
-        tenant_id=current_user.tenant_id,
-        entity_type="screening_result",
-        entity_id=result.id,
-        field_name="status",
-        old_value=old_status,
-        new_value=new_status,
-        user_id=current_user.id,
-    )
-    log_tenant_event(
-        db,
-        actor=current_user,
-        action="result.status_change",
-        resource_type="screening_result",
-        resource_id=result.id,
-        details={"old_status": old_status, "new_status": new_status},
-    )
-    db.commit()
-
-    # Fire-and-forget auto-trigger evaluation using a fresh DB session.
-    if result.candidate_id:
-        background_tasks.add_task(
-            _schedule_auto_trigger,
-            current_user.tenant_id,
-            result.candidate_id,
-            result.id,
-            new_status,
-        )
-
-    return {"id": result_id, "status": new_status}
-
-
-# ─── Re-score endpoint (post-analysis skill edit) ────────────────────────────
-
-@router.post("/analyze/{result_id}/rescore")
-def rescore_endpoint(
-    result_id: int,
-    body: RescoreRequest,
-    current_user: User = Depends(require_active_recruiter),
-    db: Session = Depends(get_db),
-):
-    """Re-score an existing analysis with overridden skill classification.
-
-    Does NOT re-run the full pipeline or call the LLM — this is a quick
-    recalculation using stored data.  Only skill-related scores change
-    (skill_match + fit_score).  Changes are persisted to the database.
-    """
-    # ── 1. Load screening result & verify tenant ownership ───────────────────
-    result = db.query(ScreeningResult).filter(
-        ScreeningResult.id == result_id,
-        ScreeningResult.tenant_id == current_user.tenant_id,
-    ).first()
-    if not result:
-        raise HTTPException(status_code=404, detail="Result not found")
-
-    # ── 2. Parse stored JSON blobs ────────────────────────────────────────────
-    try:
-        analysis = json.loads(result.analysis_result)
-    except (json.JSONDecodeError, TypeError):
-        raise HTTPException(status_code=400, detail="Stored analysis_result is corrupt")
-
-    try:
-        parsed_data = json.loads(result.parsed_data)
-    except (json.JSONDecodeError, TypeError):
-        raise HTTPException(status_code=400, detail="Stored parsed_data is corrupt")
-
-    # ── 3. Extract candidate skills from parsed_data ──────────────────────────
-    # The pipeline stores skills in multiple places; gather them all.
-    candidate_skills_raw: list[str] = list(parsed_data.get("skills", []))
-    # Also check the candidate_profile / skills_identified path
-    cp = analysis.get("candidate_profile", {})
-    candidate_skills_raw.extend(cp.get("skills_identified", []))
-    # Deduplicate (case-insensitive)
-    seen_lower: set[str] = set()
-    candidate_skills: list[str] = []
-    for s in candidate_skills_raw:
-        if isinstance(s, str) and s.lower() not in seen_lower:
-            seen_lower.add(s.lower())
-            candidate_skills.append(s)
-
-    # ── 4. Apply new skill classification ─────────────────────────────────────
-    jd_analysis = analysis.get("jd_analysis", {})
-    # Save originals
-    jd_analysis.setdefault("original_required_skills", jd_analysis.get("required_skills", []))
-    jd_analysis.setdefault("original_nice_to_have_skills", jd_analysis.get("nice_to_have_skills", []))
-
-    # Extract proficiency data and normalise skills to plain strings
-    proficiency_map: dict[str, str] = {}
-    def _normalise_skill_list(skill_list):
-        result = []
-        for item in skill_list:
-            if isinstance(item, str):
-                result.append(item)
-            elif isinstance(item, dict) and "skill" in item:
-                result.append(item["skill"])
-                prof = item.get("proficiency")
-                if isinstance(prof, str) and prof.lower() in (
-                    "basic", "intermediate", "advanced", "expert",
-                ):
-                    proficiency_map[item["skill"].lower()] = prof.lower()
-            else:
-                result.append(str(item))
-        return result
-
-    required_skills = _normalise_skill_list(body.required_skills)
-    nice_to_have_skills = _normalise_skill_list(body.nice_to_have_skills)
-
-    jd_analysis["required_skills"] = required_skills
-    jd_analysis["nice_to_have_skills"] = nice_to_have_skills
-    jd_analysis["skill_overrides_applied"] = True
-    if proficiency_map:
-        jd_analysis["skill_proficiency_requirements"] = proficiency_map
-    else:
-        jd_analysis.pop("skill_proficiency_requirements", None)
-
-    # ── 5. Re-run skill matching (case-insensitive) ──────────────────────────
-    req_lower = {s.lower() for s in required_skills if isinstance(s, str)}
-    nice_lower = {s.lower() for s in nice_to_have_skills if isinstance(s, str)}
-    cand_lower = {s.lower() for s in candidate_skills}
-
-    matched_required = [s for s in required_skills if s.lower() in cand_lower]
-    missing_required = [s for s in required_skills if s.lower() not in cand_lower]
-    matched_nice_to_have = [s for s in nice_to_have_skills if s.lower() in cand_lower]
-    missing_nice_to_have = [s for s in nice_to_have_skills if s.lower() not in cand_lower]
-
-    # Backward-compat unions
-    matched_skills = matched_required + matched_nice_to_have
-    missing_skills = missing_required + missing_nice_to_have
-
-    required_match_pct = (len(matched_required) / max(len(required_skills), 1)) * 100
-    nice_to_have_match_pct = (len(matched_nice_to_have) / max(len(nice_to_have_skills), 1)) * 100
-
-    # ── 5b. Proficiency-aware scoring (if proficiency data provided) ────────
-    proficiency_analysis = {}
-    prof_factor = None
-    if proficiency_map and matched_required:
-        from app.backend.services.hybrid_pipeline import (
-            _compute_proficiency_score,
-            _estimate_candidate_proficiency,
-        )
-        # Build candidate skills data for proficiency estimation
-        candidate_skills_data = {
-            "skills_identified": candidate_skills,
-            "total_effective_years": analysis.get("candidate_profile", {}).get("total_effective_years", 0),
-            "work_experience": parsed_data.get("work_experience", []),
-        }
-        prof_factor = _compute_proficiency_score(
-            matched_required, candidate_skills_data, proficiency_map,
-        )
-        # Build proficiency_analysis details
-        for skill in matched_required:
-            req_level = proficiency_map.get(skill.lower())
-            if req_level:
-                cand_level = _estimate_candidate_proficiency(skill, candidate_skills_data)
-                from app.backend.services.hybrid_pipeline import PROFICIENCY_LEVELS
-                req_rank = PROFICIENCY_LEVELS.get(req_level, 2)
-                cand_rank = PROFICIENCY_LEVELS.get(cand_level, 2)
-                if cand_rank >= req_rank:
-                    match_factor = 1.0
-                elif cand_rank == req_rank - 1:
-                    match_factor = 0.6
-                else:
-                    match_factor = 0.3
-                proficiency_analysis[skill] = {
-                    "required": req_level,
-                    "estimated_candidate": cand_level,
-                    "match_factor": match_factor,
-                }
-
-    # ── 6. Recalculate skill_score (70/30 weighting) ──────────────────────────
-    if nice_to_have_skills:
-        req_ratio = required_match_pct
-        if prof_factor is not None:
-            req_ratio = required_match_pct * prof_factor
-        skill_score = round((req_ratio * 0.70) + (nice_to_have_match_pct * 0.30))
-    else:
-        req_ratio = required_match_pct
-        if prof_factor is not None:
-            req_ratio = required_match_pct * prof_factor
-        skill_score = round(req_ratio)
-
-    # ── 7. Recalculate fit_score using compute_fit_score() ────────────────────
-    sb = analysis.get("score_breakdown", {})
-    exp_match_raw = sb.get("experience_match", 50)
-    candidate_profile = analysis.get("candidate_profile", {})
-    if isinstance(exp_match_raw, dict):
-        exp_score = scalar_breakdown_score(exp_match_raw, 50)
-        actual_years = exp_match_raw.get("actual_years")
-        if actual_years is None:
-            actual_years = candidate_profile.get("total_effective_years", 0)
-        required_years = exp_match_raw.get("required_years")
-        if required_years is None:
-            required_years = candidate_profile.get("required_years", 0)
-    else:
-        exp_score = scalar_breakdown_score(exp_match_raw, 50)
-        actual_years = candidate_profile.get("total_effective_years", 0)
-        required_years = candidate_profile.get("required_years", 0)
-
-    all_scores = {
-        "skill_score":     skill_score,
-        "exp_score":       exp_score,
-        "arch_score":      sb.get("architecture", 50),
-        "edu_score":       sb.get("education", 60),
-        "timeline_score":  sb.get("stability", sb.get("timeline", 85)),
-        "domain_score":    sb.get("domain_fit", 60),
-        "actual_years":    actual_years,
-        "required_years":  required_years,
-        "matched_skills":  matched_skills,
-        "missing_skills":  missing_skills,
-        "required_count":  len(required_skills),
-        "employment_gaps": analysis.get("edu_timeline_analysis", {}).get("employment_gaps", []),
-        "short_stints":    analysis.get("edu_timeline_analysis", {}).get("short_stints", []),
-    }
-
-    # Load tenant scoring weights (same pattern as analyze_endpoint)
-    scoring_weights = None
-    try:
-        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-        if tenant and tenant.scoring_weights:
-            from app.backend.services.feature_flag_service import is_feature_enabled
-            if is_feature_enabled(db, current_user.tenant_id, "custom_weights"):
-                scoring_weights = json.loads(tenant.scoring_weights)
-    except Exception:
-        pass
-
-    # Convert weights to internal schema (mirrors _run_python_phase)
-    new_weights = convert_to_new_schema(scoring_weights)
-    internal_weights = {
-        "skills":       new_weights.get("core_competencies", 0.30),
-        "experience":   new_weights.get("experience", 0.20),
-        "architecture": new_weights.get("role_excellence", 0.15),
-        "education":    new_weights.get("education", 0.10),
-        "timeline":     new_weights.get("career_trajectory", 0.10),
-        "domain":       new_weights.get("domain_fit", 0.10),
-        "risk":         new_weights.get("risk", 0.15),
-    }
-
-    jd_for_fit = {
-        "required_skills": required_skills,
-        "nice_to_have_skills": nice_to_have_skills,
-    }
-
-    fit_r = compute_fit_score(all_scores, internal_weights, jd_analysis=jd_for_fit)
-
-    # Preserve deterministic score if it exists — rescore only changes skill components
-    # The deterministic engine applies caps based on core_skill_match and domain_match;
-    # since we are not re-running domain detection, keep the deterministic score logic
-    # but adjust it if the new skill match is worse.
-    deterministic_score = analysis.get("deterministic_score", fit_r["fit_score"])
-    det_features = analysis.get("deterministic_features", {})
-    if det_features:
-        # Recompute core_skill_match based on new required match
-        new_core_ratio = len(matched_required) / max(len(required_skills), 1)
-        det_features = dict(det_features)
-        det_features["core_skill_match"] = new_core_ratio
-        # Re-derive secondary_skill_match from nice-to-have
-        new_secondary_ratio = len(matched_nice_to_have) / max(len(nice_to_have_skills), 1) if nice_to_have_skills else 0
-        det_features["secondary_skill_match"] = new_secondary_ratio
-
-        # Re-run deterministic score with updated features
-        eligibility = None
-        jd_domain = {}
-        candidate_domain = {}
-        try:
-            from app.backend.services.eligibility_service import check_eligibility
-            from app.backend.services.fit_scorer import compute_deterministic_score
-
-            # Use stored domain data — we are NOT re-running domain detection
-            jd_domain = analysis.get("jd_domain", {})
-            candidate_domain = analysis.get("candidate_domain", {})
-            eligibility = check_eligibility(
-                jd_domain=jd_domain,
-                candidate_domain=candidate_domain,
-                core_skill_match=det_features["core_skill_match"],
-                relevant_experience=det_features.get("relevant_experience", 0),
-            )
-            deterministic_score = compute_deterministic_score(det_features, eligibility, new_weights)
-        except Exception as e:
-            log.warning("Deterministic re-score failed, using fit_score: %s", e)
-            deterministic_score = fit_r["fit_score"]
-
-    # Blend deterministic score with fit_score for eligible candidates
-    # (same logic as _run_python_phase in hybrid_pipeline.py)
-    if det_features:
-        if eligibility is not None and eligibility.eligible:
-            final_fit_score = int(0.6 * fit_r["fit_score"] + 0.4 * deterministic_score)
-        else:
-            final_fit_score = deterministic_score
-        final_fit_score = max(0, min(100, final_fit_score))
-    else:
-        final_fit_score = fit_r["fit_score"]
-    final_recommendation = fit_r["final_recommendation"]
-    # Override recommendation based on deterministic score thresholds
-    if det_features:
-        if final_fit_score >= RECOMMENDATION_THRESHOLDS["shortlist"]:
-            final_recommendation = "Shortlist"
-        elif final_fit_score >= RECOMMENDATION_THRESHOLDS["consider"]:
-            final_recommendation = "Consider"
-        else:
-            final_recommendation = "Reject"
-
-    # ── 8. Update analysis_result JSON ────────────────────────────────────────
-    # Skill analysis
-    skill_analysis = analysis.get("skill_analysis", {})
-    skill_analysis.update({
-        "matched_skills":        matched_skills,
-        "missing_skills":        missing_skills,
-        "matched_required":      matched_required,
-        "missing_required":      missing_required,
-        "matched_nice_to_have":  matched_nice_to_have,
-        "missing_nice_to_have":  missing_nice_to_have,
-        "required_match_pct":    required_match_pct,
-        "nice_to_have_match_pct": nice_to_have_match_pct,
-        "skill_score":           skill_score,
-        "required_count":        len(required_skills),
-    })
-    if proficiency_analysis:
-        skill_analysis["proficiency_analysis"] = proficiency_analysis
-
-    # Top-level fields
-    refresh_interview_questions_in_analysis(
-        analysis,
-        parsed_data=parsed_data,
-        kit_status=getattr(result, "interview_kit_status", None),
-    )
-
-    analysis.update({
-        "skill_analysis":        skill_analysis,
-        "jd_analysis":          jd_analysis,
-        "fit_score":            final_fit_score,
-        "final_recommendation": final_recommendation,
-        "risk_level":           fit_r["risk_level"],
-        "risk_signals":         fit_r["risk_signals"],
-        "score_breakdown":      fit_r["score_breakdown"],
-        "matched_skills":       matched_skills,
-        "missing_skills":       missing_skills,
-        "required_skills_count": len(required_skills),
-        "deterministic_score":  final_fit_score,
-        "deterministic_features": det_features if det_features else analysis.get("deterministic_features"),
-    })
-
-    # ── 9. Persist to database ────────────────────────────────────────────────
-    result.analysis_result = json.dumps(analysis, default=_json_default)
-    _populate_denormalized_columns(result, analysis)
-    db.commit()
-
-    log.info(json.dumps({
-        "event":             "rescore_complete",
-        "result_id":         result_id,
-        "tenant_id":         current_user.tenant_id,
-        "new_fit_score":     final_fit_score,
-        "new_skill_score":   skill_score,
-        "required_matched":  len(matched_required),
-        "required_total":    len(required_skills),
-        "nice_matched":      len(matched_nice_to_have),
-        "nice_total":        len(nice_to_have_skills),
-    }))
-
-    return analysis
-
-
-# ─── Narrative polling endpoint ───────────────────────────────────────────────
-
-
-from app.backend.services.screening_outcome import outcome_fields_from_result
-
-
-def _outcome_payload(result) -> dict:
-    return outcome_fields_from_result(result)
-
-
-
-@router.get("/analysis/{analysis_id}/narrative")
-def get_narrative(
-    analysis_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Poll for LLM narrative after Python results are returned.
-    
-    Returns:
-      - {"status": "ready", "narrative": {...}} if narrative is available
-      - {"status": "pending"} if LLM is still processing
-      - {"status": "failed", "error": "...", "narrative": {...}} if LLM failed (includes fallback)
-      - 404 if analysis not found or not owned by user's tenant
-    """
-    result = db.query(ScreeningResult).filter(
-        ScreeningResult.id == analysis_id,
-        ScreeningResult.tenant_id == current_user.tenant_id,
-    ).first()
-    
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    
-    # Use narrative_status column if available, fall back to checking narrative_json
-    status = getattr(result, 'narrative_status', None)
-    
-    if status == 'fallback':
-        # Fallback — return fallback narrative + error message
-        narrative = None
-        if result.narrative_json:
-            try:
-                narrative = json.loads(result.narrative_json)
-            except json.JSONDecodeError:
-                pass
-        return {
-            "status": "fallback",
-            "error": result.narrative_error or "AI analysis encountered an error",
-            "narrative": narrative,
-            "interview_kit_status": getattr(result, "interview_kit_status", None),
-            "interview_kit_error": getattr(result, "interview_kit_error", None),
-            "voice_strategy_status": getattr(result, "voice_strategy_status", None),
-        }
-
-    if status == 'failed':
-        # Failed — return fallback narrative + error message (legacy, should not happen with new fallback logic)
-        narrative = None
-        if result.narrative_json:
-            try:
-                narrative = json.loads(result.narrative_json)
-            except json.JSONDecodeError:
-                pass
-        return {
-            "status": "failed",
-            "error": result.narrative_error or "AI analysis encountered an error",
-            "narrative": narrative,
-            "interview_kit_status": getattr(result, "interview_kit_status", None),
-            "interview_kit_error": getattr(result, "interview_kit_error", None),
-            "voice_strategy_status": getattr(result, "voice_strategy_status", None),
-        }
-
-    if status == 'ready' or (status is None and result.narrative_json):
-        # Ready — return narrative
-        if result.narrative_json:
-            try:
-                narrative = json.loads(result.narrative_json)
-                kit_status = getattr(result, "interview_kit_status", None) or "pending"
-                voice_strategy_status = getattr(result, "voice_strategy_status", None) or "pending"
-                return {
-                    "status": "ready",
-                    "narrative": narrative,
-                    "interview_kit_status": kit_status,
-                    "interview_kit_error": getattr(result, "interview_kit_error", None),
-                    "voice_strategy_status": voice_strategy_status,
-                    **_outcome_payload(result),
-                }
-            except json.JSONDecodeError:
-                return {"status": "pending"}
-    
-    # Still pending or processing
-    kit_status = getattr(result, "interview_kit_status", None)
-    kit_error = getattr(result, "interview_kit_error", None)
-    voice_strategy_status = getattr(result, "voice_strategy_status", None)
-    payload = {"status": status or "pending", **_outcome_payload(result)}
-    if kit_status:
-        payload["interview_kit_status"] = kit_status
-    if kit_error:
-        payload["interview_kit_error"] = kit_error
-    if voice_strategy_status:
-        payload["voice_strategy_status"] = voice_strategy_status
-    return payload
-
-
-# ─── JD Templates Endpoints ───────────────────────────────────────────────────
-
-@router.get("/jd-templates")
-async def get_jd_templates(
-    category: Optional[str] = Query(None, description="Filter by category"),
-):
-    """Get available JD templates for common roles.
-
-    These templates help recruiters write JDs that the system can parse effectively.
-    """
-    from app.backend.services.jd_template_service import (
-        get_all_templates,
-        get_templates_by_category,
-        get_categories,
-    )
-
-    if category:
-        return {
-            "templates": get_templates_by_category(category),
-            "category": category,
-        }
-
-    return {
-        "templates": get_all_templates(),
-        "categories": get_categories(),
-    }
-
-
-@router.get("/jd-templates/{template_id}")
-async def get_jd_template(
-    template_id: str,
-    company_name: Optional[str] = Query(None, description="Company name for customization"),
-    location: Optional[str] = Query(None, description="Job location"),
-):
-    """Get a specific JD template and optionally generate full JD text."""
-    from app.backend.services.jd_template_service import (
-        get_template,
-        generate_jd_from_template,
-    )
-
-    template = get_template(template_id)
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
-
-    # Generate full JD if customization provided
-    full_jd = None
-    if company_name or location:
-        full_jd = generate_jd_from_template(
-            template_id,
-            {"company_name": company_name, "location": location}
-        )
-
-    return {
-        "template": template,
-        "generated_jd": full_jd,
-    }
+from app.backend.routes.analyze_results import results_router
+router.include_router(results_router)

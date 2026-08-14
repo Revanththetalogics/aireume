@@ -31,6 +31,7 @@ RUN python -m spacy download en_core_web_sm
 
 # Copy application code
 COPY app/ ./app/
+RUN rm -rf /app/app/backend/services/wip
 
 # Alembic (migrations run in entrypoint for PostgreSQL)
 COPY alembic.ini .

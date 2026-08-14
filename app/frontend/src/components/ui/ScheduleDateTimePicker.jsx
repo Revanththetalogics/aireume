@@ -57,11 +57,11 @@ export default function ScheduleDateTimePicker({
   return (
     <div className={`space-y-3 ${className}`}>
       <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-dark-text-secondary mb-1.5">
+        <label htmlFor="scheduledatetimepicker-date-1" className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-dark-text-secondary mb-1.5">
           <Calendar className="w-3.5 h-3.5" />
           Date
         </label>
-        <input
+        <input id="scheduledatetimepicker-date-1"
           type="date"
           value={parts.date}
           min={minDate}
@@ -72,12 +72,12 @@ export default function ScheduleDateTimePicker({
       </div>
 
       <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-dark-text-secondary mb-1.5">
+        <label htmlFor="scheduledatetimepicker-time-12-hour-2" className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-dark-text-secondary mb-1.5">
           <Clock className="w-3.5 h-3.5" />
           Time (12-hour)
         </label>
         <div className="grid grid-cols-3 gap-2">
-          <select
+          <select id="scheduledatetimepicker-time-12-hour-2"
             aria-label="Hour"
             value={parts.hour12}
             onChange={(e) => update({ hour12: Number(e.target.value) })}

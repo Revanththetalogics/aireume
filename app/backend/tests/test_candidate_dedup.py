@@ -14,6 +14,7 @@ import copy
 import io
 import json
 import hashlib
+from contextlib import ExitStack, contextmanager
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -37,7 +38,7 @@ LONG_JD = (
 
 SHORT_JD = "Python developer needed."  # well under 80 words
 
-def _make_file(name: str = "resume.pdf", content: bytes = b"") -> tuple:
+def _make_file(name: str = "resume.txt", content: bytes = b"") -> tuple:
     content = content or (
         b"%PDF-1.4 John Doe\nSoftware Engineer\njohn@test.com\n+1-555-0100\n\n"
         b"SKILLS\nPython, FastAPI, PostgreSQL\n\n"
@@ -104,23 +105,27 @@ MOCK_PIPELINE_RESULT = {
 }
 
 
+@contextmanager
 def _mock_analyze_patches(pipeline_result: dict | None = None):
-    """Context-manager stack that replaces all external calls in analyze.py.
+    """Patch parse/pipeline on both analyze.py and analyze_helpers.py.
 
-    The pipeline mock uses side_effect so every call receives a fresh deep
-    copy of the result dict — preventing test cross-contamination from mutable
-    state (e.g. result["duplicate_candidate"] = ... mutating a shared object).
+    Resume parsing lives in analyze_helpers; scoring still runs in analyze.py
+    for the single-file endpoint and in helpers for batch.
     """
     base_result = pipeline_result or MOCK_PIPELINE_RESULT
 
     async def _fresh_result(**kwargs):
         return copy.deepcopy(base_result)
 
-    return (
-        patch("app.backend.routes.analyze.parse_resume",      return_value=MOCK_PARSE_RESULT),
-        patch("app.backend.routes.analyze.analyze_gaps",      return_value=MOCK_GAP_RESULT),
-        patch("app.backend.routes.analyze.run_hybrid_pipeline", side_effect=_fresh_result),
-    )
+    with ExitStack() as stack:
+        for mod in (
+            "app.backend.routes.analyze",
+            "app.backend.routes.analyze_helpers",
+        ):
+            stack.enter_context(patch(f"{mod}.parse_resume", return_value=MOCK_PARSE_RESULT))
+            stack.enter_context(patch(f"{mod}.analyze_gaps", return_value=MOCK_GAP_RESULT))
+            stack.enter_context(patch(f"{mod}.run_hybrid_pipeline", side_effect=_fresh_result))
+        yield
 
 
 # ─── 1. JD cache ──────────────────────────────────────────────────────────────
@@ -344,8 +349,7 @@ class TestCandidateProfileStorage:
 
 class TestAnalyzeEndpointDedup:
     def test_jd_too_short_returns_400(self, auth_client):
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": SHORT_JD},
@@ -355,8 +359,7 @@ class TestAnalyzeEndpointDedup:
         assert "80 words" in resp.json()["detail"]
 
     def test_successful_analysis_returns_analysis_quality(self, auth_client):
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -368,8 +371,7 @@ class TestAnalyzeEndpointDedup:
         assert data["narrative_pending"] is False
 
     def test_successful_analysis_returns_fit_score(self, auth_client):
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -385,28 +387,22 @@ class TestAnalyzeEndpointDedup:
             b"SKILLS\nPython, Django\n\n"
             b"EDUCATION\nBSc CS, MIT 2017\n"
         )
-        p1, p2, p3 = _mock_analyze_patches({
+        with _mock_analyze_patches({
             **MOCK_PIPELINE_RESULT,
             "contact_info": {"name": "Jane Smith", "email": "jane@corp.com", "phone": "+1-555-2222"},
-        })
-
-        # First upload
-        with p1, p2, p3:
+        }):
             r1 = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
-                files=[("resume", _make_file("r1.pdf", resume_bytes))],
+                files=[("resume", _make_file("r1.txt", resume_bytes))],
             )
-        assert r1.status_code == 200
-        assert r1.json().get("duplicate_candidate") is None
-
-        # Second upload — same file → should flag duplicate
-        with p1, p2, p3:
             r2 = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
-                files=[("resume", _make_file("r1.pdf", resume_bytes))],
+                files=[("resume", _make_file("r1.txt", resume_bytes))],
             )
+        assert r1.status_code == 200
+        assert r1.json().get("duplicate_candidate") is None
         assert r2.status_code == 200
         dup_info = r2.json().get("duplicate_candidate")
         assert dup_info is not None
@@ -415,20 +411,14 @@ class TestAnalyzeEndpointDedup:
     def test_action_create_new_skips_dedup_response(self, auth_client):
         """action=create_new → duplicate_candidate should be None."""
         resume_bytes = b"%PDF-1.4 Eve Tester\nDev\neve@corp.com\n+1-555-3333\nPython\n"
-        p1, p2, p3 = _mock_analyze_patches()
-
-        # First upload
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             auth_client.post("/api/analyze",
                              data={"job_description": LONG_JD, "action": "create_new"},
-                             files=[("resume", _make_file("e.pdf", resume_bytes))])
-
-        # Second upload with create_new
-        with p1, p2, p3:
+                             files=[("resume", _make_file("e.txt", resume_bytes))])
             r2 = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD, "action": "create_new"},
-                files=[("resume", _make_file("e.pdf", resume_bytes))],
+                files=[("resume", _make_file("e.txt", resume_bytes))],
             )
         assert r2.status_code == 200
         assert r2.json().get("duplicate_candidate") is None
@@ -436,8 +426,7 @@ class TestAnalyzeEndpointDedup:
     def test_narrative_pending_flag_exposed_in_response(self, auth_client):
         """If the pipeline sets narrative_pending=True, the response reflects it."""
         pending_result = {**MOCK_PIPELINE_RESULT, "narrative_pending": True, "analysis_quality": "medium"}
-        p1, p2, p3 = _mock_analyze_patches(pending_result)
-        with p1, p2, p3:
+        with _mock_analyze_patches(pending_result):
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -464,8 +453,7 @@ class TestAnalyzeEndpointDedup:
 
     def test_analysis_persists_candidate_in_db(self, auth_client, db):
         from app.backend.models.db_models import Candidate
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -482,8 +470,7 @@ class TestAnalyzeEndpointDedup:
 class TestBatchJdGate:
     def test_batch_short_jd_returns_400(self, auth_client):
         # JD length check runs before file-extension filter in the batch route
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze/batch",
                 data={"job_description": SHORT_JD},
@@ -493,8 +480,7 @@ class TestBatchJdGate:
         assert "80 words" in resp.json()["detail"]
 
     def test_batch_long_jd_succeeds(self, auth_client):
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze/batch",
                 data={"job_description": LONG_JD},
@@ -510,8 +496,7 @@ class TestBatchJdGate:
 class TestAnalyzeJdEndpoint:
     def _seed_candidate_with_profile(self, auth_client, db):
         """Upload a resume so the candidate gets a stored profile, then return its id."""
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -605,8 +590,7 @@ class TestAnalyzeJdEndpoint:
 
 class TestEnrichedCandidateResponses:
     def _upload_and_get_id(self, auth_client):
-        p1, p2, p3 = _mock_analyze_patches()
-        with p1, p2, p3:
+        with _mock_analyze_patches():
             resp = auth_client.post(
                 "/api/analyze",
                 data={"job_description": LONG_JD},
@@ -631,12 +615,11 @@ class TestEnrichedCandidateResponses:
         # Upload two distinct candidates
         for i in range(2):
             content = f"%PDF-1.4 Candidate {i}\nEngineer{i}@test.com\n+1-555-000{i}\nPython\n".encode()
-            p1, p2, p3 = _mock_analyze_patches()
-            with p1, p2, p3:
+            with _mock_analyze_patches():
                 auth_client.post(
                     "/api/analyze",
                     data={"job_description": LONG_JD},
-                    files=[("resume", _make_file(f"r{i}.pdf", content))],
+                    files=[("resume", _make_file(f"r{i}.txt", content))],
                 )
 
         resp = auth_client.get("/api/candidates?page=1&page_size=1")

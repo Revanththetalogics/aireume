@@ -42,7 +42,9 @@ logging:
   level: info
 
 redis:
-  address: livekit-redis:6379
+  address: ${LIVEKIT_REDIS_ADDRESS:-redis:6379}
+  password: "${LIVEKIT_REDIS_PASSWORD:-}"
+  db: ${LIVEKIT_REDIS_DB:-1}
 EOF
 
 echo "LiveKit config written (key=${KEY}, secret_len=${#SECRET}, node_ip=${NODE_IP:-unset})"

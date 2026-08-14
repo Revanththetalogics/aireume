@@ -59,8 +59,9 @@ export default function CandidateCard({
       onMouseLeave={onMouseLeave}
     >
       {/* Card header — fixed min height for grid alignment */}
-      <div
-        className="p-4 cursor-pointer flex-1 flex flex-col min-h-[140px]"
+      <button
+        type="button"
+        className="p-4 cursor-pointer flex-1 flex flex-col min-h-[140px] w-full text-left bg-transparent border-0"
         onClick={() => onSelect?.(candidate)}
       >
         <div className="flex items-start gap-3">
@@ -155,7 +156,7 @@ export default function CandidateCard({
             )}
           </div>
         )}
-      </div>
+      </button>
 
       {/* Quick actions footer — pinned to bottom */}
       <div className="px-4 pb-4 pt-2 mt-auto border-t border-brand-50">
