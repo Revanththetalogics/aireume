@@ -177,9 +177,16 @@ jobs:
     - name: Python dependency vulnerability audit (pip-audit)
       run: |
         python -m pip install --upgrade pip pip-audit
-        # ecdsa (python-jose) has no patched release. pytest 8.3.4 is kept for
-        # pytest-asyncio 0.24 compatibility; PYSEC-2026-1845 is fixed in 9.0.3.
-        pip-audit -r app/backend/requirements.txt --ignore-vuln PYSEC-2026-1325 --ignore-vuln PYSEC-2026-1845
+        # Unfixed transitives of python-jose 3.4.0: ecdsa (no patched release)
+        # and pyasn1 (jose requires pyasn1<0.5.0; DoS fixes are in 0.6.4).
+        # pytest 8.3.4 is kept for pytest-asyncio 0.24; PYSEC-2026-1845 is 9.0.3.
+        pip-audit -r app/backend/requirements.txt \
+          --ignore-vuln PYSEC-2026-1325 \
+          --ignore-vuln PYSEC-2026-1845 \
+          --ignore-vuln PYSEC-2026-2263 \
+          --ignore-vuln PYSEC-2026-3455 \
+          --ignore-vuln PYSEC-2026-3456 \
+          --ignore-vuln PYSEC-2026-3457
 
     - name: Filesystem vulnerability scan (Trivy)
       uses: aquasecurity/trivy-action@master
