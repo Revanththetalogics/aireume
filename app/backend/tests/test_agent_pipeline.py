@@ -13,6 +13,11 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
+pytest.importorskip(
+    "langgraph",
+    reason="langgraph is a WIP-only dependency and is not installed in CI",
+)
+
 from app.backend.services.wip.agent_pipeline import (
     _parse_json,
     _normalize_weights,

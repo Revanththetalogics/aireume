@@ -4,12 +4,43 @@ import { test, expect } from '@playwright/test';
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Auth workflow (login page)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/auth/me', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Not authenticated' }),
+      });
+    });
+    await page.route('**/api/auth/oauth/providers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ providers: [] }),
+      });
+    });
+    await page.route('**/api/sso/config/**', async (route) => {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Workspace not found' }),
+      });
+    });
+    await page.route('**/api/auth/login', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Invalid email or password' }),
+      });
+    });
+  });
+
   test('renders workspace, email and password fields', async ({ page }) => {
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByPlaceholder('your-company')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByPlaceholder('you@company.com')).toBeVisible();
+    await expect(page.getByLabel('Email')).toBeVisible();
     await expect(page.getByPlaceholder('••••••••')).toBeVisible();
     await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
   });
@@ -29,7 +60,7 @@ test.describe('Auth workflow (login page)', () => {
   test('invalid credentials surface an error message', async ({ page }) => {
     await page.goto('/login');
     await page.getByPlaceholder('your-company').fill('does-not-exist');
-    await page.getByPlaceholder('you@company.com').fill('nobody@example.com');
+    await page.getByLabel('Email').fill('nobody@example.com');
     await page.getByPlaceholder('••••••••').fill('WrongPassword123!');
     await page.getByRole('button', { name: /sign in/i }).click();
 
