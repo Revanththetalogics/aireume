@@ -25,8 +25,8 @@ clamd==1.0.2
 
 # PDF Processing
 pypdf==6.15.0
-pdfplumber==0.11.4
-pdfminer-six==20251230
+pdfplumber==0.11.9
+pdfminer.six==20251230
 python-docx==1.1.2
 pymupdf==1.25.1
 
