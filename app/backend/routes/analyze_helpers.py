@@ -35,6 +35,9 @@ from app.backend.services.constants import (
     JOB_FUNCTION_SKILL_TAXONOMY,
     RECOMMENDATION_THRESHOLDS,
 )
+from app.backend.services.skill_proficiency_service import (
+    estimate_skill_proficiency as _estimate_skill_proficiency,
+)
 from app.backend.services.parser_service import parse_resume, extract_jd_text, enrich_parsed_resume_async
 from app.backend.services.doc_converter import convert_to_pdf
 from app.backend.services.gap_detector import analyze_gaps

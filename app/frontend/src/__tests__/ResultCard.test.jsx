@@ -183,4 +183,24 @@ describe('ResultCard', () => {
     render(<ResultCard result={resultWithWeaknesses} />)
     expect(screen.getByText('Old weakness format')).toBeInTheDocument()
   })
+
+  it('renders tiered skill analysis with O*NET hot skills without crashing', () => {
+    const resultWithTieredSkills = {
+      ...mockResult,
+      skill_analysis: {
+        matched_required: ['Python'],
+        missing_required: ['Kubernetes'],
+        required_match_pct: 50,
+        nice_to_have_match_pct: 50,
+        matched_nice_to_have: ['Docker'],
+        missing_nice_to_have: ['Terraform'],
+      },
+      onet_hot_skills: ['Python', 'Kubernetes'],
+    }
+    render(<ResultCard result={resultWithTieredSkills} />)
+    expect(screen.getByText('Must-Have Skills')).toBeInTheDocument()
+    expect(screen.getByText('Python')).toBeInTheDocument()
+    expect(screen.getByText('Good-to-Have Skills')).toBeInTheDocument()
+    expect(screen.getByText('Docker')).toBeInTheDocument()
+  })
 })

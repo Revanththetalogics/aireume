@@ -362,6 +362,7 @@ export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [narrativeStatusFilter, setNarrativeStatusFilter] = useState(initialNarrativeStatus)
+  const [skillFilter, setSkillFilter] = useState('')
   const [requisitionFilter, setRequisitionFilter] = useState(initialRequisitionId)
   const [toast, setToast]           = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())

@@ -2,6 +2,7 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
+import globals from 'globals'
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -16,12 +17,19 @@ export default [
       parserOptions: {
         ecmaFeatures: { jsx: true },
       },
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+        process: 'readonly',
+        __APP_BUILD_ID__: 'readonly',
+      },
     },
     plugins: {
       'react-refresh': reactRefresh,
     },
     rules: {
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'no-undef': 'error',
     },
   },
   {
@@ -43,6 +51,14 @@ export default [
   },
   {
     files: ['**/*.{test,spec}.{js,jsx}', '**/__tests__/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+        ...globals.vitest,
+        global: 'writable',
+      },
+    },
     rules: {
       // Test files often use dynamic hook deps intentionally
       'react-hooks/exhaustive-deps': 'off',

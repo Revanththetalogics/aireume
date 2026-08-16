@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 
 import { useOnboarding } from '../contexts/OnboardingContext'
+import { useSubscription } from '../hooks/useSubscription'
 import { trackOnboardingEvent } from '../lib/onboardingAnalytics'
 import { useAuth } from '../contexts/AuthContext'
 import {

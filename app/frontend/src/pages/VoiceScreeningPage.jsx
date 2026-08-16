@@ -23,7 +23,7 @@ import usePermissions from '../hooks/usePermissions'
 import useConfirm from '../hooks/useConfirm'
 
 import VoiceSettingsPanel from '../components/VoiceSettingsPanel'
-import { StatusBadge } from '../components/VoiceScreeningPrimitives'
+import { StatusBadge, STATUS_CONFIG } from '../components/VoiceScreeningPrimitives'
 
 export default function VoiceScreeningPage() {
   const navigate = useNavigate()

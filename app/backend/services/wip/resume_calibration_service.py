@@ -19,6 +19,8 @@ from sqlalchemy import func, and_
 from collections import Counter
 import re
 
+from app.backend.services.constants import RECOMMENDATION_THRESHOLDS
+
 logger = logging.getLogger(__name__)
 
 

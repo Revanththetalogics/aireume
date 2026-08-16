@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, CheckCircle, CheckCircle2, Compass, Flame, Shield, TrendingUp, XCircle,
+  AlertTriangle, CheckCircle, CheckCircle2, Compass, Flame, Shield, Star, TrendingUp, XCircle,
 } from 'lucide-react'
 import SkillsRadar from './SkillsRadar'
 import { safeStr } from '../lib/utils'
@@ -14,6 +14,7 @@ export default function ResultCardSkillsIntel({
   adjacent_skills,
   risk_summary,
 }) {
+  const onet_hot_skills = result?.onet_hot_skills || []
   return (
     <>
         {/* Skills Intel — Tiered display when enhanced skill_analysis is available */}

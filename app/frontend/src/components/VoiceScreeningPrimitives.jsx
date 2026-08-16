@@ -4,7 +4,7 @@ import {
 
 export const OPENING_PLACEHOLDERS = '{candidate_first_name}, {role_title}, {company_name}, {bot_name}'
 
-const STATUS_CONFIG = {
+export const STATUS_CONFIG = {
   scheduled:  { label: 'Scheduled',  color: 'bg-blue-100 text-blue-700',   icon: Calendar },
   ringing:    { label: 'Ringing',    color: 'bg-amber-100 text-amber-700', icon: Phone },
   in_progress:{ label: 'In Progress',color: 'bg-green-100 text-green-700', icon: PhoneCall },
