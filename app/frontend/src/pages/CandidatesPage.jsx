@@ -579,7 +579,7 @@ export default function CandidatesPage() {
   }
 
   return (
-    <div>
+    <div className="text-slate-900 dark:text-slate-100">
       <main className="max-w-[95vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <ViewerReadOnlyBanner />
         {requisitionFilter && (
@@ -607,8 +607,8 @@ export default function CandidatesPage() {
         )}
         <div className="flex items-center justify-between flex-wrap gap-3 card-animate">
           <div>
-            <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
-            <p className="text-slate-500 text-sm mt-1 font-medium">
+            <h2 className="text-3xl font-extrabold text-brand-900 dark:text-slate-100 tracking-tight">Candidates</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 font-medium">
               {statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all' || requisitionFilter
                 ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${requisitionFilter ? ` for requisition #${requisitionFilter}` : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${narrativeStatusFilter ? ` with narrative status: ${narrativeStatusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
                 : `${total} candidates tracked in your workspace`}
@@ -707,7 +707,7 @@ export default function CandidatesPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+          <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-brand overflow-hidden">
             <Skeleton variant="list" count={8} />
           </div>
         ) : loadError ? (
@@ -778,7 +778,7 @@ export default function CandidatesPage() {
 
             {/* ── TABLE VIEW ── */}
             {viewMode === 'table' && (
-            <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
+            <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-brand overflow-hidden card-animate">
             <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[1100px]">
               <thead className="bg-brand-50 border-b border-brand-100">

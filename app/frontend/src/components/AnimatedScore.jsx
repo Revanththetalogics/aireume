@@ -54,6 +54,7 @@ export default function AnimatedScore({
 
   return (
     <motion.span
+      aria-label={`Fit score ${score ?? 'unavailable'} out of 100`}
       className={`${sizeClasses[size] || sizeClasses.md} ${colorClass} ${className}`}
     >
       {rounded}

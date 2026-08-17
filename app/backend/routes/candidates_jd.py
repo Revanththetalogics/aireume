@@ -219,20 +219,10 @@ def bulk_update_status(
     if not jd:
         raise HTTPException(status_code=404, detail="Job description not found")
 
-    # ── Bulk update ─────────────────────────────────────────────────────────
-    updated = (
-        db.query(ScreeningResult)
-        .filter(
-            ScreeningResult.id.in_(result_ids),
-            ScreeningResult.tenant_id == current_user.tenant_id,
-            ScreeningResult.role_template_id == jd_id,
-        )
-        .update({ScreeningResult.status: new_status}, synchronize_session="fetch")
-    )
-    db.commit()
+    # ── Per-row update so each change is audited and pipeline stays in sync ─
+    from app.backend.services.audit_service import log_field_change, log_tenant_event
+    from app.backend.routes.analyze_helpers import _sync_pipeline_status_for_result
 
-    # Fire-and-forget auto-trigger evaluation for each updated screening result.
-    # Uses a fresh session because the request-scoped DB may close after response.
     results = (
         db.query(ScreeningResult)
         .filter(
@@ -242,6 +232,34 @@ def bulk_update_status(
         )
         .all()
     )
+    updated = 0
+    for result in results:
+        old_status = result.status
+        result.status = new_status
+        log_field_change(
+            db=db,
+            tenant_id=current_user.tenant_id,
+            entity_type="screening_result",
+            entity_id=result.id,
+            field_name="status",
+            old_value=old_status,
+            new_value=new_status,
+            user_id=current_user.id,
+        )
+        log_tenant_event(
+            db,
+            actor=current_user,
+            action="result.status_change",
+            resource_type="screening_result",
+            resource_id=result.id,
+            details={"old_status": old_status, "new_status": new_status, "bulk": True},
+        )
+        _sync_pipeline_status_for_result(db, result.id, new_status)
+        updated += 1
+    db.commit()
+
+    # Fire-and-forget auto-trigger evaluation for each updated screening result.
+    # Uses a fresh session because the request-scoped DB may close after response.
     for result in results:
         if result.candidate_id:
             background_tasks.add_task(

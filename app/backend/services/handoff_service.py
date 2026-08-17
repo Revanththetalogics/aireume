@@ -253,4 +253,19 @@ def build_handoff_package(
             "candidates": comparison_candidates,
         },
         "total_shortlisted": len(shortlisted_candidates),
+        "score_rulers": {
+            "resume": {
+                "shortlist": 72,
+                "consider": 45,
+                "labels": ["Shortlist", "Consider", "Reject"],
+                "note": "Resume screening badge (fit score).",
+            },
+            "voice_interview": {
+                "advance_hm": 80,
+                "advance": 65,
+                "hold": 45,
+                "labels": ["Advance to HM", "Advance", "Hold", "Reject"],
+                "note": "Voice / consolidated interview recommendation — not the same labels as resume Shortlist.",
+            },
+        },
     }

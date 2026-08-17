@@ -115,6 +115,30 @@ def _assert_hm_workflow(db: Session, tenant_id: int) -> None:
         )
 
 _ALLOWED_PIPELINE = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+_HM_TO_LEARNING = {"hire": "hired", "reject": "rejected"}
+
+
+def _record_hm_learning_outcome(db: Session, user: User, req: Requisition, rc: RequisitionCandidate, body) -> None:
+    decision = _HM_TO_LEARNING.get(body.hm_outcome)
+    if not decision or not rc.screening_result_id:
+        return
+    from app.backend.services.outcome_service import record_outcome, compute_skill_patterns
+
+    record_outcome(
+        db,
+        tenant_id=user.tenant_id,
+        screening_result_id=rc.screening_result_id,
+        candidate_id=rc.candidate_id,
+        decision=decision,
+        stage="hm_review",
+        user_id=user.id,
+        notes=body.outcome_notes,
+        role_template_id=req.legacy_role_template_id,
+    )
+    try:
+        compute_skill_patterns(db, user.tenant_id, role_template_id=req.legacy_role_template_id)
+    except (ValueError, TypeError, KeyError) as exc:
+        logger.debug("Skill pattern compute skipped after HM outcome: %s", exc)
 
 
 def _ensure_migrated(db: Session, tenant_id: int) -> None:
@@ -878,6 +902,9 @@ def record_outcome(
     elif body.hm_outcome == "hire":
         rc.pipeline_status = "hired"
         maybe_advance_to_interviewing(db, req)
+    elif body.hm_outcome == "hold":
+        rc.pipeline_status = "in-review"
+    _record_hm_learning_outcome(db, current_user, req, rc, body)
     db.commit()
     return {
         "status": "ok",
@@ -980,12 +1007,17 @@ def create_req_share_link(
     db: Session = Depends(get_db),
 ):
     import secrets
+    import hashlib
     from datetime import timedelta
     from app.backend.models.db_models import HandoffShareLink
 
     req = _load_req(db, req_id, current_user.tenant_id)
     expires_in = int(body.get("expires_in_days") or 14)
     token = secrets.token_urlsafe(32)
+    passcode = body.get("passcode")
+    passcode_hash = None
+    if isinstance(passcode, str) and passcode.strip():
+        passcode_hash = hashlib.sha256(passcode.encode("utf-8")).hexdigest()
     link = HandoffShareLink(
         token=token,
         tenant_id=current_user.tenant_id,
@@ -994,6 +1026,7 @@ def create_req_share_link(
         created_by=current_user.id,
         label=body.get("label") or f"HM Handoff — {req.title}",
         expires_at=datetime.now(timezone.utc) + timedelta(days=expires_in),
+        passcode_hash=passcode_hash,
     )
     db.add(link)
     db.commit()

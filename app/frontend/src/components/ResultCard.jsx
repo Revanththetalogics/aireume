@@ -347,7 +347,12 @@ export default memo(function ResultCard({ result, defaultExpandEducation = false
 
         {/* Score Breakdown */}
         {score_breakdown && Object.keys(score_breakdown).length > 0 && !isPending && (
-          <ScoreBreakdownPanel scoreBreakdown={score_breakdown} recommendationRationale={mergedRecommendationRationale} riskSummary={risk_summary} />
+          <>
+            <ScoreBreakdownPanel scoreBreakdown={score_breakdown} recommendationRationale={mergedRecommendationRationale} riskSummary={risk_summary} />
+            <p className="text-xs text-slate-500 dark:text-slate-400 px-1">
+              Fit scores can differ across workspaces for the same resume because each tenant can calibrate weights, must-haves, and historical hire patterns.
+            </p>
+          </>
         )}
 
         <ResultCardSkillsIntel

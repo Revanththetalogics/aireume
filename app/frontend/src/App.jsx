@@ -219,7 +219,7 @@ function App() {
               <Route path="/interviews/comparison" element={<Navigate to="/compare" replace />} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
-              <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>
+              <Route path="/admin" element={<PlatformAdminRoute><MFAEnrollGate><AdminLayout /></MFAEnrollGate></PlatformAdminRoute>}>
                 <Route index element={<AdminOverviewPage />} />
                 <Route path="tenants/:id" element={<TenantDetailPage />} />
                 <Route path="tenants" element={<TenantsPage />} />

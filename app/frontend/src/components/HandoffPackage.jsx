@@ -433,7 +433,27 @@ export default function HandoffPackage({ initialData = null, publicMode = false 
       </div>
 
       {/* Content (printable) */}
-      <div ref={contentRef} className="space-y-6 p-6 bg-white rounded-2xl ring-1 ring-slate-200">
+      <div ref={contentRef} className="space-y-6 p-6 bg-white dark:bg-slate-900 rounded-2xl ring-1 ring-slate-200 dark:ring-slate-700">
+        {(data.score_rulers?.resume || data.score_rulers?.voice_interview) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            {data.score_rulers?.resume && (
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800 p-3 ring-1 ring-slate-200 dark:ring-slate-700">
+                <p className="font-bold text-slate-700 dark:text-slate-200">Resume screening</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">
+                  Shortlist ≥ {data.score_rulers.resume.shortlist} · Consider ≥ {data.score_rulers.resume.consider} · else Reject
+                </p>
+              </div>
+            )}
+            {data.score_rulers?.voice_interview && (
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800 p-3 ring-1 ring-slate-200 dark:ring-slate-700">
+                <p className="font-bold text-slate-700 dark:text-slate-200">Voice / interview</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">
+                  Advance to HM ≥ {data.score_rulers.voice_interview.advance_hm} · Advance ≥ {data.score_rulers.voice_interview.advance} · Hold ≥ {data.score_rulers.voice_interview.hold} · else Reject
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         {candidates.length === 0 ? (
           /* Empty state */
           <div className="text-center py-16">

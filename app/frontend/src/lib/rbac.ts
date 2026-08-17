@@ -23,7 +23,7 @@ const RECRUITER_NAV_ROLES = new Set<TenantRole>([
 ])
 
 export function normalizeTenantRole(role?: string | null): TenantRole {
-  const r = (role || TENANT_ROLE_RECRUITER).toLowerCase()
+  const r = (role || '').toLowerCase()
   if (
     r === TENANT_ROLE_ADMIN
     || r === TENANT_ROLE_TA_LEAD
@@ -33,7 +33,7 @@ export function normalizeTenantRole(role?: string | null): TenantRole {
   ) {
     return r
   }
-  return TENANT_ROLE_RECRUITER
+  return TENANT_ROLE_VIEWER
 }
 
 export function getPermissions(user?: { role?: string } | null) {

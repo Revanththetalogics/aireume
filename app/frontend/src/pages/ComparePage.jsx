@@ -54,7 +54,7 @@ function VerdictBadge({ verdict, confidence }) {
 function CollapsibleSection({ title, icon: Icon, defaultOpen = false, children }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   return (
-    <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm overflow-hidden">
+    <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-sm overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-brand-50/50 transition-colors"
@@ -130,16 +130,16 @@ export default function ComparePage() {
   }
 
   return (
-    <div>
+    <div className="text-slate-900 dark:text-slate-100">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="card-animate">
-          <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidate Comparison</h2>
-          <p className="text-slate-500 text-sm mt-1 font-medium">Select 2–5 candidates from history to compare side-by-side.</p>
+          <h2 className="text-3xl font-extrabold text-brand-900 dark:text-slate-100 tracking-tight">Candidate Comparison</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 font-medium">Select 2–5 candidates from history to compare side-by-side.</p>
         </div>
 
         {/* Selector */}
         {!comparison && (
-          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5 space-y-4 card-animate">
+          <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-brand p-5 space-y-4 card-animate">
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold text-brand-700">
                 <span className="text-brand-600">{selected.length}</span>/5 selected
@@ -236,7 +236,7 @@ export default function ComparePage() {
               </div>
             </div>
 
-            <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-x-auto">
+            <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-brand overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-brand-50 border-b border-brand-100">
                   <tr>
@@ -521,7 +521,7 @@ export default function ComparePage() {
 
             {/* Team coverage gap */}
             {teamProfiles.length > 0 && (
-              <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-5">
+              <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-sm p-5">
                 <h4 className="text-sm font-bold text-brand-900 mb-3">Team Coverage Gap</h4>
                 <select
                   value={selectedTeamProfile}

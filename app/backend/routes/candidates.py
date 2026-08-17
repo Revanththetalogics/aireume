@@ -168,12 +168,13 @@ def list_candidates(
 
     # Skill filter: find candidates whose screening results contain that skill
     if skill:
-        skill_like = f"%{skill}%"
+        skill_token = (skill or "").strip().replace('"', "")
+        skill_like = f'%"{skill_token}"%'
         candidate_ids_with_skill = (
             db.query(ScreeningResult.candidate_id)
             .filter(
                 ScreeningResult.tenant_id == current_user.tenant_id,
-                ScreeningResult.analysis_result.like(skill_like),
+                ScreeningResult.analysis_result.ilike(skill_like),
             )
             .distinct()
             .subquery()

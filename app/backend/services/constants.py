@@ -13,6 +13,34 @@ RECOMMENDATION_THRESHOLDS = {
     "reject": 0,
 }
 
+# Voice / consolidated interview uses a different vocabulary than resume screening.
+SCORE_RULERS = {
+    "resume": {
+        "shortlist": 72,
+        "consider": 45,
+        "labels": ("Shortlist", "Consider", "Reject"),
+    },
+    "voice_interview": {
+        "advance_hm": 80,
+        "advance": 65,
+        "hold": 45,
+        "labels": ("Advance to HM", "Advance", "Hold", "Reject"),
+    },
+}
+
+
+def recommendation_from_score(score) -> str:
+    """Map a 0–100 displayed fit score to Shortlist / Consider / Reject."""
+    try:
+        value = int(round(float(score)))
+    except (TypeError, ValueError):
+        return "Consider"
+    if value >= RECOMMENDATION_THRESHOLDS["shortlist"]:
+        return "Shortlist"
+    if value >= RECOMMENDATION_THRESHOLDS["consider"]:
+        return "Consider"
+    return "Reject"
+
 
 # --- Seniority Ranges ---
 # (min_years_inclusive, max_years_exclusive)

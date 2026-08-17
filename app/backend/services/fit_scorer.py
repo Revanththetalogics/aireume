@@ -521,6 +521,17 @@ def compute_deterministic_score(features: dict, eligibility, weights: Optional[D
     return int(score)
 
 
+def align_decision_to_score(score, decision_explanation: dict | None = None):
+    """Force the badge to match the number the recruiter sees."""
+    from app.backend.services.constants import recommendation_from_score
+
+    rec = recommendation_from_score(score)
+    aligned = dict(decision_explanation) if decision_explanation else None
+    if aligned is not None:
+        aligned["decision"] = rec
+    return rec, aligned
+
+
 def explain_decision(features: dict, eligibility) -> dict:
     """Generate a structured, deterministic explanation of the scoring decision.
 

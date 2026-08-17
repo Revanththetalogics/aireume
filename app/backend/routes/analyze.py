@@ -30,7 +30,7 @@ from sqlalchemy import update, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.backend.db.database import get_db, SessionLocal
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_feature
 from app.backend.middleware.rbac import require_active_recruiter
 from app.backend.services.audit_service import log_field_change, log_tenant_event
 from app.backend.services.jd_quality_scorer import score_jd_quality
@@ -1179,7 +1179,7 @@ async def analyze_stream_endpoint(
 
 # ─── Batch resume analysis (chunked upload) ─────────────────────────────────
 
-@router.post("/analyze/batch-chunked", response_model=BatchAnalysisResponse)
+@router.post("/analyze/batch-chunked", response_model=BatchAnalysisResponse, dependencies=[Depends(require_feature("batch_analysis"))])
 async def batch_analyze_chunked_endpoint(
     upload_ids: list[str] = Form(...),
     filenames: list[str] = Form(...),
@@ -1460,7 +1460,7 @@ async def batch_analyze_chunked_endpoint(
 
 # ─── Batch resume analysis (SSE streaming) ───────────────────────────────────
 
-@router.post("/analyze/batch-stream")
+@router.post("/analyze/batch-stream", dependencies=[Depends(require_feature("batch_analysis"))])
 async def batch_analyze_stream_endpoint(
     upload_ids: list[str] = Form(...),
     filenames: list[str] = Form(...),
@@ -1885,7 +1885,7 @@ async def batch_analyze_stream_endpoint(
 
 
 
-@router.post("/analyze/batch", response_model=BatchAnalysisResponse)
+@router.post("/analyze/batch", response_model=BatchAnalysisResponse, dependencies=[Depends(require_feature("batch_analysis"))])
 async def batch_analyze_endpoint(
     resumes: list[UploadFile] = File(...),
     job_description: str = Form(None),

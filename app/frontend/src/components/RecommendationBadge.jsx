@@ -28,6 +28,7 @@ export default function RecommendationBadge({
 
   return (
     <span
+      aria-label={`Recommendation: ${label}`}
       className={`
         inline-flex items-center gap-1.5 rounded-full font-medium
         ${colorConfig?.bg || 'bg-slate-50'}

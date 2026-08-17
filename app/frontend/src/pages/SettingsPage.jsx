@@ -56,7 +56,7 @@ export default function SettingsPage() {
   } = useSubscription()
   const { completeChecklistItem } = useOnboarding()
   const { preferences, updatePreferences } = useUserPreferences()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const isAdmin = user?.role === 'admin'
   const requestedTab = searchParams.get('tab') || (isAdmin ? 'subscription' : 'team')
   const moneyTabs = new Set(['subscription', 'billing'])
@@ -252,6 +252,13 @@ export default function SettingsPage() {
     { id: 'security', label: 'Security', icon: Shield },
   ]
 
+  const mfaLocked = Boolean(user?.mfa_required && !user?.mfa_enabled)
+
+  const selectTab = (id) => {
+    if (mfaLocked && id !== 'security') return
+    setActiveTab(id)
+    setSearchParams({ tab: id }, { replace: true })
+  }
   const usageStats = getUsageStats()
   const currentPlan = getCurrentPlan()
   const remainingAnalyses = getRemainingAnalyses()
@@ -283,12 +290,14 @@ export default function SettingsPage() {
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => setActiveTab(id)}
+                type="button"
+                disabled={mfaLocked && id !== 'security'}
+                onClick={() => selectTab(id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all ${
                   activeTab === id
                     ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200'
                     : 'text-slate-600 hover:bg-brand-50/50 hover:text-brand-700'
-                }`}
+                } ${mfaLocked && id !== 'security' ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 <Icon className={`w-4 h-4 ${activeTab === id ? 'text-brand-600' : 'text-slate-400'}`} />
                 {label}

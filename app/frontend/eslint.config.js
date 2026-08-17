@@ -56,6 +56,7 @@ export default [
         ...globals.browser,
         ...globals.es2022,
         ...globals.vitest,
+        vi: 'readonly',
         global: 'writable',
       },
     },

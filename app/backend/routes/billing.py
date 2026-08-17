@@ -11,6 +11,7 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_platform_admin
+from app.backend.middleware.rbac import is_tenant_admin
 from app.backend.models.db_models import User, Tenant, Invoice
 from app.backend.services.billing.factory import get_payment_provider
 from app.backend.services.billing.invoice_service import get_tenant_invoices, get_tenant_invoice_count, get_invoice_by_id
@@ -60,6 +61,14 @@ def _require_tenant_access(current_user: User, tenant_id: int):
         raise HTTPException(status_code=403, detail="Access denied for this tenant")
 
 
+def _require_billing_admin(current_user: User):
+    """Checkout, cancel, and invoices are tenant-admin (or platform admin) only."""
+    if getattr(current_user, "is_platform_admin", False):
+        return
+    if not is_tenant_admin(current_user):
+        raise HTTPException(status_code=403, detail="Only tenant admins can manage billing")
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/checkout")
@@ -69,6 +78,7 @@ def create_checkout_session(
     db: Session = Depends(get_db),
 ):
     """Create a checkout session for the current user's tenant."""
+    _require_billing_admin(current_user)
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     provider = get_payment_provider(db)
     result = provider.create_checkout_session(
@@ -187,9 +197,10 @@ def cancel_subscription(
 ):
     """Cancel subscription for a tenant.
 
-    Requires admin or same-tenant membership.
+    Requires tenant admin or platform admin.
     """
     _require_tenant_access(current_user, tenant_id)
+    _require_billing_admin(current_user)
 
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
@@ -210,9 +221,10 @@ def list_invoices(
 ):
     """Get invoices for the current tenant.
 
-    Any authenticated user can see their own tenant's invoices.
+    Tenant admins (and platform admins) can see invoices.
     Returns a paginated list ordered by newest first.
     """
+    _require_billing_admin(current_user)
     invoices = get_tenant_invoices(db, tenant_id=current_user.tenant_id, limit=limit, offset=offset)
     total = get_tenant_invoice_count(db, tenant_id=current_user.tenant_id)
 
@@ -246,8 +258,9 @@ def get_invoice(
 ):
     """Get a single invoice detail.
 
-    Only returns the invoice if it belongs to the current user's tenant.
+    Only tenant admins can retrieve invoice detail, and only for their tenant.
     """
+    _require_billing_admin(current_user)
     invoice = get_invoice_by_id(db, invoice_id=invoice_id, tenant_id=current_user.tenant_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")

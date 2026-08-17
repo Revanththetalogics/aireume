@@ -964,10 +964,10 @@ export default function ReportPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 print:block">
+    <div className="flex h-full min-h-0 print:block text-slate-900 dark:text-slate-100">
 
       {/* ── Left sidebar: score + candidate info + labels ── */}
-      <aside className="w-72 shrink-0 border-r border-brand-100 overflow-y-auto flex flex-col gap-5 p-5 print:hidden">
+        <aside className="w-72 shrink-0 border-r border-brand-100 dark:border-slate-700 overflow-y-auto flex flex-col gap-5 p-5 print:hidden">
 
         {/* Back button */}
         <button

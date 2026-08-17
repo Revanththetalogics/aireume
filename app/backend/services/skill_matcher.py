@@ -1353,6 +1353,16 @@ def _normalize_skill(s: str) -> str:
     return s
 
 
+def _is_token_skill_match(a: str, b: str) -> bool:
+    """True if one skill is a whole token inside the other (not Java⊂JavaScript)."""
+    if not a or not b or a == b:
+        return a == b
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if shorter not in longer:
+        return False
+    return re.search(rf'(^|[^a-z0-9]){re.escape(shorter)}([^a-z0-9]|$)', longer) is not None
+
+
 def normalize_skill_name(skill: str) -> str:
     """Normalize a skill name using SKILL_ALIASES.
 
@@ -2036,18 +2046,18 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
                 found = True
                 match_type = "alias"
 
-        # Substring match: "React Native" in "React" or vice-versa
+        # Substring match only when one skill is a whole token of the other
+        # (React ⊂ React Native) — not Java ⊂ JavaScript or SQL ⊂ SQLAlchemy.
         if not found:
             req_norm = _normalize_skill(req)
-            if len(req_norm) > 3:  # Skip very short skills for substring matching
+            if len(req_norm) > 3:
                 for c in cand_set:
-                    if len(c) > 3 and (req_norm in c or c in req_norm):
-                        # High-collision skills require same subcategory
+                    if len(c) > 3 and _is_token_skill_match(req_norm, c):
                         if req_norm in HIGH_COLLISION_SKILLS:
                             req_subcats = _get_skill_subcategory_keys(req_norm)
                             c_subcats = _get_skill_subcategory_keys(c)
                             if not (req_subcats & c_subcats):
-                                continue  # Different domains, skip
+                                continue
                         found = True
                         match_type = "substring"
                         break
@@ -2108,10 +2118,16 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
             adjacent.append(s)
 
     total_req = max(len(jd_skills), 1)
-    skill_score = round(len(matched) / total_req * 100) if jd_skills else 50
-    skill_score = min(100, skill_score)
+    if not jd_skills:
+        skill_score = 0
+        unevaluable_skills = True
+        core_match_ratio = 0.0
+    else:
+        skill_score = round(len(matched) / total_req * 100)
+        skill_score = min(100, skill_score)
+        unevaluable_skills = False
+        core_match_ratio = len(matched) / total_req
 
-    core_match_ratio = len(matched) / total_req
     secondary_match_ratio = len(adjacent) / max(len(jd_nice_to_have), 1)
 
     return {
@@ -2124,6 +2140,7 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
         "adjacent_skills": adjacent,
         "required_count": len(jd_skills),
         "matched_count": len(matched),
+        "unevaluable_skills": unevaluable_skills,
     }
 
 

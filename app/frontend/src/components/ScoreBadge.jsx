@@ -29,6 +29,8 @@ export default function ScoreBadge({
 
   return (
     <div
+      role="img"
+      aria-label={`Fit score ${score ?? 'unavailable'} out of 100`}
       className={`
         inline-flex items-center justify-center rounded-full
         ${borderClass.replace('border-', 'border-')}

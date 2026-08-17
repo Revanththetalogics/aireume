@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.backend.db.database import get_db, get_read_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_feature
 from app.backend.models.db_models import (
     Candidate, RoleTemplate, TranscriptAnalysis, User
 )
@@ -41,7 +41,7 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-@router.post("/analyze")
+@router.post("/analyze", dependencies=[Depends(require_feature("transcript_analysis"))])
 async def analyze_transcript_endpoint(
     transcript_file: Optional[UploadFile] = File(None),
     transcript_text: Optional[str]       = Form(None),
@@ -84,6 +84,9 @@ async def analyze_transcript_endpoint(
     is_inj, confidence, _ = detect_prompt_injection(raw_text)
     if is_inj and confidence >= 0.75:
         raise HTTPException(status_code=400, detail="Transcript failed security screening")
+
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
 
     # ── Resolve job description ───────────────────────────────────────────────
     from app.backend.services.requisition_service import resolve_role_picker_id

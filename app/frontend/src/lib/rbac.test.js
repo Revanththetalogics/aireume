@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { getPermissions, normalizeTenantRole } from '../lib/rbac'
 
 describe('rbac', () => {
-  it('normalizes unknown roles to recruiter', () => {
-    expect(normalizeTenantRole('hm')).toBe('recruiter')
+  it('normalizes unknown roles to viewer', () => {
+    expect(normalizeTenantRole('hm')).toBe('viewer')
+    expect(normalizeTenantRole(null)).toBe('viewer')
   })
 
   it('grants write to admin and recruiter', () => {

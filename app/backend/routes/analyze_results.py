@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.middleware.rbac import require_active_recruiter
-from app.backend.models.db_models import Candidate, ScreeningResult, Tenant, User
+from app.backend.models.db_models import Candidate, ScreeningResult, Tenant, User, RequisitionCandidate
 from app.backend.models.schemas import RescoreRequest
 from app.backend.services.audit_service import log_field_change, log_tenant_event
 from app.backend.services.fit_scorer import compute_fit_score, scalar_breakdown_score
@@ -27,6 +27,7 @@ from app.backend.routes.analyze_helpers import (
     _json_default,
     _populate_denormalized_columns,
     _schedule_auto_trigger,
+    _sync_pipeline_status_for_result,
 )
 
 # ─── History ──────────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ def update_status(
         resource_id=result.id,
         details={"old_status": old_status, "new_status": new_status},
     )
+    _sync_pipeline_status_for_result(db, result.id, new_status)
     db.commit()
 
     # Fire-and-forget auto-trigger evaluation using a fresh DB session.

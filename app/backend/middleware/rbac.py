@@ -22,10 +22,11 @@ ALL_ROLES = {
 
 
 def get_tenant_role(user: User) -> str:
-    """Normalized tenant role; unknown values default to recruiter."""
-    role = (getattr(user, "role", None) or TENANT_ROLE_RECRUITER).strip().lower()
+    """Normalized tenant role; unknown values fail closed to viewer (read-only)."""
+    raw = getattr(user, "role", None)
+    role = (raw or "").strip().lower()
     if role not in ALL_ROLES:
-        return TENANT_ROLE_RECRUITER
+        return TENANT_ROLE_VIEWER
     return role
 
 

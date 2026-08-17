@@ -25,7 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User, Tenant
 from app.backend.routes.auth import get_current_user
-from app.backend.middleware.auth import require_active_subscription, require_platform_admin
+from app.backend.middleware.auth import require_active_subscription, require_platform_admin, require_feature
 from app.backend.services.queue_manager import (
     get_queue_manager,
     AnalysisJob,
@@ -55,6 +55,7 @@ async def submit_analysis_job(
     resume_filename: str,
     job_description: str,
     candidate_id: Optional[int] = None,
+    requisition_id: Optional[int] = None,
     priority: int = 5,
     current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
@@ -67,6 +68,8 @@ async def submit_analysis_job(
     - 3-5: Normal priority (default)
     - 6-10: Low priority (batch jobs, background)
     """
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
     # Content-hash deduplication: reject identical tenant+candidate jobs within 60s
     content_hash = _compute_content_hash(current_user.tenant_id, candidate_id)
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
@@ -177,10 +180,14 @@ async def submit_analysis_file(
     scoring_weights: str | None = Form(None),
     skill_overrides: str | None = Form(None),
     template_id: str | None = Form(None),
+    requisition_id: int | None = Form(None),
     priority: int = Form(7),
     current_user: User = Depends(require_active_subscription),
+    db: Session = Depends(get_db),
 ):
     """Submit a resume file for background queue analysis (multipart)."""
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
     from app.backend.services.queue_analysis_service import prepare_file_for_queue
 
     if not resume_file.filename:
@@ -231,7 +238,7 @@ async def submit_analysis_file(
         raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}") from e
 
 
-@router.post("/submit-batch")
+@router.post("/submit-batch", dependencies=[Depends(require_feature("batch_analysis"))])
 async def submit_analysis_batch(
     resume_files: List[UploadFile] = File(...),
     jd_text: str | None = Form(None),
@@ -239,10 +246,14 @@ async def submit_analysis_batch(
     scoring_weights: str | None = Form(None),
     skill_overrides: str | None = Form(None),
     template_id: str | None = Form(None),
+    requisition_id: int | None = Form(None),
     priority: int = Form(8),
     current_user: User = Depends(require_active_subscription),
+    db: Session = Depends(get_db),
 ):
     """Submit multiple resume files for background queue processing."""
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
     from app.backend.services.queue_analysis_service import prepare_file_for_queue
 
     if not resume_files:

@@ -48,7 +48,7 @@ def _is_meaningful(value: Optional[str]) -> bool:
     return str(value).strip().lower() not in _PLACEHOLDER_VALUES
 
 
-def merge_jd_profile(rules_jd: Dict[str, Any], llm_profile: Dict[str, Any]) -> Dict[str, Any]:
+def merge_jd_profile(rules_jd: Dict[str, Any], llm_profile: Dict[str, Any], jd_text: str = "") -> Dict[str, Any]:
     """Merge LLM-extracted fields into the rule-based JD analysis.
 
     The LLM profile is the authoritative source for domain, role signals, and
@@ -81,7 +81,7 @@ def merge_jd_profile(rules_jd: Dict[str, Any], llm_profile: Dict[str, Any]) -> D
     if not rules_jd.get("required_years"):
         merged["required_years"] = merged["min_required_years"]
 
-    # Skills: merge, deduplicate, preserve LLM order
+    # Skills: merge, deduplicate, then keep only skills attested in the JD text
     llm_required = llm_profile.get("required_skills", [])
     rules_required = rules_jd.get("required_skills", [])
     merged["required_skills"] = _dedupe_skills(llm_required + [s for s in rules_required if s.lower() not in {r.lower() for r in llm_required}])
@@ -93,6 +93,10 @@ def merge_jd_profile(rules_jd: Dict[str, Any], llm_profile: Dict[str, Any]) -> D
         [s for s in llm_nice if s.lower() not in {r.lower() for r in merged["required_skills"]}] +
         [s for s in rules_nice if s.lower() not in {r.lower() for r in merged["required_skills"]}]
     )
+    if jd_text:
+        from app.backend.services.skill_matcher import validate_skills_against_text
+        merged["required_skills"] = validate_skills_against_text(merged["required_skills"], jd_text)
+        merged["nice_to_have_skills"] = validate_skills_against_text(merged["nice_to_have_skills"], jd_text)
 
     # Domain-specific signals from the LLM
     merged["domain_keywords"] = llm_profile.get("domain_keywords", []) or merged.get("domain_keywords", [])

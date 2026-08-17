@@ -230,9 +230,9 @@ class TestMatchSkills:
         assert "kubernetes" in result["missing_skills"]
 
     def test_empty_required_defaults_50(self):
-        """If JD has no required skills, skill_score defaults to 50 (neutral)."""
+        """If JD has no required skills, skill match is unevaluable (0, not 50)."""
         result = match_skills(["python"], [])
-        assert result["skill_score"] == 50
+        assert result["skill_score"] == 0
 
     def test_adjacent_skills(self):
         result = match_skills(

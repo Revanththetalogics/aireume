@@ -106,7 +106,7 @@ function Toast({ message, type = 'error', onDone }) {
 function ConfirmDialog({ candidateName, targetLabel, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-brand-lg ring-1 ring-brand-100 p-6 max-w-sm w-full mx-4 card-animate">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-brand-lg ring-1 ring-brand-100 dark:ring-slate-700 p-6 max-w-sm w-full mx-4 card-animate">
         <h3 className="text-lg font-bold text-brand-900 mb-2">Confirm Move</h3>
         <p className="text-sm text-slate-600 mb-5">
           Move <span className="font-semibold text-brand-900">{candidateName || 'this candidate'}</span> to{' '}
@@ -277,7 +277,7 @@ export default function KanbanBoard() {
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col">
+    <div className="h-[calc(100vh-4rem)] flex flex-col text-slate-900 dark:text-slate-100">
       <main className="flex-1 overflow-hidden px-4 sm:px-6 lg:px-8 py-6">
         <ViewerReadOnlyBanner />
         <div className="flex items-center gap-3 mb-5">
@@ -285,8 +285,8 @@ export default function KanbanBoard() {
             <Columns className="w-5 h-5 text-brand-600" />
           </div>
           <div>
-            <h2 className="text-2xl font-extrabold text-brand-900 tracking-tight">Pipeline</h2>
-            <p className="text-slate-500 text-sm font-medium">
+            <h2 className="text-2xl font-extrabold text-brand-900 dark:text-slate-100 tracking-tight">Pipeline</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
               {canWrite ? 'Drag and drop candidates between columns' : 'Read-only pipeline view'}
             </p>
           </div>
@@ -354,7 +354,7 @@ export default function KanbanBoard() {
                           onDragStart={(e) => handleDragStart(e, candidate, status)}
                           onDragEnd={handleDragEnd}
                           onClick={() => navigate(`/candidates/${candidate.id}`)}
-                          className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none w-full text-left ${
+                          className={`bg-white dark:bg-slate-800 rounded-xl ring-1 ring-brand-100 dark:ring-slate-700 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none w-full text-left ${
                             draggingId === candidate.id ? 'opacity-50' : ''
                           }`}
                         >

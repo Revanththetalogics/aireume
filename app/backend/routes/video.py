@@ -7,8 +7,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, HttpUrl
 
-from app.backend.middleware.auth import get_current_user
+from app.backend.db.database import get_db
+from app.backend.middleware.auth import get_current_user, require_feature
 from app.backend.models.db_models import User
+from sqlalchemy.orm import Session
 from app.backend.services.video_service import analyze_video_file, analyze_video_from_url
 from app.backend.services.url_safety import validate_public_url, UnsafeURLError
 from app.backend.services.file_scan_service import scan_any_upload, UnsafeFileError
@@ -24,12 +26,16 @@ MAX_UPLOAD_BYTES   = 200 * 1024 * 1024  # 200 MB
 
 # ─── File upload ──────────────────────────────────────────────────────────────
 
-@router.post("/video")
+@router.post("/video", dependencies=[Depends(require_feature("video_analysis"))])
 async def analyze_video(
     video:        UploadFile = File(...),
     candidate_id: int        = Form(None),
+    requisition_id: int | None = Form(None),
     current_user: User       = Depends(get_current_user),
+    db: Session              = Depends(get_db),
 ):
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, requisition_id)
     if not video.filename.lower().endswith(ALLOWED_EXTENSIONS):
         raise HTTPException(
             status_code=400,
@@ -67,13 +73,17 @@ async def analyze_video(
 class VideoUrlRequest(BaseModel):
     url:          str
     candidate_id: int | None = None
+    requisition_id: int | None = None
 
 
-@router.post("/video-url")
+@router.post("/video-url", dependencies=[Depends(require_feature("video_analysis"))])
 async def analyze_video_url(
     body:         VideoUrlRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    from app.backend.routes.analyze_helpers import _enforce_screening_mode
+    _enforce_screening_mode(db, current_user.tenant_id, getattr(body, "requisition_id", None))
     try:
         safe_url = validate_public_url(body.url)
     except UnsafeURLError as e:

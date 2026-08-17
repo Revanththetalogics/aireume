@@ -42,7 +42,7 @@ from app.backend.services.constants import (
 )
 from app.backend.services.domain_service import detect_domain_from_jd, detect_domain_from_resume
 from app.backend.services.eligibility_service import check_eligibility
-from app.backend.services.fit_scorer import compute_fit_score, compute_deterministic_score, explain_decision
+from app.backend.services.fit_scorer import compute_fit_score, compute_deterministic_score, explain_decision, align_decision_to_score
 from app.backend.services.weight_mapper import convert_to_new_schema
 from app.backend.services.skill_matcher import (
     skills_registry,
@@ -526,7 +526,7 @@ def parse_jd_rules(jd_text: str, llm_profile: Optional[Dict[str, Any]] = None) -
     # Merge LLM profile if available
     if llm_profile:
         from app.backend.services.jd_profile_service import merge_jd_profile
-        result = merge_jd_profile(result, llm_profile)
+        result = merge_jd_profile(result, llm_profile, jd_text=jd_text)
 
     return result
 
@@ -2311,12 +2311,8 @@ def _run_python_phase(
         eligibility.eligible if eligibility else "N/A",
     )
     all_scores["fit_score"] = final_score
-    # Use the deterministic decision (which respects caps) when available,
-    # otherwise fall back to the legacy recommendation.
-    all_scores["final_recommendation"] = (
-        decision_explanation.get("decision", fit_r["final_recommendation"])
-        if decision_explanation else fit_r["final_recommendation"]
-    )
+    rec, decision_explanation = align_decision_to_score(final_score, decision_explanation)
+    all_scores["final_recommendation"] = rec
 
     rationales = _build_score_rationales(all_scores, profile, jd, skill_a, exp_r, edu_s, dom_r, gap_analysis)
     risk_summary = _build_risk_summary(fit_r["risk_signals"], gap_analysis, exp_r, profile, jd)
@@ -2422,7 +2418,11 @@ def _run_python_phase(
     }
 
 
-def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_llm_into_result(
+    python_result: Dict[str, Any],
+    llm_result: Dict[str, Any],
+    source_text: str | None = None,
+) -> Dict[str, Any]:
     """Merge LLM narrative into the Python result dict."""
     merged = dict(python_result)
 
@@ -2461,11 +2461,61 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
         "explainability":         llm_result.get("explainability", {}),
         "education_analysis":     llm_result.get("education_analysis", "") or llm_result.get("explainability", {}).get("education_rationale", ""),
     })
+    source = source_text or python_result.get("raw_resume_text") or ""
+    if not source:
+        parsed = python_result.get("parsed_data") or {}
+        if isinstance(parsed, dict):
+            source = parsed.get("raw_text") or parsed.get("raw_resume_text") or ""
+    if source:
+        merged = _filter_narrative_against_resume(merged, source)
     if llm_result.get("interview_questions") is not None:
         merged["interview_questions"] = llm_result.get("interview_questions")
     # Remove internal keys
     merged.pop("_required_years", None)
     merged.pop("_scores", None)
+    return merged
+
+
+_NARRATIVE_STOPWORDS = {
+    "with", "from", "that", "this", "have", "been", "strong", "experience",
+    "years", "year", "skills", "skill", "using", "used", "well", "good",
+    "great", "also", "their", "they", "them", "into", "over", "more",
+    "work", "working", "candidate", "resume", "role", "team",
+}
+
+
+def _narrative_item_text(item) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        return str(item.get("strength") or item.get("concern") or item.get("text") or item.get("claim") or "")
+    return str(item or "")
+
+
+def _filter_narrative_against_resume(merged: Dict[str, Any], resume_text: str) -> Dict[str, Any]:
+    """Drop narrative claims whose distinctive tokens are absent from the resume."""
+    source = (resume_text or "").lower()
+    if not source.strip():
+        return merged
+
+    def _keep(item) -> bool:
+        text = _narrative_item_text(item)
+        if not text:
+            return False
+        evidence = str(item.get("evidence") or "") if isinstance(item, dict) else ""
+        blob = f"{text} {evidence}".strip()
+        if blob.lower() in source:
+            return True
+        tokens = [w for w in re.findall(r"[a-zA-Z]{4,}", blob.lower()) if w not in _NARRATIVE_STOPWORDS]
+        if not tokens:
+            return True
+        hits = sum(1 for t in tokens if t in source)
+        return (hits / len(tokens)) >= 0.35
+
+    for key in ("strengths", "concerns", "weaknesses"):
+        items = merged.get(key)
+        if isinstance(items, list):
+            merged[key] = [item for item in items if _keep(item)]
     return merged
 
 
@@ -2857,7 +2907,7 @@ async def run_hybrid_pipeline(
             log.info("LLM JD profile extracted for domain=%s", jd_domain or "none")
 
             rules_jd = jd_analysis or parse_jd_rules(job_description)
-            jd_analysis = merge_jd_profile(rules_jd, llm_profile)
+            jd_analysis = merge_jd_profile(rules_jd, llm_profile, jd_text=job_description)
             _persist_merged_jd_profile(db_session, job_description, jd_analysis)
             _sync_jd_skills_to_role_template(db_session, job_description, jd_analysis)
         except Exception as e:
@@ -3025,7 +3075,7 @@ async def astream_hybrid_pipeline(
             log.info("LLM JD profile extracted (stream) for domain=%s", jd_domain or "none")
 
             rules_jd = jd_analysis or parse_jd_rules(job_description)
-            jd_analysis = merge_jd_profile(rules_jd, llm_profile)
+            jd_analysis = merge_jd_profile(rules_jd, llm_profile, jd_text=job_description)
             _persist_merged_jd_profile(db_session, job_description, jd_analysis)
             _sync_jd_skills_to_role_template(db_session, job_description, jd_analysis)
         except Exception as e:

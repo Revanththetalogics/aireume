@@ -785,6 +785,18 @@ def _link_to_requisition(
             )
 
 
+def _sync_pipeline_status_for_result(db: Session, screening_result_id: int, new_status: str) -> None:
+    """Keep requisition pipeline in lockstep with screening result status."""
+    allowed = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+    if not screening_result_id or new_status not in allowed:
+        return
+    rows = db.query(RequisitionCandidate).filter(
+        RequisitionCandidate.screening_result_id == screening_result_id
+    ).all()
+    for rc in rows:
+        rc.pipeline_status = new_status
+
+
 # ─── Candidate deduplication & profile storage ────────────────────────────────
 
 def _build_duplicate_info(db: Session, candidate: Candidate) -> DuplicateCandidateInfo:
