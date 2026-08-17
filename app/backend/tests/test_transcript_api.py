@@ -14,7 +14,11 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.backend.models.db_models import Candidate, RoleTemplate, Tenant, User
-from app.backend.tests.test_helpers import _verify_user_via_api, assign_tenant_plan
+from app.backend.tests.test_helpers import (
+    _verify_user_via_api,
+    allow_ad_hoc_screening,
+    assign_tenant_plan,
+)
 from app.backend.services.feature_flag_service import invalidate_cache
 
 
@@ -23,6 +27,7 @@ def _grant_transcript_access(db, email: str) -> None:
     user = db.query(User).filter(User.email == email).first()
     assert user is not None, f"No user found for {email}"
     assign_tenant_plan(db, "enterprise", email=email)
+    allow_ad_hoc_screening(db, email=email)
     invalidate_cache(user.tenant_id, "transcript_analysis")
 
 
