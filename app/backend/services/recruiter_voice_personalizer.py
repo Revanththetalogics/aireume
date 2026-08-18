@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import re
 from typing import Any
@@ -19,7 +20,6 @@ VOICE RULES — senior recruiter on a live phone screen:
 - Populate intent (internal coaching) and follow_up_intents (coaching bullets, not full sentences)
 - Forbidden: "This role needs", "The role calls for", repeated "Walk me through"
 - Gap probes: curious tone, not accusation
-- Keep thread ids, hypothesis_ids, and structure unchanged
 """
 
 
@@ -61,6 +61,33 @@ def _merge_personalized_steps(kit: dict[str, Any], parsed: dict[str, Any]) -> di
     parsed_threads = {
         t.get("id"): t for t in (parsed.get("threads") or []) if isinstance(t, dict) and t.get("id")
     }
+    # Compact personalizer returns step_updates list
+    updates = parsed.get("step_updates")
+    if isinstance(updates, list):
+        for upd in updates:
+            if not isinstance(upd, dict):
+                continue
+            tid = upd.get("thread_id")
+            idx = upd.get("step_index")
+            spoken = (upd.get("spoken_text") or upd.get("text") or "").strip()
+            if tid is None or idx is None or not spoken:
+                continue
+            for thread in out.get("threads") or []:
+                if thread.get("id") != tid:
+                    continue
+                steps = thread.get("steps") or []
+                if 0 <= int(idx) < len(steps) and isinstance(steps[int(idx)], dict):
+                    steps[int(idx)]["spoken_text"] = spoken
+                    steps[int(idx)]["text"] = spoken
+                    if upd.get("intent"):
+                        steps[int(idx)]["intent"] = upd["intent"]
+                    if upd.get("follow_up_intents"):
+                        steps[int(idx)]["follow_up_intents"] = list(upd["follow_up_intents"])
+                break
+        if parsed.get("thread_transitions"):
+            out["thread_transitions"] = dict(parsed["thread_transitions"])
+        return out
+
     for thread in out.get("threads") or []:
         if not isinstance(thread, dict):
             continue
@@ -90,16 +117,31 @@ def _merge_personalized_steps(kit: dict[str, Any], parsed: dict[str, Any]) -> di
     return out
 
 
+def _compact_step_outline(kit: dict[str, Any]) -> list[dict[str, Any]]:
+    """Small outline for personalizer — avoids sending 6k chars of full skeleton."""
+    outline: list[dict[str, Any]] = []
+    for thread in kit.get("threads") or []:
+        if not isinstance(thread, dict):
+            continue
+        for idx, step in enumerate(thread.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            outline.append({
+                "thread_id": thread.get("id"),
+                "step_index": idx,
+                "kind": thread.get("kind"),
+                "spoken_text": get_spoken_line(step),
+                "intent": (step.get("intent") or "")[:120],
+            })
+    return outline[:24]
+
+
 def _build_personalizer_prompt(kit: dict[str, Any], context: dict[str, Any]) -> str:
     anchors = context.get("resume_anchors") or {}
     ci = context.get("candidate_intelligence") or {}
     priorities = ci.get("interview_priorities") or context.get("interview_priorities") or []
-    import json
+    outline = _compact_step_outline(kit)
 
-    skeleton = {
-        "threads": kit.get("threads"),
-        "thread_transitions": kit.get("thread_transitions") or {},
-    }
     return f"""IMPORTANT: Respond with ONLY valid JSON. No markdown.{PERSONALIZER_RULES}
 
 RESUME ANCHORS:
@@ -108,11 +150,18 @@ RESUME ANCHORS:
 INTERVIEW PRIORITIES:
 {chr(10).join(f"- {p}" for p in priorities[:6]) or "None"}
 
-Rewrite spoken lines in this kit skeleton. Return JSON with same thread ids and step count:
-{json.dumps(skeleton, default=str)[:6000]}
+Rewrite spoken lines for this phone screen. Return JSON:
+{{
+  "step_updates": [
+    {{"thread_id": "...", "step_index": 0, "spoken_text": "15-35 word question", "intent": "...", "follow_up_intents": ["..."]}}
+  ],
+  "thread_transitions": {{}}
+}}
 
-Each step in output must include: intent, spoken_text, follow_up_intents (1-2 strings).
-Optional thread_transitions: {{"thread_a->thread_b": "bridge line"}}"""
+Steps to personalize ({len(outline)} total):
+{json.dumps(outline, default=str)}
+
+Keep thread_id and step_index unchanged. Every spoken_text must be 15-35 words, phone-ready."""
 
 
 async def personalize_kit(kit: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -124,11 +173,32 @@ async def personalize_kit(kit: dict[str, Any], context: dict[str, Any]) -> dict[
         from app.backend.services.llm_json_service import invoke_llm_json_resilient
 
         prompt = _build_personalizer_prompt(kit, context)
-        compact = prompt + "\n\nCRITICAL: Return ONLY valid JSON. Max 35 words per spoken_text."
+        compact = (
+            prompt
+            + "\n\nCRITICAL: Return ONLY JSON with step_updates array. "
+            "One entry per step. Max 35 words per spoken_text."
+        )
+
+        def _personalizer_valid(parsed: dict[str, Any]) -> bool:
+            updates = parsed.get("step_updates")
+            if isinstance(updates, list) and updates:
+                return any(
+                    isinstance(u, dict) and (u.get("spoken_text") or u.get("text"))
+                    for u in updates
+                )
+            threads = parsed.get("threads")
+            if isinstance(threads, list):
+                for thread in threads:
+                    for step in (thread.get("steps") or []) if isinstance(thread, dict) else []:
+                        if isinstance(step, dict) and get_spoken_line(step):
+                            return True
+            return False
+
         parsed = await invoke_llm_json_resilient(
             [prompt, compact],
-            max_output_tokens=2500,
+            max_output_tokens=1800,
             log_label="kit_personalizer",
+            validate_parsed=_personalizer_valid,
         )
         if parsed:
             merged = _merge_personalized_steps(kit, parsed)

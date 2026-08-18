@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Callable
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("aria.llm_json")
@@ -25,8 +26,10 @@ async def invoke_llm_json_resilient(
     log_label: str = "llm_json",
     temperature: float = 0.2,
     allow_provider_fallback: bool = True,
+    validate_parsed: Callable[[Dict[str, Any]], bool] | None = None,
+    on_rejected: Callable[[Dict[str, Any], int, str], None] | None = None,
 ) -> Optional[Dict[str, Any]]:
-    """Try prompts in order until one returns parseable JSON."""
+    """Try prompts in order until one returns parseable, validated JSON."""
     from app.backend.services.app_llm_client import generate_app_llm
     from app.backend.services.hybrid_pipeline import _parse_llm_json_response
 
@@ -64,21 +67,37 @@ async def invoke_llm_json_resilient(
             log.warning("%s tier %s returned empty response", log_label, attempt + 1)
             continue
 
-        parsed = _parse_llm_json_response(str(raw))
-        if parsed is not None:
-            log.info(
-                "%s succeeded on tier %s (%d chars)",
+        raw_text = str(raw)
+        parsed = _parse_llm_json_response(raw_text)
+        if parsed is None:
+            log.warning(
+                "%s tier %s returned non-JSON (%d chars)",
                 log_label,
                 attempt + 1,
-                len(str(raw)),
+                len(raw_text),
             )
-            return parsed
+            continue
 
-        log.warning(
-            "%s tier %s returned non-JSON (%d chars)",
+        if validate_parsed is not None and not validate_parsed(parsed):
+            log.warning(
+                "%s tier %s parsed JSON rejected by validator (%d chars)",
+                log_label,
+                attempt + 1,
+                len(raw_text),
+            )
+            if on_rejected:
+                try:
+                    on_rejected(parsed, attempt + 1, raw_text)
+                except Exception as cb_err:
+                    log.debug("%s on_rejected callback failed: %s", log_label, cb_err)
+            continue
+
+        log.info(
+            "%s succeeded on tier %s (%d chars)",
             log_label,
             attempt + 1,
-            len(str(raw)),
+            len(raw_text),
         )
+        return parsed
 
     return None

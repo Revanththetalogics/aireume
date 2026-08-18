@@ -21,6 +21,7 @@ log = logging.getLogger("aria.enrichment")
 DEFAULT_VOICE_STRATEGY_CONFIG = {"duration_minutes": 20, "question_count": 12}
 INTERVIEW_KIT_TIMEOUT = float(os.getenv("LLM_INTERVIEW_KIT_TIMEOUT", "180"))
 KIT_LLM_MAX_ATTEMPTS = max(1, int(os.getenv("LLM_INTERVIEW_KIT_RETRIES", "2")))
+MIN_USABLE_KIT_QUESTIONS = max(1, int(os.getenv("INTERVIEW_KIT_MIN_QUESTIONS", "4")))
 VOICE_STRATEGY_TIMEOUT = float(os.getenv("LLM_VOICE_STRATEGY_TIMEOUT", "180"))
 
 
@@ -240,10 +241,9 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_interview_kit_prompt(ctx: Dict[str, Any]) -> str:
-    return f"""IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code blocks.{ctx["lang_prefix"]}
-
-ROLE: {ctx["role_title"]} | {ctx["domain"]} | {ctx["seniority"]}
+def _kit_context_block(ctx: Dict[str, Any]) -> str:
+    """Shared screening context for all interview-kit prompt tiers."""
+    return f"""ROLE: {ctx["role_title"]} | {ctx["domain"]} | {ctx["seniority"]}
 CANDIDATE: {ctx["candidate_name"]} | {ctx["years"]}y experience | {ctx["current_role"]} at {ctx["current_company"]}
 SCORES: skill={ctx["skill_score"]} exp={ctx["exp_score"]} fit={ctx["fit_score"]} /100
 RECOMMENDATION: {ctx["recommendation"]}
@@ -269,12 +269,118 @@ RESUME ANCHORS (reference in every ownership/risk step):
 {ctx.get("resume_anchors_text", "")}
 
 PROBE AREAS (prioritize in thread order):
-{ctx.get("probe_areas_text", "")}
+{ctx.get("probe_areas_text", "")}"""
 
-Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this JSON:
+
+def _build_interview_kit_prompt_questions_first(ctx: Dict[str, Any]) -> str:
+    """Tier 1 — questions-first, senior TA phone-screen voice. Metadata is minimal."""
+    company = ctx["current_company"] or "their current company"
+    return f"""IMPORTANT: Respond with ONLY valid JSON. No markdown.{ctx["lang_prefix"]}
+
+You are a senior Talent Acquisition partner writing a LIVE 30-minute phone screen script.
+Write like an experienced recruiter who has read the resume and JD — conversational, specific, never robotic.
+
+{_kit_context_block(ctx)}
+
+HARD REQUIREMENTS (response is INVALID if violated):
+- Minimum {MIN_USABLE_KIT_QUESTIONS} spoken questions total across threads[].steps
+- threads MUST NOT be empty; every thread MUST have at least 1 step with non-empty "text"
+- Populate technical_questions, experience_deep_dive_questions, and behavioral_questions as flattened copies of steps
+- Reference {company} and the candidate's role in ownership/risk questions
+
+Return ONLY this JSON:
 {{
   "interview_questions": {{
-    "kit_version": 2,
+    "kit_version": 3,
+    "screen_objective": "one sentence hiring goal for this screen",
+    "threads": [
+      {{
+        "id": "thread_hm_focus",
+        "title": "HM priorities",
+        "kind": "technical",
+        "steps": [
+          {{
+            "text": "15-35 word phone question",
+            "spoken_text": "same as text",
+            "intent": "what you are validating",
+            "what_to_listen_for": ["specific signal"],
+            "follow_ups": ["if vague"],
+            "follow_up_intents": ["coaching bullet"]
+          }}
+        ]
+      }},
+      {{
+        "id": "thread_ownership",
+        "title": "Ownership at {company}",
+        "kind": "ownership",
+        "steps": [{{"text": "...", "spoken_text": "...", "intent": "...", "what_to_listen_for": ["..."], "follow_ups": ["..."], "follow_up_intents": ["..."]}}]
+      }},
+      {{
+        "id": "thread_risk",
+        "title": "Gap verification",
+        "kind": "risk",
+        "steps": [{{"text": "...", "spoken_text": "...", "intent": "...", "what_to_listen_for": ["..."], "follow_ups": ["..."], "follow_up_intents": ["..."]}}]
+      }}
+    ],
+    "technical_questions": [],
+    "behavioral_questions": [],
+    "experience_deep_dive_questions": []
+  }}
+}}
+
+SENIOR RECRUITER RULES:
+- 3-4 threads, 8-12 total steps; HM screen-focus thread first when topics provided
+- Thread 2: what THEY personally owned at {company} — if they say "we", follow up on their part
+- Thread 3: top MISSING must-have — curious tone, not accusatory
+- Max 1 STAR/behavioral question; domain-appropriate language (TA, engineering, finance, etc.)
+- Varied phrasing; no repeated "Walk me through" stems
+- FORBIDDEN: "This role needs", "The role calls for", "Describe a production scenario", "isn't on your resume"
+- Each step: 15-35 words, under 200 characters, phone-ready"""
+
+
+def _build_interview_kit_prompt_compact(ctx: Dict[str, Any]) -> str:
+    """Tier 2 — tighter schema when tier 1 returns empty or invalid structure."""
+    return f"""IMPORTANT: Return ONLY valid JSON.{ctx["lang_prefix"]}
+
+You are a senior recruiter. The prior attempt returned no usable questions — try again.
+
+{_kit_context_block(ctx)}
+
+MANDATORY: At least 3 threads, at least {MIN_USABLE_KIT_QUESTIONS} steps total. threads[].steps CANNOT be [].
+
+Schema:
+{{
+  "interview_questions": {{
+    "kit_version": 3,
+    "screen_objective": "one sentence",
+    "threads": [
+      {{"id": "thread_1", "title": "...", "kind": "ownership", "steps": [{{"text": "question?", "spoken_text": "question?", "intent": "...", "what_to_listen_for": ["..."], "follow_ups": ["..."]}}]}},
+      {{"id": "thread_2", "title": "...", "kind": "risk", "steps": [{{"text": "...", "spoken_text": "...", "intent": "...", "what_to_listen_for": ["..."], "follow_ups": ["..."]}}]}},
+      {{"id": "thread_3", "title": "...", "kind": "judgment", "steps": [{{"text": "...", "spoken_text": "...", "intent": "...", "what_to_listen_for": ["..."], "follow_ups": ["..."]}}]}}
+    ],
+    "technical_questions": [],
+    "behavioral_questions": [],
+    "experience_deep_dive_questions": []
+  }}
+}}
+
+Keep each spoken line under 120 characters. Copy steps into legacy arrays."""
+
+
+def _build_interview_kit_prompt(ctx: Dict[str, Any]) -> str:
+    """Tier 3 — full playbook with briefing and HM debrief (last resort)."""
+    return f"""IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code blocks.{ctx["lang_prefix"]}
+
+You are a senior Talent Acquisition partner building a complete screen playbook.
+
+{_kit_context_block(ctx)}
+
+Generate a recruiter SCREEN PLAYBOOK. threads[].steps are MANDATORY — minimum {MIN_USABLE_KIT_QUESTIONS} steps total.
+
+Return ONLY this JSON:
+{{
+  "interview_questions": {{
+    "kit_version": 3,
     "screen_objective": "one sentence hiring goal",
     "candidate_briefing": {{
       "profile_snapshot": "2-3 sentence summary",
@@ -299,7 +405,7 @@ Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this
         "time_minutes": 6,
         "priority": "must_have",
         "steps": [
-          {{"text": "spoken question", "what_to_listen_for": ["signal"], "follow_ups": ["if vague ask"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
+          {{"text": "spoken question", "spoken_text": "spoken question", "intent": "...", "what_to_listen_for": ["signal"], "follow_ups": ["if vague ask"], "follow_up_intents": ["coaching"], "scoring_criteria": {{"strong": "...", "adequate": "...", "weak": "..."}}}}
         ]
       }}
     ],
@@ -322,19 +428,12 @@ Generate a recruiter SCREEN PLAYBOOK (not a keyword checklist). Return ONLY this
 
 RULES:
 - HM SCREEN-FOCUS topics are PRIMARY: dedicate the first thread to them when provided.
-- 3-4 conversation THREADS (HM focus when present, ownership, risk gap, judgment). Each thread has 1-3 steps (follow-ups inline).
-- Leave open.script empty (recruiter_owned) — recruiters use their own opener.
-- 8-12 total spoken steps across threads. Also populate technical_questions / experience_deep_dive_questions / behavioral_questions as flattened copies of thread steps for legacy UI.
-- Keep every spoken line under 200 characters — recruiters say these live on a call.
-- Sound like a senior recruiter: varied phrasing, no repeated stems, no "walk me through one project" more than once.
+- 3-4 conversation THREADS. Each thread has 1-3 steps. 8-12 total steps REQUIRED.
+- Also populate technical_questions / experience_deep_dive_questions / behavioral_questions as flattened copies.
+- Sound like a senior recruiter on a live call — not a keyword checklist or HR bot.
 - Reference candidate company/role from RESUME ANCHORS in ownership and risk steps.
 - FORBIDDEN: "This role needs", "The role calls for", "Describe a production scenario".
-- Each step needs intent (internal), spoken text (phone line), what_to_listen_for, follow_up_intents (1-2 coaching bullets).
-- Risk thread must target top MISSING must-have. Ownership thread anchors to candidate's latest company/role.
-- Behavioral/judgment: max 1 STAR-style question; never inject raw JD text into questions.
-- No placeholders, broken grammar, or "isn't on your resume" phrasing.
-- Skip culture_fit (empty array). Domain-appropriate language (TA vs SAP vs engineering vs general business).
-- Every step needs what_to_listen_for and at least one follow_up for vague answers."""
+- Skip culture_fit (empty array)."""
 
 
 async def _invoke_llm_prompt(prompt: str, *, num_predict: int) -> str:
@@ -352,29 +451,138 @@ async def _invoke_llm_prompt(prompt: str, *, num_predict: int) -> str:
     return (raw or "").strip()
 
 
+def _coerce_kit_step(item: Any) -> dict | None:
+    """Normalize a single step/question item from LLM output."""
+    if isinstance(item, dict):
+        text = (
+            item.get("spoken_text")
+            or item.get("text")
+            or item.get("question")
+            or ""
+        ).strip()
+        if not text:
+            return None
+        step = dict(item)
+        step["text"] = text
+        step.setdefault("spoken_text", text)
+        step.setdefault("what_to_listen_for", item.get("what_to_listen_for") or [])
+        step.setdefault("follow_ups", item.get("follow_ups") or [])
+        return step
+    if isinstance(item, str) and item.strip():
+        text = item.strip()
+        return {"text": text, "spoken_text": text, "what_to_listen_for": [], "follow_ups": []}
+    return None
+
+
+def _coerce_kit_threads(raw_threads: Any) -> list:
+    """Normalize thread list; map questions → steps and alternate keys."""
+    if not isinstance(raw_threads, list):
+        return []
+    out: list = []
+    for thread in raw_threads:
+        if not isinstance(thread, dict):
+            continue
+        steps_raw = (
+            thread.get("steps")
+            or thread.get("questions")
+            or thread.get("items")
+            or []
+        )
+        steps = [s for s in (_coerce_kit_step(x) for x in steps_raw) if s]
+        if not steps:
+            continue
+        coerced = dict(thread)
+        coerced["steps"] = steps
+        out.append(coerced)
+    return out
+
+
+def _threads_from_legacy_lists(iq: dict) -> list:
+    """Build synthetic threads when LLM only populated legacy question arrays."""
+    from app.backend.services.interview_kit_quality import get_spoken_line
+
+    buckets = (
+        ("technical_questions", "thread_technical", "technical"),
+        ("experience_deep_dive_questions", "thread_experience", "ownership"),
+        ("behavioral_questions", "thread_behavioral", "judgment"),
+    )
+    threads: list = []
+    for key, thread_id, kind in buckets:
+        items = iq.get(key)
+        if not isinstance(items, list) or not items:
+            continue
+        steps = [s for s in (_coerce_kit_step(x) for x in items) if s]
+        if not steps:
+            continue
+        threads.append({
+            "id": thread_id,
+            "title": key.replace("_", " ").title(),
+            "kind": kind,
+            "steps": steps,
+        })
+    return threads
+
+
+def _log_interview_kit_rejection(parsed: dict, tier: int, raw_text: str) -> None:
+    """Log structure diagnostics when parsed kit fails validation."""
+    from app.backend.services.interview_kit_generator import count_kit_questions
+
+    iq = parsed.get("interview_questions", parsed)
+    if not isinstance(iq, dict):
+        iq = {}
+    threads = iq.get("threads") if isinstance(iq.get("threads"), list) else []
+    step_counts = []
+    for thread in threads:
+        if isinstance(thread, dict):
+            steps = thread.get("steps") or thread.get("questions") or []
+            step_counts.append(len(steps) if isinstance(steps, list) else 0)
+    normalized = _normalize_interview_kit(parsed)
+    log.warning(
+        "interview_kit tier %s rejected: keys=%s thread_count=%d step_counts=%s "
+        "legacy_counts=(tech=%d exp=%d beh=%d) normalized_questions=%d raw_chars=%d",
+        tier,
+        sorted(iq.keys()) if isinstance(iq, dict) else [],
+        len(threads),
+        step_counts,
+        len(normalized.get("technical_questions") or []),
+        len(normalized.get("experience_deep_dive_questions") or []),
+        len(normalized.get("behavioral_questions") or []),
+        count_kit_questions(normalized),
+        len(raw_text),
+    )
+
+
 def _normalize_interview_kit(data: dict) -> dict:
     def _ensure_question_list(v) -> list:
         if not isinstance(v, list):
             return []
         result = []
         for item in v:
-            if isinstance(item, dict):
-                result.append(item)
-            elif isinstance(item, str):
-                result.append({"text": item, "what_to_listen_for": [], "follow_ups": []})
+            step = _coerce_kit_step(item)
+            if step:
+                result.append(step)
         return result
 
     iq = data.get("interview_questions", data)
+    if isinstance(iq, str):
+        log.warning("interview_kit interview_questions was a string — discarding")
+        iq = {}
     if not isinstance(iq, dict):
         iq = {}
 
+    threads = _coerce_kit_threads(
+        iq.get("threads")
+        or iq.get("conversation_threads")
+        or iq.get("interview_threads")
+    )
+
     normalized = {
-        "kit_version": iq.get("kit_version", 1),
+        "kit_version": iq.get("kit_version", 3),
         "screen_objective": iq.get("screen_objective", ""),
-        "candidate_briefing": iq.get("candidate_briefing", {}),
+        "candidate_briefing": iq.get("candidate_briefing") if isinstance(iq.get("candidate_briefing"), dict) else {},
         "hypotheses": iq.get("hypotheses") if isinstance(iq.get("hypotheses"), list) else [],
         "open": iq.get("open") if isinstance(iq.get("open"), dict) else {},
-        "threads": iq.get("threads") if isinstance(iq.get("threads"), list) else [],
+        "threads": threads,
         "close": iq.get("close") if isinstance(iq.get("close"), dict) else {},
         "hm_debrief_template": iq.get("hm_debrief_template") if isinstance(iq.get("hm_debrief_template"), dict) else {},
         "recruiter_signals": iq.get("recruiter_signals") if isinstance(iq.get("recruiter_signals"), dict) else {},
@@ -383,6 +591,9 @@ def _normalize_interview_kit(data: dict) -> dict:
         "culture_fit_questions": _ensure_question_list(iq.get("culture_fit_questions", [])),
         "experience_deep_dive_questions": _ensure_question_list(iq.get("experience_deep_dive_questions", [])),
     }
+
+    if not normalized["threads"]:
+        normalized["threads"] = _threads_from_legacy_lists(normalized)
 
     # Flatten threads into legacy lists when LLM omitted them
     if normalized["threads"] and not normalized["technical_questions"] and not normalized["experience_deep_dive_questions"]:
@@ -395,28 +606,47 @@ def _normalize_interview_kit(data: dict) -> dict:
     return normalized
 
 
+def _kit_meets_minimum(parsed: dict) -> bool:
+    from app.backend.services.interview_kit_generator import count_kit_questions
+
+    normalized = _normalize_interview_kit(parsed)
+    return count_kit_questions(normalized) >= MIN_USABLE_KIT_QUESTIONS
+
+
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Generate interview kit JSON only (separate from narrative). Retries on transient failures."""
     from app.backend.services.llm_json_service import invoke_llm_json_resilient
 
     ctx = build_llm_prompt_context(context)
-    prompt = _build_interview_kit_prompt(ctx)
-    compact_prompt = prompt + "\n\nCRITICAL: Return ONLY valid JSON. Max 3 threads, 2 steps each. Keep spoken lines under 120 chars."
+    prompts = [
+        _build_interview_kit_prompt_questions_first(ctx),
+        _build_interview_kit_prompt_compact(ctx),
+        _build_interview_kit_prompt(ctx),
+    ]
 
     parsed = await invoke_llm_json_resilient(
-        [prompt, compact_prompt],
-        max_output_tokens=2500,
+        prompts,
+        max_output_tokens=int(os.getenv("INTERVIEW_KIT_MAX_TOKENS", "3200")),
         log_label="interview_kit",
+        validate_parsed=_kit_meets_minimum,
+        on_rejected=_log_interview_kit_rejection,
     )
     if parsed is not None:
-        normalized = _normalize_interview_kit(parsed)
         from app.backend.services.interview_kit_generator import count_kit_questions
 
-        if count_kit_questions(normalized) > 0:
-            return normalized
-        log.warning("interview_kit JSON parsed but contained no usable questions")
+        normalized = _normalize_interview_kit(parsed)
+        normalized["kit_source"] = "llm"
+        normalized["kit_version"] = normalized.get("kit_version") or 3
+        log.info(
+            "Interview kit LLM accepted with %d questions",
+            count_kit_questions(normalized),
+        )
+        return normalized
 
-    raise RuntimeError("Interview kit LLM returned no parseable JSON after retries")
+    raise RuntimeError(
+        f"Interview kit LLM returned no usable kit after retries "
+        f"(minimum {MIN_USABLE_KIT_QUESTIONS} questions required)"
+    )
 
 
 def _update_screening_fields(
@@ -513,6 +743,15 @@ def _merge_interview_kit(
         return False
 
 
+def _deterministic_interview_kit(python_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Python-generated kit when LLM path fails."""
+    from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
+
+    kit = _placeholder_interview_kit(python_result)
+    kit["kit_source"] = "deterministic"
+    return kit
+
+
 async def _finalize_interview_kit(
     interview_questions: dict,
     llm_context: dict,
@@ -528,7 +767,6 @@ async def _finalize_interview_kit(
         build_candidate_intelligence,
         merge_ci_into_kit_context,
     )
-    from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
     from app.backend.services.interview_opening_service import apply_tenant_opening_to_kit
 
     ci = build_candidate_intelligence(
@@ -550,7 +788,14 @@ async def _finalize_interview_kit(
             candidate_intelligence=ci,
         )
 
-    interview_questions = await personalize_kit(interview_questions, ctx)
+    kit_from_llm = interview_questions.get("kit_source") == "llm"
+    if kit_from_llm:
+        interview_questions = await personalize_kit(interview_questions, ctx)
+    else:
+        from app.backend.services.recruiter_voice_personalizer import _apply_minimal_personalization
+
+        log.info("Skipping kit LLM personalizer — using deterministic kit with rule-based polish")
+        interview_questions = _apply_minimal_personalization(interview_questions, ctx)
     db = SessionLocal()
     try:
         profile = python_result.get("candidate_profile") or {}
@@ -576,7 +821,7 @@ async def _finalize_interview_kit(
         log.warning("Kit lint failed after personalizer: %s", lint["issues"][:3])
         from app.backend.services.recruiter_voice_personalizer import _apply_minimal_personalization
 
-        interview_questions = _placeholder_interview_kit(python_result)
+        interview_questions = _deterministic_interview_kit(python_result)
         interview_questions = _apply_minimal_personalization(interview_questions, ctx)
         lint = lint_interview_kit(interview_questions)
         if not lint["ok"]:
@@ -597,7 +842,6 @@ async def background_interview_kit(
 ) -> None:
     """Background task: generate interview kit and merge into stored report."""
     from app.backend.db.database import SessionLocal
-    from app.backend.services.hybrid_pipeline import _placeholder_interview_kit
     from app.backend.services.interview_kit_generator import count_kit_questions
     from app.backend.services.interview_kit_context import load_kit_inputs_for_screening
 
@@ -638,7 +882,7 @@ async def background_interview_kit(
                 "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic kit",
                 screening_result_id,
             )
-            interview_questions = _placeholder_interview_kit(python_result)
+            interview_questions = _deterministic_interview_kit(python_result)
         else:
             interview_questions = kit
             log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
@@ -648,7 +892,7 @@ async def background_interview_kit(
             screening_result_id,
             INTERVIEW_KIT_TIMEOUT,
         )
-        interview_questions = _placeholder_interview_kit(python_result)
+        interview_questions = _deterministic_interview_kit(python_result)
     except Exception as err:
         log.warning(
             "Interview kit LLM failed for screening_result_id=%s: %s: %s — using deterministic kit",
@@ -656,7 +900,7 @@ async def background_interview_kit(
             type(err).__name__,
             str(err)[:200],
         )
-        interview_questions = _placeholder_interview_kit(python_result)
+        interview_questions = _deterministic_interview_kit(python_result)
 
     if interview_questions:
         from app.backend.services.candidate_intelligence_service import build_candidate_intelligence

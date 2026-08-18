@@ -149,6 +149,14 @@ async def gemini_generate_content(
 
     parts = candidates[0].get("content", {}).get("parts") or []
     text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
+    finish_reason = candidates[0].get("finishReason") or ""
+    if finish_reason and finish_reason not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
+        logger.warning(
+            "Gemini finishReason=%s (model=%s, chars=%d)",
+            finish_reason,
+            model,
+            len(text.strip()),
+        )
     return text.strip()
 
 
