@@ -78,62 +78,69 @@ async def gemini_generate_content(
 
     max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
     last_error: Exception | None = None
+    data: dict | None = None
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for attempt in range(max_retries + 1):
-            try:
-                response = await client.post(
-                    url,
-                    params={"key": api_key},
-                    json=body,
-                    headers={"Content-Type": "application/json"},
-                )
-                if response.status_code in (429, 503) and attempt < max_retries:
-                    delay = (2 ** attempt) + random.uniform(0.5, 1.5)
-                    logger.warning(
-                        "Gemini API %s (model=%s), retry %d/%d after %.1fs",
-                        response.status_code,
-                        model,
-                        attempt + 1,
-                        max_retries,
-                        delay,
+    sem = get_gemini_semaphore()
+    async with sem:
+        await _gemini_throttle_wait()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await client.post(
+                        url,
+                        params={"key": api_key},
+                        json=body,
+                        headers={"Content-Type": "application/json"},
                     )
-                    await asyncio.sleep(delay)
-                    continue
-                if response.status_code >= 400:
-                    logger.warning(
-                        "Gemini API error %s: %s",
-                        response.status_code,
-                        response.text[:500],
-                    )
-                response.raise_for_status()
-                data = response.json()
-                break
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                status = exc.response.status_code if exc.response else 0
-                if status in (429, 503) and attempt < max_retries:
-                    delay = (2 ** attempt) + random.uniform(0.5, 1.5)
-                    logger.warning(
-                        "Gemini HTTP %s, retry %d/%d after %.1fs",
-                        status,
-                        attempt + 1,
-                        max_retries,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
+                    if response.status_code in (429, 503) and attempt < max_retries:
+                        delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                        logger.warning(
+                            "Gemini API %s (model=%s), retry %d/%d after %.1fs",
+                            response.status_code,
+                            model,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    if response.status_code >= 400:
+                        logger.warning(
+                            "Gemini API error %s: %s",
+                            response.status_code,
+                            response.text[:500],
+                        )
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    status = exc.response.status_code if exc.response else 0
+                    if status in (429, 503) and attempt < max_retries:
+                        delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                        logger.warning(
+                            "Gemini HTTP %s, retry %d/%d after %.1fs",
+                            status,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise RuntimeError(
+                        f"Gemini API HTTP {status}: {_redact_secrets(str(exc))[:200]}"
+                    ) from exc
+                except Exception as exc:
+                    last_error = exc
+                    raise
+            else:
                 raise RuntimeError(
-                    f"Gemini API HTTP {status}: {_redact_secrets(str(exc))[:200]}"
-                ) from exc
-            except Exception as exc:
-                last_error = exc
-                raise
-        else:
-            raise RuntimeError(
-                f"Gemini API unavailable after {max_retries + 1} attempts: "
-                f"{_redact_secrets(str(last_error))[:200] if last_error else 'unknown error'}"
-            )
+                    f"Gemini API unavailable after {max_retries + 1} attempts: "
+                    f"{_redact_secrets(str(last_error))[:200] if last_error else 'unknown error'}"
+                )
+
+    if data is None:
+        raise RuntimeError("Gemini API returned no data")
 
     candidates = data.get("candidates") or []
     if not candidates:
@@ -210,6 +217,39 @@ def get_ollama_headers(base_url: str) -> Dict[str, str]:
         else:
             logger.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
     return headers
+
+# ─── Shared Gemini throttle ───────────────────────────────────────────────────
+# Serializes Gemini calls and spaces them out to avoid 429 bursts during
+# narrative → interview kit → personalizer chains on a single screening.
+_gemini_semaphore: asyncio.Semaphore | None = None
+_gemini_throttle_lock: asyncio.Lock | None = None
+_gemini_last_call_at: float = 0.0
+
+
+def get_gemini_semaphore(max_concurrent: int | None = None) -> asyncio.Semaphore:
+    """Shared Gemini concurrency limit (default 1 — safest for free/low quotas)."""
+    global _gemini_semaphore
+    if _gemini_semaphore is None:
+        if max_concurrent is None:
+            env_val = os.getenv("GEMINI_MAX_CONCURRENT")
+            max_concurrent = int(env_val) if env_val is not None else 1
+        _gemini_semaphore = asyncio.Semaphore(max(1, max_concurrent))
+    return _gemini_semaphore
+
+
+async def _gemini_throttle_wait() -> None:
+    """Enforce a minimum gap between Gemini API calls."""
+    global _gemini_last_call_at, _gemini_throttle_lock
+    if _gemini_throttle_lock is None:
+        _gemini_throttle_lock = asyncio.Lock()
+
+    min_interval = float(os.getenv("GEMINI_MIN_INTERVAL_S", "1.25"))
+    async with _gemini_throttle_lock:
+        elapsed = time.monotonic() - _gemini_last_call_at
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        _gemini_last_call_at = time.monotonic()
+
 
 # ─── Shared Ollama Semaphore ─────────────────────────────────────────────────
 # Prevents LLM contention across resume narrative, video analysis, and transcript analysis.

@@ -409,7 +409,12 @@ async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, 
         log_label="interview_kit",
     )
     if parsed is not None:
-        return _normalize_interview_kit(parsed)
+        normalized = _normalize_interview_kit(parsed)
+        from app.backend.services.interview_kit_generator import count_kit_questions
+
+        if count_kit_questions(normalized) > 0:
+            return normalized
+        log.warning("interview_kit JSON parsed but contained no usable questions")
 
     raise RuntimeError("Interview kit LLM returned no parseable JSON after retries")
 
@@ -569,8 +574,10 @@ async def _finalize_interview_kit(
 
     if not lint["ok"]:
         log.warning("Kit lint failed after personalizer: %s", lint["issues"][:3])
+        from app.backend.services.recruiter_voice_personalizer import _apply_minimal_personalization
+
         interview_questions = _placeholder_interview_kit(python_result)
-        interview_questions = await personalize_kit(interview_questions, ctx)
+        interview_questions = _apply_minimal_personalization(interview_questions, ctx)
         lint = lint_interview_kit(interview_questions)
         if not lint["ok"]:
             kit_status = "fallback"
@@ -595,6 +602,9 @@ async def background_interview_kit(
     from app.backend.services.interview_kit_context import load_kit_inputs_for_screening
 
     log.info("Interview kit background task started for screening_result_id=%s", screening_result_id)
+    kit_start_delay = float(os.getenv("INTERVIEW_KIT_START_DELAY_S", "2.0"))
+    if kit_start_delay > 0:
+        await asyncio.sleep(kit_start_delay)
     _update_screening_fields(
         screening_result_id,
         tenant_id,

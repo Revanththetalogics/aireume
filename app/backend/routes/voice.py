@@ -11,6 +11,7 @@ Endpoints:
   POST   /api/voice/sessions/bulk-cancel — Cancel multiple sessions
   GET    /api/voice/sessions/export   — Export sessions as CSV
   GET    /api/voice/next-slot         — Next available call slot
+  GET    /api/voice/status            — Cloud voice availability
 """
 import csv
 import io
@@ -178,6 +179,24 @@ async def suggest_interview_opening(
     return InterviewOpeningSuggestResponse(script=script)
 
 
+# ─── Voice availability ───────────────────────────────────────────────────────
+
+@router.get("/status")
+def get_voice_status():
+    """Report whether cloud voice screening can accept new calls."""
+    from app.backend.services.livekit_cloud_dispatch import (
+        get_voice_unavailability_reason,
+        is_cloud_voice_enabled,
+    )
+
+    reason = get_voice_unavailability_reason()
+    return {
+        "cloud_voice_enabled": is_cloud_voice_enabled(),
+        "available": reason is None,
+        "message": reason,
+    }
+
+
 # ─── Schedule Call ────────────────────────────────────────────────────────────
 
 @router.post("/schedule", response_model=ScheduleVoiceCallResponse)
@@ -187,6 +206,12 @@ def schedule_voice_call(
     db: Session = Depends(get_db),
 ):
     """Schedule a voice screening call for a candidate."""
+    from app.backend.services.livekit_cloud_dispatch import get_voice_unavailability_reason
+
+    unavailable = get_voice_unavailability_reason()
+    if unavailable:
+        raise HTTPException(status_code=503, detail=unavailable)
+
     # Verify candidate belongs to this tenant
     candidate = db.execute(
         select(Candidate).where(
@@ -694,6 +719,12 @@ def reschedule_voice_session(
     db: Session = Depends(get_db),
 ):
     """Reschedule a voice screening call to a new time."""
+    from app.backend.services.livekit_cloud_dispatch import get_voice_unavailability_reason
+
+    unavailable = get_voice_unavailability_reason()
+    if unavailable:
+        raise HTTPException(status_code=503, detail=unavailable)
+
     session = db.execute(
         select(VoiceScreeningSession).where(
             VoiceScreeningSession.id == session_id,

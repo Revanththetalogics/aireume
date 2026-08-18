@@ -3,7 +3,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { Badge, Card } from '../ui'
-import { INTERVIEW } from '../../lib/uxLabels'
+import { INTERVIEW, formatVoiceSessionError } from '../../lib/uxLabels'
 import {
   formatSessionWhen, recommendationLabel, depthLabel,
 } from '../../lib/interviewHubUtils'
@@ -135,8 +135,12 @@ export function InterviewSessionRow({
           </button>
         )}
         {session.status === 'failed' && session.error_log && (
-          <span className="hidden md:inline-flex" title={session.error_log}>
-            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+          <span
+            className="hidden md:inline-flex max-w-[220px] truncate text-xs text-red-600"
+            title={formatVoiceSessionError(session.error_log)}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mr-1" />
+            {formatVoiceSessionError(session.error_log)}
           </span>
         )}
         <ChevronRight className="w-4 h-4 text-slate-300" />

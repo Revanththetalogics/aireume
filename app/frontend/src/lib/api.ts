@@ -421,7 +421,12 @@ export async function analyzeResumeStream(
             onStageComplete(event)
           }
         } else if (event.stage === 'error') {
-          streamError = new Error(event.result?.message || 'Analysis failed')
+          const msg = event.result?.message || event.message || 'Analysis failed'
+          if (!finalResult) {
+            streamError = new Error(msg)
+          } else {
+            console.warn('[SSE] Non-fatal error after result received:', msg)
+          }
         } else if (onStageComplete) {
           onStageComplete(event)
         }
@@ -431,8 +436,8 @@ export async function analyzeResumeStream(
       }
     }
 
-    // Propagate server-side errors (e.g. scanned PDF rejection) outside the try-catch
-    if (streamError) throw streamError
+    // Propagate server-side errors only when we never received a usable result
+    if (streamError && !finalResult) throw streamError
     
     if (streamDone) break
   }

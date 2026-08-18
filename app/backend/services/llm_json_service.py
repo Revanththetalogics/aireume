@@ -24,6 +24,7 @@ async def invoke_llm_json_resilient(
     max_output_tokens: int = 2200,
     log_label: str = "llm_json",
     temperature: float = 0.2,
+    allow_provider_fallback: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Try prompts in order until one returns parseable JSON."""
     from app.backend.services.app_llm_client import generate_app_llm
@@ -47,6 +48,7 @@ async def invoke_llm_json_resilient(
                 temperature=tier_temp,
                 json_mode=True,
                 log_label=f"{log_label}_tier{attempt + 1}",
+                allow_provider_fallback=allow_provider_fallback,
             )
         except Exception as err:
             log.warning(

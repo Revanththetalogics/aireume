@@ -43,6 +43,57 @@ def is_cloud_voice_enabled() -> bool:
     return os.getenv("LIVEKIT_CLOUD_VOICE", "").strip().lower() in ("1", "true", "yes")
 
 
+VOICE_UNAVAILABLE_USER_MESSAGE = (
+    "AI phone screening is temporarily unavailable. Please try again later."
+)
+
+
+def get_voice_unavailability_reason() -> str | None:
+    """Return a user-facing reason when cloud voice cannot run, else None."""
+    if not is_cloud_voice_enabled():
+        return None
+
+    missing = [
+        name
+        for name, value in (
+            ("LIVEKIT_URL", os.getenv("LIVEKIT_URL", "").strip()),
+            ("LIVEKIT_API_KEY", os.getenv("LIVEKIT_API_KEY", "").strip()),
+            ("LIVEKIT_API_SECRET", os.getenv("LIVEKIT_API_SECRET", "").strip()),
+        )
+        if not value
+    ]
+    if missing:
+        logger.warning("Cloud voice misconfigured — missing: %s", ", ".join(missing))
+        return VOICE_UNAVAILABLE_USER_MESSAGE
+    return None
+
+
+def normalize_voice_dispatch_error(message: str | None) -> str:
+    """Map internal dispatch errors to a recruiter-safe message."""
+    text = (message or "").strip()
+    if not text:
+        return VOICE_UNAVAILABLE_USER_MESSAGE
+    lowered = text.lower()
+    if any(
+        token in lowered
+        for token in (
+            "livekit",
+            "dispatch failed",
+            "connecterror",
+            "connection refused",
+            "name resolution",
+            "unreachable",
+            "sip",
+            "agent",
+            "503",
+            "502",
+            "504",
+        )
+    ):
+        return VOICE_UNAVAILABLE_USER_MESSAGE
+    return text
+
+
 async def _http_get(url: str) -> httpx.Response:
     breaker = get_circuit_breaker("outbound_http")
 

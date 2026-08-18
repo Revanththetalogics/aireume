@@ -165,6 +165,27 @@ export const INTERVIEW = {
   upcoming: 'Upcoming',
   recent: 'Recent',
   settingsLink: 'Interview settings',
+  voiceUnavailable:
+    'AI phone screening is temporarily unavailable. Please try again later.',
+}
+
+/** User-safe message for failed voice sessions (hides raw dispatch errors). */
+export function formatVoiceSessionError(errorLog) {
+  const text = String(errorLog || '').trim()
+  if (!text) return INTERVIEW.voiceUnavailable
+  const lowered = text.toLowerCase()
+  if (
+    lowered.includes('livekit')
+    || lowered.includes('dispatch')
+    || lowered.includes('unreachable')
+    || lowered.includes('connect')
+    || lowered.includes('sip')
+    || lowered.includes('agent')
+    || lowered.includes('temporarily unavailable')
+  ) {
+    return INTERVIEW.voiceUnavailable
+  }
+  return text
 }
 
 export const LIVE_SCREEN = {

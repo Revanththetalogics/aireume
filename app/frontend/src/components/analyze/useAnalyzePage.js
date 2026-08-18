@@ -1105,9 +1105,9 @@ export default function useAnalyzePage() {
 
   const remainingAnalyses = getRemainingAnalyses()
 
-  // Detect batch start stuck state (no SSE progress after 15s)
+  // Detect batch start stuck state (no SSE progress after 15s) — batch only
   useEffect(() => {
-    if (!isAnalyzing || analysisProgress.total > 0) {
+    if (!isAnalyzing || analysisProgress.total > 0 || files.length <= 1) {
       return undefined
     }
     const timer = setTimeout(() => {
@@ -1115,7 +1115,7 @@ export default function useAnalyzePage() {
       setIsAnalyzing(false)
     }, 15000)
     return () => clearTimeout(timer)
-  }, [isAnalyzing, analysisProgress.total])
+  }, [isAnalyzing, analysisProgress.total, files.length])
 
   // Determine if results area should be visible
   const showResults = isAnalyzing || analysisDone || streamingResults.length > 0 || streamingFailed.length > 0 || Boolean(batchStuckError)

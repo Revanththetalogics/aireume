@@ -184,6 +184,12 @@ async def _create_quick_session(
     scheduled_at: Optional[datetime],
 ):
     """Create a quick voice screening session and schedule the call."""
+    from app.backend.services.livekit_cloud_dispatch import get_voice_unavailability_reason
+
+    unavailable = get_voice_unavailability_reason()
+    if unavailable:
+        raise HTTPException(status_code=503, detail=unavailable)
+
     # Ensure config exists
     config = db.execute(
         select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == current_user.tenant_id)

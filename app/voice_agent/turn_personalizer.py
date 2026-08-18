@@ -71,6 +71,7 @@ Return ONLY JSON: {{"spoken_text": "..."}}"""
             temperature=0.35,
             timeout=15.0,
             log_label="turn_personalizer",
+            allow_provider_fallback=False,
         )
         if isinstance(parsed, dict):
             spoken = (parsed.get("spoken_text") or "").strip()
@@ -114,6 +115,7 @@ Return ONLY JSON: {{"spoken_text": "..."}}"""
             temperature=0.3,
             timeout=12.0,
             log_label="turn_transition",
+            allow_provider_fallback=False,
         )
         if isinstance(parsed, dict):
             spoken = (parsed.get("spoken_text") or "").strip()

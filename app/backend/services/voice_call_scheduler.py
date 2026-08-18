@@ -146,6 +146,7 @@ def execute_scheduled_call(session_id: int):
     from app.backend.services.livekit_cloud_dispatch import (
         dispatch_screening_call,
         is_cloud_voice_enabled,
+        normalize_voice_dispatch_error,
     )
 
     db = SessionLocal()
@@ -257,7 +258,7 @@ def execute_scheduled_call(session_id: int):
             )
         else:
             session.status = "failed"
-            session.error_log = result.get("message", "Dispatch returned failure")
+            session.error_log = normalize_voice_dispatch_error(result.get("message"))
             logger.error("Dispatch failed for session %d: %s", session_id, result.get("message"))
 
         db.commit()
@@ -267,7 +268,7 @@ def execute_scheduled_call(session_id: int):
             logger.error("LiveKit Cloud dispatch failed for session %d: %s", session_id, e)
             try:
                 session.status = "failed"
-                session.error_log = f"LiveKit Cloud dispatch failed: {e}"
+                session.error_log = normalize_voice_dispatch_error(str(e))
                 db.commit()
             except Exception:
                 pass

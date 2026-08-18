@@ -191,7 +191,9 @@ export default memo(function ResultCard({ result, defaultExpandEducation = false
           stopPolling()
         } else if (response.status === 'fallback' || response.status === 'failed') {
           setNarrativeData(response.narrative || {})
-          setNarrativeError(response.error || 'AI enhancement failed')
+          if (response.status === 'failed' && !(response.narrative?.fit_summary || response.narrative?.strengths?.length)) {
+            setNarrativeError(response.error || 'AI enhancement unavailable')
+          }
           stopPolling()
         } else if (response.narrative) {
           setNarrativeData(response.narrative)

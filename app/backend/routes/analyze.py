@@ -1029,19 +1029,15 @@ async def analyze_stream_endpoint(
 
         except HTTPException as exc:
             log.warning(
-                "Streaming analysis failed: %s", exc.detail,
+                "Streaming analysis recovered after validation error: %s", exc.detail,
                 extra={"error_code": "VALIDATION_ERROR"},
             )
-            error_event = {"stage": "error", "result": {"message": str(exc.detail)}}
-            yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
             final_result = _fallback_result(gap_analysis)
         except (ValueError, TypeError, json.JSONDecodeError, KeyError, OSError, RuntimeError, SQLAlchemyError) as exc:
-            log.exception(
-                "Streaming analysis failed: %s", exc,
+            log.warning(
+                "Streaming analysis recovered after pipeline error: %s", exc,
                 extra={"error_code": "DB_ERROR" if isinstance(exc, SQLAlchemyError) else "VALIDATION_ERROR"},
             )
-            error_event = {"stage": "error", "result": {"message": str(exc)}}
-            yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
             final_result = _fallback_result(gap_analysis)
 
         # If the client disconnected, skip the final save/complete cycle
@@ -1105,7 +1101,7 @@ async def analyze_stream_endpoint(
             )
             # DB save failed — yield error event instead of complete so the frontend
             # knows the result was not persisted and should not poll for it.
-            yield f"data: {json.dumps({'stage': 'error', 'message': 'Failed to save analysis result'}, default=_json_default)}\n\n"
+            yield f"data: {json.dumps({'stage': 'error', 'result': {'message': 'Failed to save analysis result'}}, default=_json_default)}\n\n"
             return
 
         log.info(json.dumps({

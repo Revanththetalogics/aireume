@@ -1,4 +1,4 @@
-"""Shared application LLM client — Gemini primary, Ollama fallback."""
+"""Shared application LLM client — Gemini primary, Ollama + OpenRouter fallbacks."""
 
 from __future__ import annotations
 
@@ -45,8 +45,9 @@ async def generate_app_llm(
     timeout: float = 120.0,
     json_mode: bool = False,
     log_label: str = "app",
+    allow_provider_fallback: bool = True,
 ) -> str | None:
-    """Generate text via Gemini when configured, else Ollama (with Gemini→Ollama fallback)."""
+    """Generate text via Gemini when configured, else Ollama/OpenRouter fallbacks."""
     from app.backend.services.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
 
     breaker = get_circuit_breaker("llm")
@@ -60,6 +61,7 @@ async def generate_app_llm(
             timeout=timeout,
             json_mode=json_mode,
             log_label=log_label,
+            allow_provider_fallback=allow_provider_fallback,
         )
 
     try:
@@ -69,42 +71,54 @@ async def generate_app_llm(
         return None
 
 
-async def _generate_app_llm_uncached(
+async def _try_gemini(
     prompt: str,
     *,
-    system: str | None = None,
-    max_output_tokens: int = 1024,
-    temperature: float = 0.2,
-    timeout: float = 120.0,
-    json_mode: bool = False,
-    log_label: str = "app",
+    system: str | None,
+    max_output_tokens: int,
+    temperature: float,
+    json_mode: bool,
+    log_label: str,
 ) -> str | None:
     from app.backend.services.llm_service import (
         gemini_generate_content,
         get_gemini_model,
-        get_ollama_headers,
-        get_ollama_semaphore,
         use_gemini_for_analysis,
     )
 
-    if use_gemini_for_analysis():
-        try:
-            text = await gemini_generate_content(
-                prompt,
-                system=system,
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-                response_mime_type="application/json" if json_mode else None,
+    if not use_gemini_for_analysis():
+        return None
+    try:
+        text = await gemini_generate_content(
+            prompt,
+            system=system,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_mime_type="application/json" if json_mode else None,
+        )
+        if text:
+            logger.info(
+                "%s LLM via Google Gemini (model=%s)",
+                log_label,
+                get_gemini_model(),
             )
-            if text:
-                logger.info(
-                    "%s LLM via Google Gemini (model=%s)",
-                    log_label,
-                    get_gemini_model(),
-                )
-                return text
-        except Exception as exc:
-            logger.warning("%s Gemini call failed, trying Ollama: %s", log_label, exc)
+            return text
+    except Exception as exc:
+        logger.warning("%s Gemini call failed: %s", log_label, exc)
+    return None
+
+
+async def _try_ollama(
+    prompt: str,
+    *,
+    system: str | None,
+    max_output_tokens: int,
+    temperature: float,
+    timeout: float,
+    json_mode: bool,
+    log_label: str,
+) -> str | None:
+    from app.backend.services.llm_service import get_ollama_headers, get_ollama_semaphore
 
     ollama_base = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
     ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
@@ -131,29 +145,128 @@ async def _generate_app_llm_uncached(
                         },
                     )
                     resp.raise_for_status()
-                    return resp.json().get("message", {}).get("content", "") or None
-
-                payload: dict[str, Any] = {
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_output_tokens,
-                    },
-                }
-                if json_mode:
-                    payload["format"] = "json"
-                resp = await client.post(
-                    f"{ollama_base}/api/generate",
-                    headers=headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
-                return resp.json().get("response", "") or None
+                    text = resp.json().get("message", {}).get("content", "") or None
+                else:
+                    payload: dict[str, Any] = {
+                        "model": ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": temperature,
+                            "num_predict": max_output_tokens,
+                        },
+                    }
+                    if json_mode:
+                        payload["format"] = "json"
+                    resp = await client.post(
+                        f"{ollama_base}/api/generate",
+                        headers=headers,
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    text = resp.json().get("response", "") or None
+                if text:
+                    logger.info("%s LLM via Ollama (model=%s)", log_label, ollama_model)
+                return text
     except Exception as exc:
         logger.warning("%s Ollama call failed: %s", log_label, exc)
+    return None
+
+
+async def _try_openrouter(
+    prompt: str,
+    *,
+    system: str | None,
+    max_output_tokens: int,
+    temperature: float,
+    timeout: float,
+    json_mode: bool,
+    log_label: str,
+) -> str | None:
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
         return None
+
+    model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_output_tokens,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+    if referer:
+        headers["HTTP-Referer"] = referer
+    title = os.getenv("OPENROUTER_APP_TITLE", "ARIA Resume Screener").strip()
+    if title:
+        headers["X-Title"] = title
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                return None
+            text = (choices[0].get("message") or {}).get("content", "") or None
+            if text:
+                logger.info("%s LLM via OpenRouter (model=%s)", log_label, model)
+            return text
+    except Exception as exc:
+        logger.warning("%s OpenRouter call failed: %s", log_label, exc)
+    return None
+
+
+async def _generate_app_llm_uncached(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_output_tokens: int = 1024,
+    temperature: float = 0.2,
+    timeout: float = 120.0,
+    json_mode: bool = False,
+    log_label: str = "app",
+    allow_provider_fallback: bool = True,
+) -> str | None:
+    llm_kwargs = {
+        "system": system,
+        "max_output_tokens": max_output_tokens,
+        "temperature": temperature,
+        "json_mode": json_mode,
+        "log_label": log_label,
+    }
+    network_kwargs = {**llm_kwargs, "timeout": timeout}
+
+    text = await _try_gemini(prompt, **llm_kwargs)
+    if text:
+        return text
+    if not allow_provider_fallback:
+        return None
+
+    text = await _try_ollama(prompt, **network_kwargs)
+    if text:
+        return text
+
+    return await _try_openrouter(prompt, **network_kwargs)
 
 
 async def generate_app_json(
@@ -164,6 +277,7 @@ async def generate_app_json(
     temperature: float = 0.2,
     timeout: float = 120.0,
     log_label: str = "app",
+    allow_provider_fallback: bool = True,
 ) -> dict[str, Any] | None:
     """Generate and parse a JSON object from the application LLM with retries."""
     from app.backend.services.hybrid_pipeline import _parse_llm_json_response
@@ -175,6 +289,7 @@ async def generate_app_json(
         max_output_tokens=max_output_tokens,
         log_label=log_label,
         temperature=temperature,
+        allow_provider_fallback=allow_provider_fallback,
     )
     if parsed is not None:
         return parsed
@@ -187,6 +302,7 @@ async def generate_app_json(
         timeout=timeout,
         json_mode=True,
         log_label=log_label,
+        allow_provider_fallback=allow_provider_fallback,
     )
     if not text:
         return None
