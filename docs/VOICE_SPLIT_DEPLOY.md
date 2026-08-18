@@ -14,7 +14,7 @@ speech-service more CPU/RAM for faster STT.
 
 **Latency tuning env vars (voice-agent):**
 - `VAD_SILENCE_MS=600` — end-of-speech detection (default; was 750ms / 1200ms)
-- `GEMINI_MODEL_VOICE=gemini-2.5-flash` — live interview LLM
+- `GEMINI_MODEL_VOICE=gemini-3.5-flash` — live interview LLM
 
 **Speech-service (unified main VPS, 45 GB RAM):**
 - `STT_MODEL=small` — better recognition on phone audio (uses more RAM than `base`)

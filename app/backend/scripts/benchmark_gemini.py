@@ -40,7 +40,8 @@ Role: Senior Python Backend Engineer. Candidate scored 78/100, gap on Kubernetes
 async def timed(label: str, coro):
     start = time.perf_counter()
     try:
-        text = await coro
+        result = await coro
+        text = result.text if hasattr(result, "text") else str(result)
         elapsed = time.perf_counter() - start
         return label, elapsed, len(text), text[:120].replace("\n", " ")
     except Exception as exc:

@@ -368,6 +368,58 @@ class TestGeminiAnalysisHelpers:
         monkeypatch.setenv("OLLAMA_USE_LOCAL_JD_PROFILE", "1")
         assert should_run_ollama_sentinel() is True
 
+    def test_get_gemini_model_requires_env(self, monkeypatch):
+        from app.backend.services.llm_service import get_gemini_model
+
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        with pytest.raises(RuntimeError, match="GEMINI_MODEL"):
+            get_gemini_model()
+
+    def test_get_gemini_kit_model_falls_back_to_gemini_model(self, monkeypatch):
+        from app.backend.services.llm_service import get_gemini_kit_model
+
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-primary")
+        monkeypatch.delenv("GEMINI_KIT_MODEL", raising=False)
+        assert get_gemini_kit_model() == "gemini-primary"
+
+        monkeypatch.setenv("GEMINI_KIT_MODEL", "gemini-kit")
+        assert get_gemini_kit_model() == "gemini-kit"
+
+    def test_compute_max_output_tokens_scales_with_prompt(self, monkeypatch):
+        from app.backend.services.llm_service import compute_max_output_tokens
+
+        monkeypatch.delenv("LLM_JSON_OUTPUT_TOKENS_MIN", raising=False)
+        small = compute_max_output_tokens("x" * 500, requested=1024)
+        large = compute_max_output_tokens("x" * 20000, requested=1024)
+        assert large > small
+        assert compute_max_output_tokens("hi", json_mode=True) >= 4096
+
+    @pytest.mark.asyncio
+    async def test_gemini_raises_truncated_on_max_tokens_json(self, monkeypatch):
+        from app.backend.services import llm_service
+        from app.backend.services.llm_service import GeminiTruncatedError
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.raise_for_status = MagicMock()
+        ok.json = MagicMock(return_value={
+            "candidates": [{
+                "content": {"parts": [{"text": '{"partial": true'}]},
+                "finishReason": "MAX_TOKENS",
+            }],
+        })
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=ok)
+            with pytest.raises(GeminiTruncatedError):
+                await llm_service.gemini_generate_content(
+                    "hello",
+                    response_mime_type="application/json",
+                )
+
     @pytest.mark.asyncio
     async def test_extract_jd_profile_uses_gemini_when_configured(self, monkeypatch):
         from app.backend.services.llm_service import LLMService
@@ -380,7 +432,12 @@ class TestGeminiAnalysisHelpers:
 
         with patch(
             "app.backend.services.llm_service.gemini_generate_content",
-            new=AsyncMock(return_value=mock_json),
+            new=AsyncMock(
+                return_value=__import__(
+                    "app.backend.services.llm_service",
+                    fromlist=["GeminiGenerateResult"],
+                ).GeminiGenerateResult(mock_json, "STOP"),
+            ),
         ) as mock_gemini:
             result = await svc.extract_jd_profile("Senior Python Engineer role")
 
@@ -390,6 +447,7 @@ class TestGeminiAnalysisHelpers:
         from app.backend.services import llm_service
 
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
         monkeypatch.setenv("GEMINI_MAX_RETRIES", "2")
 
         call_count = 0
@@ -411,14 +469,17 @@ class TestGeminiAnalysisHelpers:
             ok.status_code = 200
             ok.raise_for_status = MagicMock()
             ok.json = MagicMock(return_value={
-                "candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}],
+                "candidates": [{
+                    "content": {"parts": [{"text": '{"ok": true}'}]},
+                    "finishReason": "STOP",
+                }],
             })
             return ok
 
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.post = fake_post
             with patch("asyncio.sleep", new=AsyncMock()):
-                text = await llm_service.gemini_generate_content("hello")
+                result = await llm_service.gemini_generate_content("hello")
 
         assert call_count == 3
-        assert "ok" in text
+        assert "ok" in result.text

@@ -7,11 +7,42 @@ import time
 import logging
 import random
 import re
+from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+_TRUNCATED_FINISH_REASONS = frozenset({"MAX_TOKENS", "LENGTH"})
+
+
+@dataclass(frozen=True)
+class GeminiGenerateResult:
+    text: str
+    finish_reason: str = "STOP"
+
+    @property
+    def truncated(self) -> bool:
+        return self.finish_reason in _TRUNCATED_FINISH_REASONS
+
+
+class GeminiTruncatedError(RuntimeError):
+    """Raised when Gemini stops due to output token limit (JSON tasks should failover)."""
+
+    def __init__(self, result: GeminiGenerateResult):
+        self.result = result
+        super().__init__(
+            f"Gemini output truncated ({result.finish_reason}, {len(result.text)} chars)"
+        )
+
+
+def fallback_on_gemini_max_tokens() -> bool:
+    return os.getenv("LLM_FALLBACK_ON_MAX_TOKENS", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def _redact_secrets(text: str) -> str:
@@ -44,8 +75,114 @@ def should_run_ollama_sentinel() -> bool:
     return False
 
 
+def require_env(name: str, *, purpose: str = "") -> str:
+    """Return a required env var; model names must be configured outside application code."""
+    val = os.getenv(name, "").strip()
+    if not val:
+        suffix = f" ({purpose})" if purpose else ""
+        raise RuntimeError(
+            f"{name} is not set{suffix}. Configure it in .env or docker-compose."
+        )
+    return val
+
+
 def get_gemini_model() -> str:
-    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    return require_env("GEMINI_MODEL", purpose="Google Gemini LLM")
+
+
+def get_gemini_kit_model() -> str:
+    kit = os.getenv("GEMINI_KIT_MODEL", "").strip()
+    return kit or get_gemini_model()
+
+
+def get_gemini_voice_model() -> str:
+    voice = os.getenv("GEMINI_MODEL_VOICE", "").strip()
+    return voice or get_gemini_model()
+
+
+def get_openrouter_model() -> str:
+    return require_env("OPENROUTER_MODEL", purpose="OpenRouter LLM fallback")
+
+
+def get_ollama_model() -> str:
+    model = (
+        os.getenv("OLLAMA_MODEL_BACKEND", "").strip()
+        or os.getenv("OLLAMA_MODEL", "").strip()
+    )
+    if not model:
+        raise RuntimeError(
+            "OLLAMA_MODEL or OLLAMA_MODEL_BACKEND must be set. "
+            "Configure in .env or docker-compose."
+        )
+    lowered = model.lower()
+    if "gemini" in lowered or lowered.startswith("gemma"):
+        logger.warning(
+            "OLLAMA_MODEL=%s is Google/Gemma family; prefer DeepSeek or Qwen for "
+            "fallback diversity from direct Gemini API",
+            model,
+        )
+    return model
+
+
+def get_ollama_voice_model() -> str:
+    model = (
+        os.getenv("OLLAMA_MODEL_VOICE", "").strip()
+        or os.getenv("OLLAMA_MODEL", "").strip()
+        or os.getenv("OLLAMA_MODEL_BACKEND", "").strip()
+    )
+    if not model:
+        raise RuntimeError(
+            "OLLAMA_MODEL_VOICE, OLLAMA_MODEL, or OLLAMA_MODEL_BACKEND must be set."
+        )
+    return model
+
+
+def resolve_gemini_model_for_label(log_label: str) -> str:
+    label = (log_label or "").lower()
+    if "interview_kit" in label:
+        return get_gemini_kit_model()
+    narrative = os.getenv("GEMINI_NARRATIVE_MODEL", "").strip()
+    if narrative and "narrative" in label:
+        return narrative
+    return get_gemini_model()
+
+
+def compute_max_output_tokens(
+    prompt: str,
+    *,
+    system: str | None = None,
+    requested: int | None = None,
+    json_mode: bool = False,
+) -> int:
+    """Derive a reasonable max output token budget from prompt size and task type."""
+    combined = f"{system or ''}\n{prompt}".strip()
+    chars = len(combined)
+
+    floor = int(os.getenv("LLM_OUTPUT_TOKENS_FLOOR", "2048"))
+    ceiling = int(os.getenv("LLM_OUTPUT_TOKENS_CEILING", "8192"))
+    base = int(os.getenv("LLM_OUTPUT_TOKENS_BASE", "3000"))
+    # Scale output headroom with input size (~1 token per 40 input chars).
+    scaled = base + chars // 40
+
+    if json_mode:
+        scaled = max(scaled, int(os.getenv("LLM_JSON_OUTPUT_TOKENS_MIN", "4096")))
+
+    if requested is not None:
+        scaled = max(scaled, requested)
+
+    return max(floor, min(ceiling, scaled))
+
+
+def _gemini_thinking_config(model: str, json_mode: bool) -> dict[str, int] | None:
+    """Reduce thinking-token use for structured JSON (thinking counts toward maxOutputTokens)."""
+    if not json_mode:
+        return None
+    lowered = model.lower()
+    if "pro" in lowered:
+        return {"thinkingBudget": int(os.getenv("GEMINI_PRO_THINKING_BUDGET", "128"))}
+    if "flash" in lowered or "flash-lite" in lowered:
+        return {"thinkingBudget": 0}
+    return {"thinkingBudget": 0}
 
 
 async def gemini_generate_content(
@@ -55,20 +192,39 @@ async def gemini_generate_content(
     max_output_tokens: int = 1500,
     temperature: float = 0.1,
     response_mime_type: str | None = None,
-) -> str:
+    model: str | None = None,
+) -> GeminiGenerateResult:
     """Call Google Gemini generateContent API (AI Studio / API key auth)."""
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
 
-    model = get_gemini_model()
-    url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
+    resolved_model = model or get_gemini_model()
+    json_mode = bool(response_mime_type)
+    effective_max = compute_max_output_tokens(
+        prompt,
+        system=system,
+        requested=max_output_tokens,
+        json_mode=json_mode,
+    )
+    url = f"{GEMINI_API_BASE}/models/{resolved_model}:generateContent"
     generation_config: dict = {
         "temperature": temperature,
-        "maxOutputTokens": max_output_tokens,
+        "maxOutputTokens": effective_max,
     }
     if response_mime_type:
         generation_config["responseMimeType"] = response_mime_type
+    thinking = _gemini_thinking_config(resolved_model, json_mode)
+    if thinking is not None:
+        generation_config["thinkingConfig"] = thinking
+    if effective_max != max_output_tokens:
+        logger.debug(
+            "Gemini maxOutputTokens scaled %s -> %s (prompt_chars=%d, json=%s)",
+            max_output_tokens,
+            effective_max,
+            len(f"{system or ''}\n{prompt}"),
+            json_mode,
+        )
     body: dict = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": generation_config,
@@ -97,7 +253,7 @@ async def gemini_generate_content(
                         logger.warning(
                             "Gemini API %s (model=%s), retry %d/%d after %.1fs",
                             response.status_code,
-                            model,
+                            resolved_model,
                             attempt + 1,
                             max_retries,
                             delay,
@@ -150,14 +306,27 @@ async def gemini_generate_content(
     parts = candidates[0].get("content", {}).get("parts") or []
     text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
     finish_reason = candidates[0].get("finishReason") or ""
+    usage = data.get("usageMetadata") or {}
     if finish_reason and finish_reason not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
         logger.warning(
-            "Gemini finishReason=%s (model=%s, chars=%d)",
+            "Gemini finishReason=%s (model=%s, chars=%d, maxOutputTokens=%d, "
+            "thoughts=%s, output=%s)",
             finish_reason,
-            model,
+            resolved_model,
             len(text.strip()),
+            effective_max,
+            usage.get("thoughtsTokenCount"),
+            usage.get("candidatesTokenCount"),
         )
-    return text.strip()
+
+    result = GeminiGenerateResult(text=text.strip(), finish_reason=finish_reason or "STOP")
+    if (
+        result.truncated
+        and json_mode
+        and fallback_on_gemini_max_tokens()
+    ):
+        raise GeminiTruncatedError(result)
+    return result
 
 
 def create_gemini_chat_llm(
@@ -301,7 +470,7 @@ class OllamaState(str, enum.Enum):
 class OllamaHealthSentinel:
     def __init__(self, ollama_base_url: str = None, model_name: str = None, probe_interval: int = 60):
         self.base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-        self.model_name = model_name or os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
+        self.model_name = model_name or get_ollama_model()
         self.probe_interval = probe_interval
         self.state = OllamaState.COLD
         self.last_probe_time: float = 0
@@ -408,7 +577,7 @@ def get_sentinel() -> OllamaHealthSentinel | None:
 class LLMService:
     def __init__(self):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
+        self.model = os.getenv("OLLAMA_MODEL_BACKEND", "").strip() or get_ollama_model()
         self.max_retries = 1
         # Local model for fast skill extraction (JD profile + resume skills)
         self._local_base_url = os.getenv("OLLAMA_LOCAL_URL", "http://ollama:11434")
@@ -478,7 +647,7 @@ class LLMService:
                         max_output_tokens=2000,
                         temperature=0.1,
                     )
-                    parsed = self._parse_json_response(response)
+                    parsed = self._parse_json_response(response.text)
                     if parsed:
                         logger.info("JD profile extracted via Google Gemini (model=%s)", get_gemini_model())
                         return self._validate_jd_profile(parsed)

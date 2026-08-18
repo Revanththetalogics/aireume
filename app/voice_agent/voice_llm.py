@@ -13,7 +13,6 @@ logger = logging.getLogger("voice_agent.voice_llm")
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL_VOICE", os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"))
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_VOICE", os.getenv("OLLAMA_MODEL", "qwen2.5:3b"))
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 
 _http_client: httpx.AsyncClient | None = None
@@ -24,9 +23,11 @@ def use_gemini_for_voice() -> bool:
 
 
 def get_voice_llm_model() -> str:
+    from app.backend.services.llm_service import get_gemini_voice_model, get_ollama_voice_model
+
     if use_gemini_for_voice():
-        return os.getenv("GEMINI_MODEL_VOICE", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
-    return OLLAMA_MODEL
+        return get_gemini_voice_model()
+    return get_ollama_voice_model()
 
 
 async def _get_client() -> httpx.AsyncClient:
@@ -74,7 +75,10 @@ async def generate_json(
         )
         if result:
             return result
-        logger.warning("Gemini voice LLM unavailable — falling back to Ollama (%s)", OLLAMA_MODEL)
+        logger.warning(
+            "Gemini voice LLM unavailable — falling back to Ollama (%s)",
+            get_voice_llm_model(),
+        )
 
     return await _ollama_json(
         prompt,
@@ -158,12 +162,13 @@ async def _ollama_json(
     if system:
         full_prompt = f"{system}\n\n{prompt}"
 
+    ollama_model = get_voice_llm_model()
     client = await _get_client()
     try:
         resp = await client.post(
             f"{OLLAMA_BASE_URL}/api/generate",
             json={
-                "model": OLLAMA_MODEL,
+                "model": ollama_model,
                 "prompt": full_prompt,
                 "stream": False,
                 "format": "json",
@@ -178,7 +183,7 @@ async def _ollama_json(
             logger.warning(
                 "Ollama voice HTTP %s (model=%s): %s",
                 resp.status_code,
-                OLLAMA_MODEL,
+                ollama_model,
                 resp.text[:300],
             )
             return None

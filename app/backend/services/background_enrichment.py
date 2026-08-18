@@ -626,7 +626,7 @@ async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, 
 
     parsed = await invoke_llm_json_resilient(
         prompts,
-        max_output_tokens=int(os.getenv("INTERVIEW_KIT_MAX_TOKENS", "3200")),
+        max_output_tokens=int(os.getenv("INTERVIEW_KIT_MAX_TOKENS", "4096")),
         log_label="interview_kit",
         validate_parsed=_kit_meets_minimum,
         on_rejected=_log_interview_kit_rejection,

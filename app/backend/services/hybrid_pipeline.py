@@ -200,11 +200,11 @@ def _get_llm():
     global _REASONING_LLM
     if _REASONING_LLM is None:
         try:
-            from app.backend.services.llm_service import use_gemini_for_analysis, create_gemini_chat_llm
+            from app.backend.services.llm_service import use_gemini_for_analysis, create_gemini_chat_llm, get_gemini_model
 
             if use_gemini_for_analysis():
                 _REASONING_LLM = create_gemini_chat_llm(max_output_tokens=4000)
-                log.info("Using Google Gemini for analysis LLM (model=%s)", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+                log.info("Using Google Gemini for analysis LLM (model=%s)", get_gemini_model())
                 return _REASONING_LLM
 
             from langchain_ollama import ChatOllama
@@ -227,8 +227,10 @@ def _get_llm():
             # decoding mode aborts generation on any non-JSON token, causing empty/partial
             # responses. We rely on prompt instructions + robust _parse_llm_json_response()
             # for JSON extraction instead.
+            from app.backend.services.llm_service import get_ollama_model
+
             _llm_kwargs = {
-                "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
+                "model": get_ollama_model(),
                 "base_url": _base_url,
                 "temperature": 0.1,
                 "num_predict": _num_predict,
@@ -2986,7 +2988,7 @@ async def run_hybrid_pipeline(
             type(e).__name__,
             str(e)[:200],
             os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
+            os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_MODEL_BACKEND") or "(unset)",
         )
         LLM_FALLBACK_TOTAL.inc()
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
@@ -3177,7 +3179,7 @@ async def astream_hybrid_pipeline(
                 type(e).__name__,
                 str(e)[:200],
                 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
+                os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_MODEL_BACKEND") or "(unset)",
             )
             LLM_FALLBACK_TOTAL.inc()
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])

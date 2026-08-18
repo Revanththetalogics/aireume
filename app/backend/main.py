@@ -278,7 +278,9 @@ async def _startup_checks() -> dict:
         }
     else:
         ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+        from app.backend.services.llm_service import get_ollama_model
+
+        narrative_model = get_ollama_model()
         pulled_models = []
         hot_models = []
         ollama_ok = False
@@ -845,8 +847,10 @@ async def deep_health_check():
 
     # ── 2. Ollama check via sentinel ────────────────────────────────────────────
     ollama_start = time.monotonic()
+    from app.backend.services.llm_service import get_sentinel, get_ollama_model
+
     sentinel = get_sentinel()
-    model_name = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+    model_name = get_ollama_model()
 
     if sentinel is None:
         checks["ollama"] = {
@@ -916,14 +920,14 @@ async def llm_status():
     Usage from the VPS:
       curl http://localhost:8080/api/llm-status
     """
-    from app.backend.services.llm_service import get_sentinel, is_ollama_cloud, get_ollama_headers
+    from app.backend.services.llm_service import get_sentinel, is_ollama_cloud, get_ollama_headers, get_ollama_model
 
     sentinel = get_sentinel()
     if sentinel is None:
         return {"state": "unknown", "healthy": False, "message": "Sentinel not initialized"}
 
     ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    target_model   = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+    target_model   = get_ollama_model()
     is_cloud       = is_ollama_cloud(ollama_url)
 
     result: dict = {

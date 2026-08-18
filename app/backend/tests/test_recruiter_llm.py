@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 @pytest.mark.asyncio
 async def test_generate_recruiter_json_uses_gemini_when_key_set(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
 
     from app.backend.services.recruiter.llm_client import generate_recruiter_json
 
@@ -14,7 +15,12 @@ async def test_generate_recruiter_json_uses_gemini_when_key_set(monkeypatch):
         "app.backend.services.llm_service.gemini_generate_content",
         new_callable=AsyncMock,
     ) as mock_gemini:
-        mock_gemini.return_value = '{"score": 82, "evidence": ["strong answer"]}'
+        from app.backend.services.llm_service import GeminiGenerateResult
+
+        mock_gemini.return_value = GeminiGenerateResult(
+            '{"score": 82, "evidence": ["strong answer"]}',
+            "STOP",
+        )
 
         result = await generate_recruiter_json("Evaluate this answer")
 

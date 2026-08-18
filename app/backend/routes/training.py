@@ -129,8 +129,10 @@ async def _train_model(tenant_id: int, model_name: str, training_data: list):
         for d in training_data[:50]
     ])
 
+    from app.backend.services.llm_service import get_ollama_model
+
     modelfile = (
-        f"FROM {os.getenv('OLLAMA_MODEL', 'gemma4:31b-cloud')}\n"
+        f"FROM {get_ollama_model()}\n"
         f"SYSTEM You are ARIA, a specialized recruiter AI trained on {len(training_data)} real hiring outcomes. "
         f"You analyze candidate profiles and predict fit. "
         f"Training examples:\n{examples_text}\n"

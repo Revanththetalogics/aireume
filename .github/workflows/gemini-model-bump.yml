@@ -1,0 +1,44 @@
+name: Gemini Model Auto-Bump (Option C)
+
+on:
+  schedule:
+    # Weekly — Monday 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no Portainer update)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  bump-gemini-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bump Gemini Flash model in Portainer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
+          PORTAINER_API_TOKEN: ${{ secrets.PORTAINER_API_TOKEN }}
+          PORTAINER_STACK_ID: ${{ secrets.PORTAINER_STACK_ID }}
+          PORTAINER_ENDPOINT_ID: ${{ secrets.PORTAINER_ENDPOINT_ID || '1' }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ARGS=""
+          fi
+          python scripts/bump_gemini_model_portainer.py $ARGS

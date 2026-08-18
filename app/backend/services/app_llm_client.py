@@ -81,28 +81,43 @@ async def _try_gemini(
     log_label: str,
 ) -> str | None:
     from app.backend.services.llm_service import (
+        GeminiTruncatedError,
         gemini_generate_content,
-        get_gemini_model,
+        resolve_gemini_model_for_label,
         use_gemini_for_analysis,
     )
 
     if not use_gemini_for_analysis():
         return None
     try:
-        text = await gemini_generate_content(
+        gemini_model = resolve_gemini_model_for_label(log_label)
+    except RuntimeError as exc:
+        logger.warning("%s Gemini skipped: %s", log_label, exc)
+        return None
+    try:
+        result = await gemini_generate_content(
             prompt,
             system=system,
             max_output_tokens=max_output_tokens,
             temperature=temperature,
             response_mime_type="application/json" if json_mode else None,
+            model=gemini_model,
         )
+        text = result.text
         if text:
             logger.info(
                 "%s LLM via Google Gemini (model=%s)",
                 log_label,
-                get_gemini_model(),
+                gemini_model,
             )
             return text
+    except GeminiTruncatedError as exc:
+        logger.warning(
+            "%s Gemini truncated (%s, %d chars) — trying fallback providers",
+            log_label,
+            exc.result.finish_reason,
+            len(exc.result.text),
+        )
     except Exception as exc:
         logger.warning("%s Gemini call failed: %s", log_label, exc)
     return None
@@ -118,10 +133,10 @@ async def _try_ollama(
     json_mode: bool,
     log_label: str,
 ) -> str | None:
-    from app.backend.services.llm_service import get_ollama_headers, get_ollama_semaphore
+    from app.backend.services.llm_service import get_ollama_headers, get_ollama_model, get_ollama_semaphore
 
     ollama_base = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+    ollama_model = get_ollama_model()
     try:
         semaphore = get_ollama_semaphore()
         async with semaphore:
@@ -183,11 +198,17 @@ async def _try_openrouter(
     json_mode: bool,
     log_label: str,
 ) -> str | None:
+    from app.backend.services.llm_service import get_openrouter_model
+
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         return None
 
-    model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+    try:
+        model = get_openrouter_model()
+    except RuntimeError as exc:
+        logger.warning("%s OpenRouter skipped: %s", log_label, exc)
+        return None
     base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 
     messages: list[dict[str, str]] = []
@@ -247,9 +268,17 @@ async def _generate_app_llm_uncached(
     log_label: str = "app",
     allow_provider_fallback: bool = True,
 ) -> str | None:
+    from app.backend.services.llm_service import compute_max_output_tokens
+
+    effective_max = compute_max_output_tokens(
+        prompt,
+        system=system,
+        requested=max_output_tokens,
+        json_mode=json_mode,
+    )
     llm_kwargs = {
         "system": system,
-        "max_output_tokens": max_output_tokens,
+        "max_output_tokens": effective_max,
         "temperature": temperature,
         "json_mode": json_mode,
         "log_label": log_label,
@@ -267,6 +296,51 @@ async def _generate_app_llm_uncached(
         return text
 
     return await _try_openrouter(prompt, **network_kwargs)
+
+
+async def generate_app_llm_providers(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_output_tokens: int = 1024,
+    temperature: float = 0.2,
+    timeout: float = 120.0,
+    json_mode: bool = False,
+    log_label: str = "app",
+    allow_provider_fallback: bool = True,
+) -> tuple[str | None, str | None]:
+    """Try each LLM provider in order; returns (text, provider_name)."""
+    from app.backend.services.llm_service import compute_max_output_tokens
+
+    effective_max = compute_max_output_tokens(
+        prompt,
+        system=system,
+        requested=max_output_tokens,
+        json_mode=json_mode,
+    )
+    llm_kwargs = {
+        "system": system,
+        "max_output_tokens": effective_max,
+        "temperature": temperature,
+        "json_mode": json_mode,
+        "log_label": log_label,
+    }
+    network_kwargs = {**llm_kwargs, "timeout": timeout}
+
+    providers: list[tuple[str, Any]] = [("gemini", _try_gemini)]
+    if allow_provider_fallback:
+        providers.extend([("ollama", _try_ollama), ("openrouter", _try_openrouter)])
+
+    for name, fn in providers:
+        kwargs = network_kwargs if name != "gemini" else llm_kwargs
+        try:
+            text = await fn(prompt, **kwargs)
+        except Exception as exc:
+            logger.warning("%s %s call failed: %s", log_label, name, exc)
+            continue
+        if text and len(str(text).strip()) >= 10:
+            return str(text), name
+    return None, None
 
 
 async def generate_app_json(

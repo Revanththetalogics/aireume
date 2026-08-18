@@ -58,7 +58,14 @@ TTS_VOICE = (
     os.getenv("LIVEKIT_TTS_VOICE", "").strip()
     or "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
 )
-LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "google/gemini-2.5-flash")
+
+
+def get_livekit_llm_model() -> str:
+    from app.backend.services.llm_service import require_env
+
+    return require_env("LIVEKIT_LLM_MODEL", purpose="LiveKit cloud agent LLM slot")
+
+
 ARIA_BACKEND_URL = os.getenv("ARIA_BACKEND_URL", "http://backend:8000")
 INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "dev-internal-service-secret")
 INTERNAL_HEADERS = {"X-Internal-Secret": INTERNAL_SERVICE_SECRET}
@@ -357,7 +364,7 @@ async def aria_rtc_entrypoint(ctx: JobContext) -> None:
             stt=inference.STT(STT_MODEL, language=STT_LANGUAGE),
             tts=inference.TTS(TTS_MODEL, voice=TTS_VOICE),
             vad=inference.VAD(),
-            llm=inference.LLM(LLM_MODEL),
+            llm=inference.LLM(get_livekit_llm_model()),
             min_endpointing_delay=0.4,
             max_endpointing_delay=1.2,
         )
@@ -451,7 +458,7 @@ async def aria_rtc_entrypoint(ctx: JobContext) -> None:
                 error=str(session_err),
                 stt=STT_MODEL,
                 tts=TTS_MODEL,
-                llm=LLM_MODEL,
+                llm=get_livekit_llm_model(),
                 traceback=traceback.format_exc(),
             )
             raise
@@ -557,7 +564,7 @@ def main() -> None:
         stt=STT_MODEL,
         tts=TTS_MODEL,
         tts_voice=TTS_VOICE,
-        llm=LLM_MODEL,
+        llm=get_livekit_llm_model(),
     )
     cli.run_app(server)
 

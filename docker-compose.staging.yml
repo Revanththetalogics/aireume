@@ -66,8 +66,8 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
       # Backend model (cloud - fast + quality)
-      - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-gemini-3-flash-preview:cloud}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-gemini-3-flash-preview:cloud}}
+      - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-deepseek-v3.1:671b-cloud}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-deepseek-v3.1:671b-cloud}}
       # Local model for JD profile extraction (disabled by default; cloud is faster)
       # Resume skills are extracted via Python (no LLM) for speed
       - OLLAMA_LOCAL_URL=${OLLAMA_LOCAL_URL:-http://ollama:11434}

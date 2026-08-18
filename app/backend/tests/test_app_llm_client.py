@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 @pytest.mark.asyncio
 async def test_generate_app_json_uses_gemini_when_key_set(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
 
     from app.backend.services.app_llm_client import generate_app_json
 
@@ -16,7 +17,12 @@ async def test_generate_app_json_uses_gemini_when_key_set(monkeypatch):
         "app.backend.services.llm_service.gemini_generate_content",
         new_callable=AsyncMock,
     ) as mock_gemini:
-        mock_gemini.return_value = '{"role_category": "technical", "confidence": 0.9}'
+        from app.backend.services.llm_service import GeminiGenerateResult
+
+        mock_gemini.return_value = GeminiGenerateResult(
+            '{"role_category": "technical", "confidence": 0.9}',
+            "STOP",
+        )
 
         result = await generate_app_json("Analyze this JD")
 
@@ -57,8 +63,9 @@ async def test_generate_app_llm_falls_back_to_ollama_without_gemini(monkeypatch)
 @pytest.mark.asyncio
 async def test_generate_app_llm_falls_back_to_openrouter_when_gemini_and_ollama_fail(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+    monkeypatch.setenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3-0324")
 
     from app.backend.services.app_llm_client import generate_app_llm
 
@@ -95,8 +102,47 @@ async def test_generate_app_llm_falls_back_to_openrouter_when_gemini_and_ollama_
 
 
 @pytest.mark.asyncio
+async def test_generate_app_llm_falls_back_when_gemini_truncated(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
+
+    from app.backend.services.app_llm_client import generate_app_llm
+    from app.backend.services.llm_service import GeminiGenerateResult, GeminiTruncatedError
+
+    async def _truncated(*args, **kwargs):
+        raise GeminiTruncatedError(
+            GeminiGenerateResult('{"partial": true', "MAX_TOKENS")
+        )
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"response": "hello from ollama"}
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch(
+        "app.backend.services.llm_service.gemini_generate_content",
+        new_callable=AsyncMock,
+        side_effect=_truncated,
+    ), patch(
+        "app.backend.services.llm_service.get_ollama_semaphore",
+        return_value=asyncio.Semaphore(1),
+    ), patch(
+        "app.backend.services.app_llm_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
+        text = await generate_app_llm("prompt", max_output_tokens=128, json_mode=True)
+
+    assert text == "hello from ollama"
+
+
+@pytest.mark.asyncio
 async def test_generate_app_llm_skips_fallbacks_when_disabled(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
 
     from app.backend.services.app_llm_client import generate_app_llm
 
