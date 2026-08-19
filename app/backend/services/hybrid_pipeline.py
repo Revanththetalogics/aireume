@@ -1342,6 +1342,7 @@ def _llm_dict_to_narrative_result(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Generate narrative via multi-tier LLM retries; always returns a complete narrative."""
+    from app.backend.schemas.llm_structured import NarrativeLLMResponse, narrative_meets_minimum
     from app.backend.services.llm_json_service import invoke_llm_json_resilient
 
     _narrative_predict = _narrative_output_token_limit()
@@ -1444,6 +1445,8 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
         [prompt, compact_prompt, minimal_prompt],
         max_output_tokens=_narrative_predict,
         log_label="narrative",
+        output_type=NarrativeLLMResponse,
+        validate_parsed=narrative_meets_minimum,
     )
     if data is not None:
         return _llm_dict_to_narrative_result(data)

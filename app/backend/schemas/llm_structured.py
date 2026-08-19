@@ -46,3 +46,44 @@ class InterviewKitLLMResponse(BaseModel):
     """Top-level JSON envelope returned by interview kit prompts."""
 
     interview_questions: InterviewQuestionsSchema
+
+
+class HiringDecisionSchema(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    verdict: str = ""
+    confidence: float = 0.0
+    key_factors: list[str] = Field(default_factory=list)
+    action_items: list[str] = Field(default_factory=list)
+
+
+class ExplainabilitySchema(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    skill_rationale: str = ""
+    experience_rationale: str = ""
+    overall_rationale: str = ""
+
+
+class NarrativeLLMResponse(BaseModel):
+    """Screening narrative JSON returned by explain_with_llm prompts."""
+
+    model_config = ConfigDict(extra="allow")
+
+    candidate_profile_summary: str = ""
+    fit_summary: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    concerns: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    dealbreakers: list[str] = Field(default_factory=list)
+    differentiators: list[str] = Field(default_factory=list)
+    recommendation_rationale: str = ""
+    hiring_decision: HiringDecisionSchema = Field(default_factory=HiringDecisionSchema)
+    explainability: ExplainabilitySchema = Field(default_factory=ExplainabilitySchema)
+
+
+def narrative_meets_minimum(parsed: dict) -> bool:
+    """Reject empty or trivial narrative payloads before accepting."""
+    fit = str(parsed.get("fit_summary") or "").strip()
+    profile = str(parsed.get("candidate_profile_summary") or "").strip()
+    return len(fit) >= 20 or len(profile) >= 20

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.backend.schemas.llm_structured import InterviewKitLLMResponse
+from app.backend.schemas.llm_structured import InterviewKitLLMResponse, NarrativeLLMResponse, narrative_meets_minimum
 from app.backend.services.structured_llm_service import (
     invoke_outlines_json_resilient,
     is_structured_llm_enabled,
@@ -113,3 +113,68 @@ async def test_invoke_llm_json_prefers_outlines_when_schema_set(monkeypatch):
 def test_is_structured_llm_enabled_default_true(monkeypatch):
     monkeypatch.delenv("OUTLINES_STRUCTURED_JSON", raising=False)
     assert is_structured_llm_enabled() is True
+
+
+def _valid_narrative_payload() -> dict:
+    return {
+        "candidate_profile_summary": "Senior engineer with 8 years in backend systems.",
+        "fit_summary": "Strong Python and API experience; minor gap on Kubernetes. Recommend interview.",
+        "strengths": ["Python", "FastAPI"],
+        "concerns": ["Limited K8s"],
+        "dealbreakers": [],
+        "differentiators": ["Led platform migration"],
+        "recommendation_rationale": "Scores and skills align with must-haves.",
+        "hiring_decision": {
+            "verdict": "Shortlist",
+            "confidence": 0.82,
+            "key_factors": ["Python", "API design"],
+            "action_items": ["Phone screen"],
+        },
+        "explainability": {
+            "skill_rationale": "Matched 4/5 must-haves.",
+            "experience_rationale": "8y exceeds 5y bar.",
+            "overall_rationale": "Fit score supports interview.",
+        },
+    }
+
+
+def test_parse_narrative_schema():
+    raw = json.dumps(_valid_narrative_payload())
+    parsed = parse_outlines_json_text(raw, NarrativeLLMResponse)
+    assert parsed is not None
+    assert "Strong Python" in parsed["fit_summary"]
+
+
+def test_narrative_meets_minimum_rejects_empty():
+    assert narrative_meets_minimum({"fit_summary": "", "candidate_profile_summary": ""}) is False
+
+
+def test_narrative_meets_minimum_accepts_fit_summary():
+    assert narrative_meets_minimum({"fit_summary": "Strong match for backend role with clear gaps noted."}) is True
+
+
+@pytest.mark.asyncio
+async def test_explain_with_llm_uses_outlines_schema(monkeypatch):
+    monkeypatch.setenv("OUTLINES_STRUCTURED_JSON", "1")
+
+    async def _fake_invoke(*args, **kwargs):
+        assert kwargs.get("output_type") is NarrativeLLMResponse
+        return _valid_narrative_payload()
+
+    monkeypatch.setattr(
+        "app.backend.services.llm_json_service.invoke_llm_json_resilient",
+        _fake_invoke,
+    )
+
+    from app.backend.services.hybrid_pipeline import explain_with_llm
+
+    result = await explain_with_llm({
+        "jd_analysis": {"role_title": "Backend Engineer", "title": "Backend Engineer", "domain": "tech", "seniority": "senior"},
+        "candidate_profile": {"name": "Alex", "current_role": "Engineer", "current_company": "Acme", "years_experience": 8},
+        "scores": {"fit_score": 75, "skill_score": 80, "exp_score": 70, "edu_score": 60, "timeline_score": 90, "final_recommendation": "Interview"},
+        "skill_analysis": {"matched_must_haves": ["Python"], "missing_must_haves": [], "matched_nice_to_haves": [], "missing_nice_to_haves": []},
+        "score_rationales": {},
+        "risk_summary": {"risk_flags": []},
+    })
+    assert result["ai_enhanced"] is True
+    assert "Strong Python" in result["fit_summary"]
