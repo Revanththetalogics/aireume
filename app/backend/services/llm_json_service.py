@@ -11,7 +11,9 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
+
+from pydantic import BaseModel
 
 log = logging.getLogger("aria.llm_json")
 
@@ -39,10 +41,27 @@ async def invoke_llm_json_resilient(
     log_label: str = "llm_json",
     temperature: float = 0.2,
     allow_provider_fallback: bool = True,
+    output_type: Type[BaseModel] | None = None,
     validate_parsed: Callable[[Dict[str, Any]], bool] | None = None,
     on_rejected: Callable[[Dict[str, Any], int, str], None] | None = None,
 ) -> Optional[Dict[str, Any]]:
     """Try prompts in order until one returns parseable, validated JSON."""
+    if output_type is not None:
+        from app.backend.services.structured_llm_service import invoke_outlines_json_resilient
+
+        outlined = await invoke_outlines_json_resilient(
+            prompts,
+            output_type=output_type,
+            max_output_tokens=max_output_tokens,
+            log_label=log_label,
+            temperature=temperature,
+            validate_parsed=validate_parsed,
+            on_rejected=on_rejected,
+        )
+        if outlined is not None:
+            return outlined
+        log.info("%s Outlines structured path exhausted — falling back to legacy JSON parse", log_label)
+
     from app.backend.services.app_llm_client import (
         _try_gemini,
         _try_ollama,

@@ -615,6 +615,7 @@ def _kit_meets_minimum(parsed: dict) -> bool:
 
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Generate interview kit JSON only (separate from narrative). Retries on transient failures."""
+    from app.backend.schemas.llm_structured import InterviewKitLLMResponse
     from app.backend.services.llm_json_service import invoke_llm_json_resilient
 
     ctx = build_llm_prompt_context(context)
@@ -628,6 +629,7 @@ async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, 
         prompts,
         max_output_tokens=int(os.getenv("INTERVIEW_KIT_MAX_TOKENS", "4096")),
         log_label="interview_kit",
+        output_type=InterviewKitLLMResponse,
         validate_parsed=_kit_meets_minimum,
         on_rejected=_log_interview_kit_rejection,
     )
