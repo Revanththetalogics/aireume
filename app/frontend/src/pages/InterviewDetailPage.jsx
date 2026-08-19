@@ -14,7 +14,9 @@ import {
 } from '../lib/api'
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
+import VoiceTranscriptViewer from '../components/VoiceTranscriptViewer'
 import VoiceScheduleModal from '../components/VoiceScheduleModal'
+import { parseVoiceKitTranscript } from '../lib/intakeFormUtils'
 import { ConsolidatedScoreHero } from '../components/patterns'
 import { formatDateTime } from '../lib/utils'
 import useConfirm from '../hooks/useConfirm'
@@ -234,9 +236,12 @@ export default function InterviewDetailPage() {
             setScorecard(sc)
             setTranscript(tr)
           } else {
-            // Voice sessions have transcript inline
-            if (sessionData.transcript) {
+            // Voice sessions: speaker turns, or kit Q&A fallback
+            if (sessionData.transcript?.length) {
               setTranscript(sessionData.transcript)
+            } else {
+              const kitTranscript = parseVoiceKitTranscript(sessionData)
+              if (kitTranscript.length) setTranscript(kitTranscript)
             }
             if (sessionData.assessment_json) {
               const assessment = typeof sessionData.assessment_json === 'string'
@@ -497,7 +502,11 @@ export default function InterviewDetailPage() {
             callScore={scorecard.overall_score ?? scorecard.adjusted_fit_score}
             callSource="ai"
             consolidatedRecommendation={scorecard.recommendation}
-            consolidatedReasoning={scorecard.adjustment_reasoning || scorecard.recommendation_reasoning}
+            consolidatedReasoning={
+              scorecard.recommendation_reasoning
+              || scorecard.executive_summary
+              || scorecard.adjustment_reasoning
+            }
           />
         )}
 
@@ -560,7 +569,11 @@ export default function InterviewDetailPage() {
         {/* Transcript Tab */}
         {!tabLoading && activeTab === 'transcript' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <RecruiterTranscript transcript={transcript} />
+            {source === 'voice' && Array.isArray(transcript) && transcript.some((t) => t?.speaker && t?.text) ? (
+              <VoiceTranscriptViewer entries={transcript} />
+            ) : (
+              <RecruiterTranscript transcript={transcript} />
+            )}
           </motion.div>
         )}
 

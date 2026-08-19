@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { MessageSquare, Bot, User, Clock, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react'
+import { normalizeTranscriptItems } from '../lib/intakeFormUtils'
 
 const CATEGORY_COLORS = {
   technical:      'bg-blue-100 text-blue-700',
   behavioral:     'bg-purple-100 text-purple-700',
   culture_fit:    'bg-amber-100 text-amber-700',
+  cultural_fit:   'bg-amber-100 text-amber-700',
   experience:     'bg-emerald-100 text-emerald-700',
   problem_solving:'bg-indigo-100 text-indigo-700',
   general:        'bg-slate-100 text-slate-700',
@@ -31,9 +33,7 @@ function EvalBadge({ score }) {
 
 export default function RecruiterTranscript({ transcript }) {
   const [expandedIdx, setExpandedIdx] = useState(null)
-
-  // Guard against non-array data (e.g. backend returning an object)
-  const items = Array.isArray(transcript) ? transcript : []
+  const items = normalizeTranscriptItems(Array.isArray(transcript) ? transcript : [])
 
   if (items.length === 0) {
     return (
@@ -49,15 +49,16 @@ export default function RecruiterTranscript({ transcript }) {
       {items.map((item, idx) => {
         const isExpanded = expandedIdx === idx
         const followUps = item.follow_ups || []
-        const category = item.category || 'general'
-        const catColor = CATEGORY_COLORS[category] || CATEGORY_COLORS.general
+        const category = (item.category || 'general').replace(/_/g, ' ')
+        const catColor = CATEGORY_COLORS[item.category] || CATEGORY_COLORS.general
+        const hasQuestion = Boolean(item.question?.trim())
+        const hasResponse = Boolean(item.response?.trim())
 
         return (
           <div
             key={item.id || idx}
             className="bg-white rounded-2xl ring-1 ring-slate-200 overflow-hidden"
           >
-            {/* Question header */}
             <button
               type="button"
               className="px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors w-full text-left bg-transparent border-0"
@@ -68,9 +69,9 @@ export default function RecruiterTranscript({ transcript }) {
                   <Bot className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${catColor}`}>
-                      {category.replace(/_/g, ' ')}
+                      {category}
                     </span>
                     <EvalBadge score={item.evaluation_score} />
                     {item.duration_seconds != null && (
@@ -80,7 +81,9 @@ export default function RecruiterTranscript({ transcript }) {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm font-semibold text-slate-800">{item.question}</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {hasQuestion ? item.question : hasResponse ? 'Candidate response' : 'Interview turn'}
+                  </p>
                 </div>
                 <div className="shrink-0 text-slate-400">
                   {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -88,15 +91,24 @@ export default function RecruiterTranscript({ transcript }) {
               </div>
             </button>
 
-            {/* Response (expanded) */}
             {isExpanded && (
               <div className="px-5 pb-4 border-t border-slate-100">
-                <div className="flex items-start gap-3 mt-4">
+                {hasQuestion && (
+                  <div className="flex items-start gap-3 mt-4">
+                    <div className="w-7 h-7 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center shrink-0 mt-0.5">
+                      <Bot className="w-4 h-4" />
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed">{item.question}</p>
+                  </div>
+                )}
+                <div className={`flex items-start gap-3 ${hasQuestion ? 'mt-4' : 'mt-4'}`}>
                   <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 mt-0.5">
                     <User className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm text-slate-700 leading-relaxed">{item.response || 'No response recorded'}</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">
+                      {hasResponse ? item.response : 'No response recorded'}
+                    </p>
                     {item.evaluation_notes && (
                       <div className="mt-3 p-3 bg-slate-50 rounded-xl">
                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Evaluation</p>
@@ -106,7 +118,6 @@ export default function RecruiterTranscript({ transcript }) {
                   </div>
                 </div>
 
-                {/* Follow-up questions */}
                 {followUps.length > 0 && (
                   <div className="mt-4 ml-10 space-y-2">
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Follow-ups</p>

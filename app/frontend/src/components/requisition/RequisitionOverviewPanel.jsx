@@ -1,6 +1,7 @@
 import { UserPlus } from 'lucide-react'
 import { Button, Card } from '../ui'
 import { REQUISITIONS } from '../../lib/uxLabels'
+import { formatIntakeStatus } from '../../lib/intakeFormUtils'
 import { RequisitionNextActionBanner, JdPreviewSection } from './RequisitionDetailPanels'
 
 export default function RequisitionOverviewPanel({
@@ -134,9 +135,9 @@ export default function RequisitionOverviewPanel({
                     : 'No hiring managers on your team yet — request HM access and an admin will approve.'}
                 </p>
               )}
-              {req.primary_hiring_manager_email && (
+              {req.primary_hiring_manager_email && hmSelectId && String(hmSelectId) !== String(req.primary_hiring_manager_id || '') && (
                 <p className="text-xs text-slate-500 mt-2">
-                  Current: <span className="font-semibold text-slate-700">{req.primary_hiring_manager_email}</span>
+                  Currently assigned: <span className="font-semibold text-slate-700">{req.primary_hiring_manager_email}</span>
                 </p>
               )}
               {req.opened_on_behalf_of_hm_email && (
@@ -165,8 +166,10 @@ export default function RequisitionOverviewPanel({
                   {REQUISITIONS.assignRecruiter}
                 </Button>
               </div>
-              {req.assigned_recruiter_email && (
-                <p className="text-xs text-slate-500 mt-2">Assigned: <span className="font-semibold">{req.assigned_recruiter_email}</span></p>
+              {req.assigned_recruiter_email && assignRecruiterId && String(assignRecruiterId) !== String(req.assigned_recruiter_id || '') && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Currently assigned: <span className="font-semibold">{req.assigned_recruiter_email}</span>
+                </p>
               )}
             </div>
           )}
@@ -193,7 +196,10 @@ export default function RequisitionOverviewPanel({
             </div>
             <div>
               <p className="text-slate-500 font-medium">Intake</p>
-              <p className="font-semibold capitalize">{req.intake_status?.replace(/_/g, ' ')}</p>
+              <p className="font-semibold">{formatIntakeStatus(req.intake_status)}</p>
+              {req.intake_status === 'pending_hm' && req.current_criteria_version >= 1 && (
+                <p className="text-xs text-slate-500 mt-0.5">Screening allowed · HM sign-off pending</p>
+              )}
             </div>
             <div>
               <p className="text-slate-500 font-medium">Criteria version</p>

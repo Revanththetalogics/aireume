@@ -445,10 +445,15 @@ class RecruiterOrchestrator:
                 ]
                 live_avg = average_scores(live_scores)
                 call_score = (
-                    live_avg
-                    or recommendation.get("overall_score")
+                    recommendation.get("overall_score")
+                    or live_avg
                     or adjusted_fitment.get("adjusted_score")
                 )
+                evidence_snippets: list[str] = []
+                if recommendation.get("executive_summary"):
+                    evidence_snippets.append(str(recommendation["executive_summary"])[:500])
+                elif recommendation.get("recommendation_reasoning"):
+                    evidence_snippets.append(str(recommendation["recommendation_reasoning"])[:500])
                 outcome = compute_consolidated_for_result(
                     self.db,
                     sr,
@@ -456,7 +461,7 @@ class RecruiterOrchestrator:
                     call_score=call_score,
                     call_source="ai",
                     call_recommendation=recommendation.get("recommendation"),
-                    evidence=[adjusted_fitment.get("reasoning", "")],
+                    evidence=evidence_snippets,
                 )
                 persist_outcome_to_screening_result(sr, outcome, call_source="ai")
 

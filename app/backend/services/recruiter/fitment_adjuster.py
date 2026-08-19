@@ -1,6 +1,7 @@
 """Fitment adjuster — updates fitment score based on interview evidence."""
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger("aria.recruiter")
@@ -168,10 +169,32 @@ class FitmentAdjuster:
             phrases = dismissal_phrases.get(risk_type, [])
             if any(p in evidence_text for p in phrases):
                 dismissed.append(description)
-            else:
-                validated.append(description)
+                continue
+
+            # More experience than required is not automatically a validated risk.
+            if risk_type == "overqualification" or self._is_excess_experience_risk(description):
+                dismissed.append(description)
+                continue
+
+            validated.append(description)
 
         return validated, dismissed
+
+    @staticmethod
+    def _is_excess_experience_risk(description: str) -> bool:
+        lowered = (description or "").lower()
+        match = re.search(
+            r"([\d.]+)\s*(?:y|yr|year).*?\bvs\.?\s*([\d.]+)\s*(?:y|yr|year).*?\brequired",
+            lowered,
+        )
+        if not match:
+            return False
+        try:
+            candidate_years = float(match.group(1))
+            required_years = float(match.group(2))
+        except (TypeError, ValueError):
+            return False
+        return candidate_years > required_years
 
     def _assess_gaps(self, interview_evidence: list[dict[str, Any]]) -> list[str]:
         explained: list[str] = []

@@ -4,6 +4,7 @@ import { Button } from '../ui'
 import { REQUISITIONS } from '../../lib/uxLabels'
 import { requestRequisitionHm, inviteTeamMember } from '../../lib/api'
 import { showError } from '../../lib/toast'
+import { splitIntakeListInput } from '../../lib/intakeFormUtils'
 
 function countJdWords(text) {
   if (!text?.trim()) return 0
@@ -71,12 +72,15 @@ function resolveRequisitionNextAction({ req, intakeGate, canWrite, isHiringManag
   }
 
   if (canWrite && intakeGate?.intake_screening_ready && !intakeGate?.blocks) {
+    const hmNote = req.intake_status === 'pending_hm'
+      ? ' HM approval is optional for screening but locks criteria when approved.'
+      : ''
     return {
       stepLabel: 'Ready',
       title: REQUISITIONS.nextActionReadyScreen,
-      description: pendingCount > 0
+      description: (pendingCount > 0
         ? `${pendingCount} candidate${pendingCount === 1 ? '' : 's'} in pipeline — open Analyze with this requisition loaded.`
-        : 'Intake is set — open Analyze to screen resumes against this role.',
+        : 'Intake is set — open Analyze to screen resumes against this role.') + hmNote,
       cta: pendingCount > 0
         ? REQUISITIONS.nextActionScreenPending(pendingCount)
         : 'Screen candidates',
@@ -441,7 +445,9 @@ function CriteriaEditForm({ criteria, onChange, readOnly }) {
 function IntakeWorkflowBar({ intakeGate, req }) {
   const intakeDone = intakeGate?.intake_has_minimum_content && intakeGate?.hm_assigned
   const canScreen = intakeGate?.intake_screening_ready && !intakeGate?.blocks
-  const refined = (req?.current_criteria_version || 0) >= 1
+  const criteriaVersion = req?.current_criteria_version || 0
+  const hmApproved = req?.intake_status === 'approved'
+  const criteriaReady = criteriaVersion >= 1
   const steps = [
     {
       key: 'intake',
@@ -457,9 +463,13 @@ function IntakeWorkflowBar({ intakeGate, req }) {
     },
     {
       key: 'refine',
-      label: REQUISITIONS.intakeStepRefine,
-      done: refined,
-      active: canScreen && !refined,
+      label: hmApproved
+        ? REQUISITIONS.intakeStepRefine
+        : criteriaReady
+          ? `3. Criteria v${criteriaVersion} (awaiting HM)`
+          : REQUISITIONS.intakeStepRefineDraft,
+      done: hmApproved,
+      active: canScreen && !hmApproved,
     },
   ]
   return (
@@ -486,7 +496,17 @@ function IntakeWorkflowBar({ intakeGate, req }) {
   )
 }
 
-function IntakeForm({ intake, onChange, readOnly, onSuggest, suggesting }) {
+function IntakeForm({
+  intake,
+  onChange,
+  readOnly,
+  onSuggest,
+  suggesting,
+  onSave,
+  saving,
+  intakeDirty,
+  intakeSavedAt,
+}) {
   const fields = [
     { key: 'screen_focus_topics', label: 'What should the screen focus on? (one topic per line)', rows: 4, list: true },
     { key: 'must_haves', label: 'Must-have skills (one per line)', rows: 4 },
@@ -510,7 +530,7 @@ function IntakeForm({ intake, onChange, readOnly, onSuggest, suggesting }) {
     if (listKeys.includes(key)) {
       onChange({
         ...intake,
-        [key]: raw.split('\n').map((s) => s.trim()).filter(Boolean),
+        [key]: splitIntakeListInput(raw),
       })
     } else {
       onChange({ ...intake, [key]: raw })
@@ -543,6 +563,34 @@ function IntakeForm({ intake, onChange, readOnly, onSuggest, suggesting }) {
           />
         </label>
       ))}
+      {!readOnly && onSave && (
+        <div className="pt-4 border-t border-brand-50 flex flex-wrap items-center gap-3">
+          <Button type="button" onClick={onSave} disabled={saving || !intakeDirty}>
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving…
+              </>
+            ) : intakeSavedAt && !intakeDirty ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                Saved
+              </>
+            ) : (
+              'Save intake'
+            )}
+          </Button>
+          {intakeDirty && !saving && (
+            <span className="text-xs font-semibold text-amber-700">{REQUISITIONS.intakeUnsaved}</span>
+          )}
+          {saving && (
+            <span className="text-xs font-semibold text-brand-700">{REQUISITIONS.intakeSaving}</span>
+          )}
+          <p className="text-xs text-slate-500 w-full">
+            {REQUISITIONS.intakeAutoSaveHint} {REQUISITIONS.intakeSaveHint}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
+import VoiceTranscriptViewer from '../components/VoiceTranscriptViewer'
 import InterviewStrategyPreview from '../components/InterviewStrategyPreview'
 import { flattenStrategyQuestions } from '../lib/liveScreenKitUtils'
 import { isInterviewKitReady } from '../lib/enrichmentUtils'
@@ -301,7 +302,11 @@ export default function RecruiterSessionDetailPage() {
         {/* Transcript Tab */}
         {!tabLoading && activeTab === 'transcript' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <RecruiterTranscript transcript={transcript} />
+            {Array.isArray(transcript) && transcript.some((t) => t?.speaker && t?.text) ? (
+              <VoiceTranscriptViewer entries={transcript} />
+            ) : (
+              <RecruiterTranscript transcript={transcript} />
+            )}
           </motion.div>
         )}
 

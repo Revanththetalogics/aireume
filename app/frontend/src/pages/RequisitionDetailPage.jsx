@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Briefcase, Loader2, CheckCircle2, Sparkles,
@@ -51,6 +51,10 @@ import {
 import RequisitionOverviewPanel from '../components/requisition/RequisitionOverviewPanel'
 import RequisitionCriteriaPanel from '../components/requisition/RequisitionCriteriaPanel'
 import RequisitionPipelineBoard from '../components/requisition/RequisitionPipelineBoard'
+import { normalizeIntakeShape } from '../lib/intakeFormUtils'
+import useConfirm from '../hooks/useConfirm'
+
+const INTAKE_AUTOSAVE_MS = 2000
 
 const TABS = [
   { id: 'overview', label: REQUISITIONS.overviewTab, icon: Briefcase },
@@ -115,6 +119,15 @@ export default function RequisitionDetailPage() {
   )
 
   const intakeDirty = savedIntakeSnapshot !== JSON.stringify(intake || {})
+  const intakeRef = useRef(intake)
+  const { confirm, dialog } = useConfirm()
+
+  const canSaveIntake = (canWrite || isHiringManager) && req?.intake_status !== 'approved'
+  const canEditIntake = canSaveIntake
+
+  useEffect(() => {
+    intakeRef.current = intake
+  }, [intake])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -145,7 +158,7 @@ export default function RequisitionDetailPage() {
         ai_interview_max_score: policy.ai_interview_max_score ?? 79,
         auto_suggest: policy.auto_suggest !== false,
       })
-      const loadedIntake = r.intake_json || {}
+      const loadedIntake = normalizeIntakeShape(r.intake_json || {})
       setIntake(loadedIntake)
       setSavedIntakeSnapshot(JSON.stringify(loadedIntake))
       const weights = parseScoringWeights(r.scoring_weights)
@@ -171,6 +184,96 @@ export default function RequisitionDetailPage() {
       .then((s) => setHmPipelinePerm(s.hm_pipeline_permission || 'view_only'))
       .catch(() => setHmPipelinePerm('view_only'))
   }, [])
+
+  useEffect(() => {
+    if (!intakeDirty || !canSaveIntake) return undefined
+    const onBeforeUnload = (event) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [intakeDirty, canSaveIntake])
+
+  const persistIntake = useCallback(async ({ silent = false } = {}) => {
+    if (!canSaveIntake) return true
+    setSaving(true)
+    try {
+      const updated = await updateRequisitionIntake(id, intakeRef.current, 'pending_hm')
+      setReq(updated)
+      const saved = normalizeIntakeShape(updated.intake_json || {})
+      setIntake(saved)
+      setSavedIntakeSnapshot(JSON.stringify(saved))
+      setIntakeSavedAt(Date.now())
+      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
+      setIntakeGate(gate)
+      if (!silent) {
+        showSuccess(
+          gate?.intake_has_minimum_content
+            ? (gate?.blocks && gate?.requires_hm_approval
+              ? `${REQUISITIONS.intakeSaved} — HM approval required before screening (tenant policy).`
+              : `${REQUISITIONS.intakeSaved} — you can screen candidates. HM approval locks criteria v1.`)
+            : `${REQUISITIONS.intakeSaved} — add screen-focus topics or must-haves to unlock screening.`,
+        )
+      }
+      return true
+    } catch {
+      if (!silent) showError('Failed to save intake')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }, [id, canSaveIntake])
+
+  const saveIntake = useCallback(() => persistIntake({ silent: false }), [persistIntake])
+
+  const discardIntakeEdits = useCallback(() => {
+    try {
+      setIntake(normalizeIntakeShape(JSON.parse(savedIntakeSnapshot || '{}')))
+    } catch {
+      setIntake({})
+    }
+  }, [savedIntakeSnapshot])
+
+  const leaveIntakeOrConfirm = useCallback(async () => {
+    if (!intakeDirty || !canSaveIntake) return true
+    const ok = await persistIntake({ silent: true })
+    if (ok) return true
+    const discard = await confirm({
+      title: REQUISITIONS.intakeLeaveUnsavedTitle,
+      message: REQUISITIONS.intakeLeaveUnsavedMessage,
+      confirmLabel: REQUISITIONS.intakeDiscardLeave,
+      cancelLabel: REQUISITIONS.intakeStay,
+      danger: true,
+    })
+    if (discard) {
+      discardIntakeEdits()
+      return true
+    }
+    return false
+  }, [intakeDirty, canSaveIntake, persistIntake, confirm, discardIntakeEdits])
+
+  const requestTabChange = useCallback(async (nextTab) => {
+    if (!nextTab || nextTab === tab) return
+    if (tab === 'intake' && nextTab !== 'intake') {
+      const canLeave = await leaveIntakeOrConfirm()
+      if (!canLeave) return
+    }
+    setTab(nextTab)
+  }, [tab, leaveIntakeOrConfirm])
+
+  const guardedNavigate = useCallback(async (to) => {
+    const canLeave = await leaveIntakeOrConfirm()
+    if (canLeave) navigate(to)
+  }, [leaveIntakeOrConfirm, navigate])
+
+  useEffect(() => {
+    if (!canSaveIntake || !intakeDirty || tab !== 'intake') return undefined
+    const timer = setTimeout(() => {
+      void persistIntake({ silent: true })
+    }, INTAKE_AUTOSAVE_MS)
+    return () => clearTimeout(timer)
+  }, [intake, canSaveIntake, intakeDirty, tab, persistIntake])
 
   const refreshTeamMembers = async () => {
     try {
@@ -267,8 +370,8 @@ export default function RequisitionDetailPage() {
     }
   }
 
-  const focusHmAssignment = () => {
-    setTab('overview')
+  const focusHmAssignment = async () => {
+    await requestTabChange('overview')
     requestAnimationFrame(() => {
       document.getElementById('hm-assignment')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
@@ -292,7 +395,7 @@ export default function RequisitionDetailPage() {
         focusHmAssignment()
         break
       case 'intake':
-        setTab('intake')
+        void requestTabChange('intake')
         break
       case 'screen':
         openScreenCandidate()
@@ -307,8 +410,10 @@ export default function RequisitionDetailPage() {
     ? (intakeGate?.warning || REQUISITIONS.screenCandidateBlocked)
     : (req?.intake_gate_warning || undefined)
 
-  const openScreenCandidate = () => {
+  const openScreenCandidate = async () => {
     if (screenCandidateDisabled) return
+    const canLeave = await leaveIntakeOrConfirm()
+    if (!canLeave) return
     navigate(`/analyze?requisition_id=${id}`)
   }
 
@@ -332,36 +437,11 @@ export default function RequisitionDetailPage() {
     }
   }
 
-  const saveIntake = async () => {
-    setSaving(true)
-    try {
-      const updated = await updateRequisitionIntake(id, intake, 'pending_hm')
-      setReq(updated)
-      const saved = updated.intake_json || {}
-      setIntake(saved)
-      setSavedIntakeSnapshot(JSON.stringify(saved))
-      setIntakeSavedAt(Date.now())
-      const gate = await checkRequisitionIntakeGate(id).catch(() => null)
-      setIntakeGate(gate)
-      showSuccess(
-        gate?.intake_has_minimum_content
-          ? (gate?.blocks && gate?.requires_hm_approval
-            ? `${REQUISITIONS.intakeSaved} — HM approval required before screening (tenant policy).`
-            : `${REQUISITIONS.intakeSaved} — you can screen candidates. HM approval locks criteria v1.`)
-          : `${REQUISITIONS.intakeSaved} — add screen-focus topics or must-haves to unlock screening.`,
-      )
-    } catch {
-      showError('Failed to save intake')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const suggestIntake = async () => {
     setSuggestingIntake(true)
     try {
       const { intake_json: suggested } = await suggestRequisitionIntake(id)
-      setIntake(suggested || {})
+      setIntake(normalizeIntakeShape(suggested || {}))
       showSuccess(REQUISITIONS.intakeSuggestDone)
     } catch {
       showError('Could not suggest intake from job description')
@@ -371,11 +451,18 @@ export default function RequisitionDetailPage() {
   }
 
   const handleCalibrate = async () => {
+    if (intakeDirty && canSaveIntake) {
+      const ok = await persistIntake({ silent: true })
+      if (!ok) {
+        showError('Save intake before calibrating criteria')
+        return
+      }
+    }
     setSaving(true)
     try {
       const updated = await calibrateRequisition(id)
       setReq(updated)
-      setTab('criteria')
+      await requestTabChange('criteria')
       showSuccess('Criteria calibrated — you can screen candidates')
       await load()
     } catch {
@@ -507,8 +594,8 @@ export default function RequisitionDetailPage() {
 
   useEffect(() => {
     const t = searchParams.get('tab')
-    if (t) setTab(t)
-  }, [searchParams])
+    if (t) void requestTabChange(t)
+  }, [searchParams, requestTabChange])
 
   const openAddCandidates = async () => {
     try {
@@ -533,8 +620,6 @@ export default function RequisitionDetailPage() {
     }
   }
 
-  const canEditIntake = canWrite || isHiringManager
-  const canSaveIntake = canWrite || isHiringManager
   const canWritePipeline = canWrite
     || (isHiringManager && hmPipelinePerm !== 'view_only')
 
@@ -563,7 +648,7 @@ export default function RequisitionDetailPage() {
 
       <button
         type="button"
-        onClick={() => navigate(isHiringManager ? '/requisitions' : '/requisitions')}
+        onClick={() => void guardedNavigate('/requisitions')}
         className="inline-flex items-center gap-1 text-sm font-semibold text-brand-600 mb-4 hover:text-brand-800"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -611,8 +696,11 @@ export default function RequisitionDetailPage() {
               )}
             </Button>
           )}
-          {canWrite && tab === 'intake' && intakeDirty && (
+          {canWrite && tab === 'intake' && intakeDirty && !saving && (
             <span className="text-xs font-semibold text-amber-700 self-center">{REQUISITIONS.intakeUnsaved}</span>
+          )}
+          {canWrite && tab === 'intake' && saving && (
+            <span className="text-xs font-semibold text-brand-700 self-center">{REQUISITIONS.intakeSaving}</span>
           )}
           {canWrite && (
             <Button variant="secondary" onClick={handleCalibrate} disabled={saving} className="shrink-0 whitespace-nowrap">
@@ -634,7 +722,7 @@ export default function RequisitionDetailPage() {
           {canWrite && (
             <Button
               variant="ghost"
-              onClick={() => navigate(`/requisitions/${id}/handoff`)}
+              onClick={() => void guardedNavigate(`/requisitions/${id}/handoff`)}
               title={REQUISITIONS.hmReviewPackHint}
               className="shrink-0 whitespace-nowrap"
             >
@@ -666,7 +754,7 @@ export default function RequisitionDetailPage() {
           <button
             key={tabId}
             type="button"
-            onClick={() => setTab(tabId)}
+            onClick={() => void requestTabChange(tabId)}
             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
               tab === tabId ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-600 hover:text-brand-700'
             }`}
@@ -722,17 +810,26 @@ export default function RequisitionDetailPage() {
               {REQUISITIONS.intakeChangesRequested}
             </p>
           )}
+          {req.intake_status === 'approved' && (
+            <p className="text-sm text-emerald-800 bg-emerald-50 ring-1 ring-emerald-200 rounded-xl px-3 py-2">
+              Intake approved by the hiring manager. Fields are locked; update criteria on the Criteria tab if needed.
+            </p>
+          )}
           <IntakeForm
             intake={intake}
             onChange={setIntake}
             readOnly={!canEditIntake}
             onSuggest={canEditIntake && canWrite ? suggestIntake : null}
             suggesting={suggestingIntake}
+            onSave={canSaveIntake ? saveIntake : null}
+            saving={saving}
+            intakeDirty={intakeDirty}
+            intakeSavedAt={intakeSavedAt}
           />
           {canWrite && (
             <p className="text-xs text-slate-500 pt-2 border-t border-brand-50">
               Sourcing strategy and channels live on the{' '}
-              <button type="button" className="text-brand-600 font-semibold hover:underline" onClick={() => setTab('sourcing')}>
+              <button type="button" className="text-brand-600 font-semibold hover:underline" onClick={() => void requestTabChange('sourcing')}>
                 Sourcing tab
               </button>
               .
@@ -832,6 +929,8 @@ export default function RequisitionDetailPage() {
           handleOutcome(outcomeModal.candidateId, outcome, reasonCode, notes)
         }}
       />
+
+      {dialog}
 
       {showAddCandidates && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
