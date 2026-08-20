@@ -203,6 +203,11 @@ def get_current_user(
         )
         if not session:
             raise HTTPException(status_code=401, detail="Invalid or expired impersonation session")
+        if session.admin_user_id != user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="Impersonation token is not bound to this user",
+            )
 
         # Load target user (the impersonated account)
         target_user = (

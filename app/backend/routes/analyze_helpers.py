@@ -473,7 +473,9 @@ def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
     ``jd_analysis["skill_proficiency_requirements"]`` for downstream scoring.
     """
     if not overrides:
-        return jd_analysis
+        return jd_analysis if isinstance(jd_analysis, dict) else {}
+    if not isinstance(jd_analysis, dict):
+        jd_analysis = {}
 
     proficiency_map: dict[str, str] = {}
 
@@ -1513,6 +1515,14 @@ def _reject_injected_text(text: str) -> None:
             status_code=400,
             detail="Document failed security screening and cannot be processed",
         )
+
+
+def _is_parse_failure_result(raw: object) -> bool:
+    """True when resume parse failed and the pipeline returned a low-quality error dict."""
+    if not isinstance(raw, dict):
+        return True
+    errors = raw.get("pipeline_errors") or []
+    return bool(errors) and raw.get("analysis_quality") == "low"
 
 
 async def _process_single_resume(

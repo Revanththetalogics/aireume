@@ -254,7 +254,7 @@ def export_candidate_data(db: Session, candidate_id: int, tenant_id: int) -> Dic
             "name": candidate.name,
             "email": candidate.email,
             "phone": candidate.phone,
-            "current_title": candidate.current_title,
+            "current_title": candidate.current_role,
             "current_company": candidate.current_company,
             "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
         },

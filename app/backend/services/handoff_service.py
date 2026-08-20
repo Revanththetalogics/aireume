@@ -94,7 +94,10 @@ def build_handoff_package(
         )
         result_ids = [rc.screening_result_id for rc in rc_rows if rc.screening_result_id]
         if result_ids:
-            results = db.query(ScreeningResult).filter(ScreeningResult.id.in_(result_ids)).all()
+            results = db.query(ScreeningResult).filter(
+                ScreeningResult.id.in_(result_ids),
+                ScreeningResult.tenant_id == tenant_id,
+            ).all()
         else:
             results_q = db.query(ScreeningResult).join(
                 Candidate, ScreeningResult.candidate_id == Candidate.id,

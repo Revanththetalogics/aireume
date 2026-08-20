@@ -725,6 +725,7 @@ def reset_password(request_data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="User not found")
 
     user.hashed_password = _hash_password(new_password)
+    user.refresh_epoch = (getattr(user, "refresh_epoch", 0) or 0) + 1
 
     # Delete used token
     db.delete(reset_token)
@@ -752,6 +753,7 @@ def change_password(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     current_user.hashed_password = _hash_password(body.new_password)
+    current_user.refresh_epoch = (getattr(current_user, "refresh_epoch", 0) or 0) + 1
     db.commit()
     return {"message": "Password updated"}
 

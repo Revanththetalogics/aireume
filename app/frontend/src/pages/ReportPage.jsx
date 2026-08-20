@@ -503,7 +503,22 @@ export default function ReportPage() {
     )
 
     const params = new URLSearchParams(location.search)
-    const id = params.get('id') || result?.id || result?.result_id
+    const urlId = params.get('id')
+    const currentId = result?.id ?? result?.result_id
+    const id = urlId || currentId
+
+    if (urlId && currentId != null && String(urlId) !== String(currentId)) {
+      setLoading(true)
+      getScreeningResult(urlId)
+        .then(applyFetchedResult)
+        .catch(() => {
+          setNoResult(true)
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+      return
+    }
 
     if (isCompleteResult) {
       setCandidateName(resolveName(result))

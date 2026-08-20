@@ -186,12 +186,10 @@ async def upload_chunk(
     metadata_path = upload_dir / "metadata.json"
     if metadata_path.exists():
         assert_upload_owned(upload_id, current_user)
-    elif chunk_index != 0:
-        raise HTTPException(status_code=404, detail="Upload not found")
 
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    if chunk_index == 0 and not metadata_path.exists():
+    if not metadata_path.exists():
         metadata = {
             "upload_id": upload_id,
             "filename": filename,

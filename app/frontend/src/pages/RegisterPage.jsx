@@ -104,9 +104,9 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={8}
+                  minLength={10}
                   autoComplete="new-password"
-                  placeholder="Min. 8 characters"
+                  placeholder="Min. 10 characters"
                   className="w-full px-4 py-2.5 pr-11 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
                 />
                 <button

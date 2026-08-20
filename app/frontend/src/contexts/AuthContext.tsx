@@ -92,6 +92,11 @@ export function AuthProvider({ children }) {
     } catch {
       // Ignore errors - proceed to clear local state
     }
+    try {
+      sessionStorage.clear()
+    } catch {
+      // Ignore storage errors (private mode / mocked stores)
+    }
     setUser(null)
     setTenant(null)
   }

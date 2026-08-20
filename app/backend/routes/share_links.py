@@ -173,14 +173,11 @@ def get_public_handoff(token: str, request: Request, db: Session = Depends(get_d
     """Public read-only HM handoff via magic link (no login required)."""
     from app.backend.services.shared_cache import cache_incr
     ip = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        ip = forwarded.split(",")[0].strip()
     if cache_incr(f"handoff:{ip}", ttl_seconds=3600) > 60:
         raise HTTPException(status_code=429, detail="Too many requests")
 
     link = _get_valid_link(db, token)
-    passcode = request.query_params.get("passcode") or request.headers.get("X-Handoff-Passcode")
+    passcode = request.headers.get("X-Handoff-Passcode")
     if link.passcode_hash:
         provided = _hash_passcode(passcode or "")
         if not hmac.compare_digest(provided, link.passcode_hash):

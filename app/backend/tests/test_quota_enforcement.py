@@ -48,6 +48,11 @@ def _make_result(db: Session, tenant_id: int, timestamp: datetime | None = None)
     )
     db.add(sr)
     db.flush()
+    ts = sr.timestamp
+    now = datetime.now(timezone.utc)
+    if ts.year == now.year and ts.month == now.month:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        tenant.analyses_count_this_month = (tenant.analyses_count_this_month or 0) + 1
 
 
 # ─── check_quota unit tests ──────────────────────────────────────────────────

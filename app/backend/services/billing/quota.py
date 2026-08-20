@@ -1,19 +1,17 @@
 """
 Hard quota enforcement utility for pre-analysis checks.
 
-Checks a tenant's monthly screening-result count against their plan limits
+Checks a tenant's billed monthly analysis count against their plan limits
 *before* any analysis work begins.  This is a read-only, side-effect-free
 check — the actual usage increment is still handled by
 ``_check_and_increment_usage`` inside ``analyze.py``.
 """
 
-from datetime import datetime, timezone
 from typing import Dict
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.backend.models.db_models import ScreeningResult, Tenant, SubscriptionPlan
+from app.backend.models.db_models import Tenant, SubscriptionPlan
 
 # ─── Plan limits fallback (used when no SubscriptionPlan row exists) ──────────
 
@@ -31,18 +29,6 @@ PLAN_LIMITS: Dict[str, int] = {
 }
 
 
-def _get_current_month_range() -> tuple[datetime, datetime]:
-    """Return (start, end) for the current calendar month in UTC."""
-    now = datetime.now(timezone.utc)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # End of month: first day of next month
-    if now.month == 12:
-        end = start.replace(year=now.year + 1, month=1)
-    else:
-        end = start.replace(month=now.month + 1)
-    return start, end
-
-
 def check_quota(tenant_id: int, db: Session) -> Dict:
     """Check whether the tenant is within their monthly analysis quota.
 
@@ -56,8 +42,8 @@ def check_quota(tenant_id: int, db: Session) -> Dict:
             "plan":      str,   # plan name or "free" as default
         }
 
-    The *used* count is the number of ``screening_results`` rows created
-    for this tenant in the current calendar month.
+    The *used* count is ``tenant.analyses_count_this_month``, the same
+    counter the subscription dashboard and analyze increment path use.
     """
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
@@ -87,17 +73,7 @@ def check_quota(tenant_id: int, db: Session) -> Dict:
             except Exception:
                 analyses_limit = PLAN_LIMITS.get(plan_name, PLAN_LIMITS["starter"])
 
-    # Count screening_results this calendar month
-    start, end = _get_current_month_range()
-    used = (
-        db.query(func.count(ScreeningResult.id))
-        .filter(
-            ScreeningResult.tenant_id == tenant_id,
-            ScreeningResult.timestamp >= start,
-            ScreeningResult.timestamp < end,
-        )
-        .scalar() or 0
-    )
+    used = tenant.analyses_count_this_month or 0
 
     # Unlimited plans
     if analyses_limit < 0:

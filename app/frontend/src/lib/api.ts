@@ -349,12 +349,18 @@ export async function analyzeResumeStream(
     headers['X-CSRF-Token'] = csrfToken
   }
 
-  const response = await fetch(`${baseURL}/analyze/stream`, {
+  const postStream = () => fetch(`${baseURL}/analyze/stream`, {
     method: 'POST',
     headers,
     body: formData,
     credentials: 'include',  // Send httpOnly cookies
   })
+
+  let response = await postStream()
+  if (response.status === 401) {
+    await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+    response = await postStream()
+  }
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
@@ -788,14 +794,18 @@ export async function createTemplate(data) {
 }
 
 export async function createRequisitionFromFile(title, file, tags, scoringWeights) {
-  const text = await file.text()
-  return createRequisition({
-    title,
-    jd_text: text,
-    tags,
-    scoring_weights: scoringWeights,
-    status: 'draft',
-  })
+  const formData = new FormData()
+  formData.append('title', title)
+  formData.append('jd_file', file)
+  if (tags != null) {
+    formData.append('tags', typeof tags === 'string' ? tags : JSON.stringify(tags))
+  }
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  formData.append('status', 'draft')
+  const response = await api.post('/requisitions/from-file', formData)
+  return response.data
 }
 
 /** @deprecated Use createRequisitionFromFile */
@@ -2107,8 +2117,12 @@ export async function addCandidatesToRequisition(reqId, candidateIds, screeningR
   return response.data
 }
 
-export async function getPublicHandoff(token) {
-  const response = await api.get(`/public/handoff/${token}`)
+export async function getPublicHandoff(token, options = {}) {
+  const headers = {}
+  if (options?.passcode) {
+    headers['X-Handoff-Passcode'] = options.passcode
+  }
+  const response = await api.get(`/public/handoff/${token}`, { headers })
   return response.data
 }
 

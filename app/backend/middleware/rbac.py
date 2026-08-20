@@ -46,6 +46,36 @@ def is_hiring_manager(user: User) -> bool:
     return get_tenant_role(user) == TENANT_ROLE_HIRING_MANAGER
 
 
+def require_candidate_read_access(db: Session, user: User, candidate_id: int) -> None:
+    """Hiring managers may only read candidates on requisitions they are assigned to."""
+    if get_tenant_role(user) != TENANT_ROLE_HIRING_MANAGER:
+        return
+    from sqlalchemy import select
+    from app.backend.models.db_models import RequisitionCandidate, RequisitionHiringManager
+
+    assigned_req_ids = (
+        db.query(Requisition.id)
+        .outerjoin(RequisitionHiringManager, RequisitionHiringManager.requisition_id == Requisition.id)
+        .filter(
+            Requisition.tenant_id == user.tenant_id,
+            (Requisition.primary_hiring_manager_id == user.id)
+            | (RequisitionHiringManager.user_id == user.id),
+        )
+        .distinct()
+        .subquery()
+    )
+    linked = (
+        db.query(RequisitionCandidate.candidate_id)
+        .filter(
+            RequisitionCandidate.candidate_id == candidate_id,
+            RequisitionCandidate.requisition_id.in_(select(assigned_req_ids.c.id)),
+        )
+        .first()
+    )
+    if not linked:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+
 def is_ta_lead(user: User) -> bool:
     return get_tenant_role(user) == TENANT_ROLE_TA_LEAD
 

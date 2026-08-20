@@ -37,6 +37,45 @@ EDUCATION:
 BS Computer Science, University of Technology, 2018
 """
 
+def _quota_exceeded_message(response) -> str:
+    detail = response.json().get("detail")
+    if isinstance(detail, dict):
+        return str(detail.get("detail", "")).lower()
+    return str(detail).lower()
+
+
+def _assert_quota_exceeded(response):
+    """Hard quota gate is check_quota(), which returns HTTP 403 (not 429)."""
+    assert response.status_code == 403, response.text
+    msg = _quota_exceeded_message(response)
+    assert "exceeded" in msg or "limit" in msg
+
+
+def _successful_resume_result():
+    """Pipeline dict that is not a parse failure (billed by /analyze/batch)."""
+    return {
+        "fit_score": 75,
+        "job_role": "Engineer",
+        "strengths": [],
+        "weaknesses": [],
+        "employment_gaps": [],
+        "risk_signals": [],
+        "final_recommendation": "Consider",
+        "score_breakdown": {},
+        "matched_skills": [],
+        "missing_skills": [],
+        "risk_level": "Low",
+        "required_skills_count": 0,
+        "work_experience": [],
+        "contact_info": {},
+        "_parsed_data": {"raw_text": "test", "work_experience": [], "skills": [], "education": []},
+        "_gap_analysis": {},
+        "analysis_quality": "high",
+        "narrative_pending": False,
+        "pipeline_errors": [],
+    }
+
+
 # Long job description (80+ words) to pass validation
 LONG_JOB_DESCRIPTION = """
 We are looking for an experienced software developer to join our growing team.
@@ -128,10 +167,7 @@ class TestSingleAnalyzeUsageEnforcement:
         
         response = auth_client_at_usage_limit.post("/api/analyze", files=files, data=data)
         
-        # Should be rate limited
-        assert response.status_code == 429
-        resp_data = response.json()
-        assert "limit" in resp_data.get("detail", "").lower() or "exceeded" in resp_data.get("detail", "").lower()
+        _assert_quota_exceeded(response)
     
     def test_analyze_no_usage_increment_on_failure(
         self, auth_client_with_pro_plan, db, seed_subscription_plans
@@ -215,14 +251,17 @@ class TestBatchAnalyzeUsageEnforcement:
     def test_batch_analyze_increments_usage_by_file_count(
         self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
     ):
-        """Batch analysis should increment usage by number of files."""
+        """Batch analysis should increment usage by number of successfully parsed files."""
+        from unittest.mock import patch
+
         from app.backend.models.db_models import Tenant
-        
-        # Get initial count
+
+        async def mock_process(*args, **kwargs):
+            return _successful_resume_result()
+
         tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
         initial_count = tenant.analyses_count_this_month
-        
-        # Upload 3 resumes
+
         files = [
             ("resumes", ("resume1.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
             ("resumes", ("resume2.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
@@ -231,29 +270,28 @@ class TestBatchAnalyzeUsageEnforcement:
         data = {
             "job_description": LONG_JOB_DESCRIPTION,
         }
-        
-        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
-        
-        # Should succeed
-        assert response.status_code == 200
-        
-        # Verify usage incremented by 3
+
+        with patch("app.backend.routes.analyze_helpers._process_single_resume", side_effect=mock_process):
+            response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+
+        assert response.status_code == 200, response.text
         db.refresh(tenant)
         assert tenant.analyses_count_this_month == initial_count + 3
     
     def test_batch_analyze_creates_usage_logs(
         self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
     ):
-        """Batch analysis should create usage log entries."""
-        from app.backend.models.db_models import Tenant, User
+        """Batch analysis should create usage log entries for successful files."""
+        from unittest.mock import patch
+
+        from app.backend.models.db_models import Tenant
+
+        async def mock_process(*args, **kwargs):
+            return _successful_resume_result()
 
         tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
-        user = db.query(User).filter(User.email == "pro@procorp.com").first()
-
-        # Get initial log count
         initial_logs = db.query(UsageLog).filter(UsageLog.tenant_id == tenant.id).count()
 
-        # Upload 2 resumes
         files = [
             ("resumes", ("resume1.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
             ("resumes", ("resume2.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
@@ -262,13 +300,11 @@ class TestBatchAnalyzeUsageEnforcement:
             "job_description": LONG_JOB_DESCRIPTION,
         }
 
-        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+        with patch("app.backend.routes.analyze_helpers._process_single_resume", side_effect=mock_process):
+            response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
 
-        assert response.status_code == 200
-
-        # Verify usage logs created (one per successfully processed file)
+        assert response.status_code == 200, response.text
         current_logs = db.query(UsageLog).filter(UsageLog.tenant_id == tenant.id).count()
-        # Note: Mock may process fewer files than uploaded
         assert current_logs >= initial_logs + 1
     
     def test_batch_analyze_denied_when_would_exceed_limit(
@@ -549,7 +585,12 @@ class TestBatchConcurrencyLimiter:
     def test_batch_all_succeed_no_failures(
         self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
     ):
-        """Batch with all successful files should have empty failed list."""
+        """Batch with all successfully parsed files should have empty failed list."""
+        from unittest.mock import patch
+
+        async def mock_process(*args, **kwargs):
+            return _successful_resume_result()
+
         files = [
             ("resumes", (f"resume{i}.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
             for i in range(3)
@@ -558,11 +599,11 @@ class TestBatchConcurrencyLimiter:
             "job_description": LONG_JOB_DESCRIPTION,
         }
 
-        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+        with patch("app.backend.routes.analyze_helpers._process_single_resume", side_effect=mock_process):
+            response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
 
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         resp_data = response.json()
-        
         assert resp_data["successful"] == 3
         assert resp_data["failed_count"] == 0
         assert resp_data["failed"] == []
@@ -697,16 +738,12 @@ class TestUsageEdgeCases:
         }
 
         response = auth_client_with_free_plan.post("/api/analyze", files=files, data=data)
+        assert response.status_code == 200, response.text
+        db.refresh(tenant)
+        assert tenant.analyses_count_this_month == 5
 
-        # Mock may fail but should not be 429 (rate limit)
-        if response.status_code == 200:
-            # Verify at 5/5
-            db.refresh(tenant)
-            assert tenant.analyses_count_this_month == 5
-            
-            # Next one should fail
-            response2 = auth_client_with_free_plan.post("/api/analyze", files=files, data=data)
-            assert response2.status_code == 429
+        response2 = auth_client_with_free_plan.post("/api/analyze", files=files, data=data)
+        _assert_quota_exceeded(response2)
     
     def test_negative_limit_means_unlimited(
         self, auth_client, db, mock_hybrid_pipeline, seed_subscription_plans

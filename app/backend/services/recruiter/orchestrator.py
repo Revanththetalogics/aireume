@@ -79,6 +79,19 @@ class RecruiterOrchestrator:
         if not candidate.phone:
             raise ValueError(f"Candidate {candidate_id} has no phone number")
 
+        if screening_result_id is not None:
+            sr = self.db.execute(
+                select(ScreeningResult).where(
+                    ScreeningResult.id == screening_result_id,
+                    ScreeningResult.tenant_id == tenant_id,
+                    ScreeningResult.candidate_id == candidate_id,
+                )
+            ).scalar_one_or_none()
+            if sr is None:
+                raise ValueError(
+                    f"Screening result {screening_result_id} not found for this candidate"
+                )
+
         # Duplicate check: prevent multiple active scheduled sessions for same candidate + JD
         active_statuses = {"pending_strategy", "scheduled", "in_progress"}
         existing = self.db.execute(
@@ -433,7 +446,12 @@ class RecruiterOrchestrator:
                 persist_outcome_to_screening_result,
             )
 
-            sr = self.db.get(ScreeningResult, interview_session.screening_result_id)
+            sr = self.db.execute(
+                select(ScreeningResult).where(
+                    ScreeningResult.id == interview_session.screening_result_id,
+                    ScreeningResult.tenant_id == interview_session.tenant_id,
+                )
+            ).scalar_one_or_none()
             if sr:
                 analysis_score = (
                     original_fitment.get("score")

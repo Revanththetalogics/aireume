@@ -275,18 +275,23 @@ export class ChunkedUploader {
       chunks.push({ index: i, blob: chunk })
     }
     
-    // Upload chunks with concurrency limit (3 parallel uploads)
+    // Chunk 0 must finish first so the server can persist upload metadata
+    // before later chunks race in.
     const concurrency = 3
     const results = []
-    
-    for (let i = 0; i < chunks.length; i += concurrency) {
+    const [first, ...rest] = chunks
+    if (first) {
+      results.push(await this.uploadChunk(first.index, first.blob))
+    }
+
+    for (let i = 0; i < rest.length; i += concurrency) {
       if (this.aborted) {
         throw new Error('Upload aborted by user')
       }
-      
-      const batch = chunks.slice(i, i + concurrency)
+
+      const batch = rest.slice(i, i + concurrency)
       const batchPromises = batch.map(chunk => this.uploadChunk(chunk.index, chunk.blob))
-      
+
       const batchResults = await Promise.all(batchPromises)
       results.push(...batchResults)
     }

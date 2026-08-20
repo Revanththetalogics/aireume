@@ -899,6 +899,8 @@ def get_candidate_audit_log(
     ).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.backend.middleware.rbac import require_candidate_read_access
+    require_candidate_read_access(db, current_user, candidate_id)
 
     logs = (
         db.query(FieldAuditLog)
@@ -946,6 +948,8 @@ def get_candidate(
     ).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.backend.middleware.rbac import require_candidate_read_access
+    require_candidate_read_access(db, current_user, candidate_id)
 
     results = (
         db.query(ScreeningResult)
@@ -1295,6 +1299,8 @@ def get_candidate_timeline(
     ).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.backend.middleware.rbac import require_candidate_read_access
+    require_candidate_read_access(db, current_user, candidate_id)
 
     results = (
         db.query(ScreeningResult)
@@ -1380,6 +1386,8 @@ def get_candidate_notes(
     ).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.backend.middleware.rbac import require_candidate_read_access
+    require_candidate_read_access(db, current_user, candidate_id)
 
     notes = (
         db.query(CandidateNote)
@@ -1686,6 +1694,8 @@ def download_candidate_resume(
 
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.backend.middleware.rbac import require_candidate_read_access
+    require_candidate_read_access(db, current_user, candidate_id)
 
     # Fetch resume data from object storage (preferred) or legacy BYTEA
     from app.backend.services.object_storage import ObjectStorageService

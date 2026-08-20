@@ -5,6 +5,7 @@ webhook events into database state changes.  Each provider's raw event is
 normalised into a (provider, event_type, tenant_lookup, payload) tuple and
 dispatched to the appropriate handler.
 """
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone, timedelta
@@ -65,6 +66,23 @@ def _find_tenant_by_id(db: Session, tenant_id: int) -> Optional[Tenant]:
 
 
 # ─── Audit logging ──────────────────────────────────────────────────────────
+
+def _idempotency_event_id(
+    provider: str,
+    event_type: str,
+    event_id: Optional[str],
+    raw_payload: Optional[str],
+) -> str:
+    """Stable webhook de-dupe key. Stripe sends event_id; Razorpay/manual often do not."""
+    if event_id:
+        return event_id
+    if isinstance(raw_payload, (bytes, bytearray)):
+        payload_bytes = bytes(raw_payload)
+    else:
+        payload_bytes = (raw_payload or "").encode("utf-8")
+    digest = hashlib.sha256(payload_bytes).hexdigest()
+    return f"{provider}:{event_type}:{digest}"[:255]
+
 
 def _log_billing_event(
     db: Session,
@@ -727,27 +745,27 @@ def process_webhook_event(
     ignored gracefully — we never raise so the HTTP response is always 200.
     """
     # ── Idempotency: skip events we've already processed successfully ─────────
-    if event_id:
-        existing = (
-            db.query(BillingEvent)
-            .filter(
-                BillingEvent.provider == provider,
-                BillingEvent.event_id == event_id,
-                BillingEvent.result == "success",
-            )
-            .first()
+    event_id = _idempotency_event_id(provider, event_type, event_id, raw_payload)
+    existing = (
+        db.query(BillingEvent)
+        .filter(
+            BillingEvent.provider == provider,
+            BillingEvent.event_id == event_id,
+            BillingEvent.result == "success",
         )
-        if existing:
-            log.info(
-                "Duplicate webhook ignored: provider=%s event_id=%s type=%s",
-                provider, event_id, event_type,
-            )
-            return {
-                "processed": False,
-                "reason": "duplicate",
-                "provider": provider,
-                "event_type": event_type,
-            }
+        .first()
+    )
+    if existing:
+        log.info(
+            "Duplicate webhook ignored: provider=%s event_id=%s type=%s",
+            provider, event_id, event_type,
+        )
+        return {
+            "processed": False,
+            "reason": "duplicate",
+            "provider": provider,
+            "event_type": event_type,
+        }
 
     handler = _HANDLER_MAP.get((provider, event_type))
 

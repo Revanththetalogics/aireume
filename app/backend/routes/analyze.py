@@ -116,6 +116,7 @@ from app.backend.routes.analyze_helpers import (
     _parse_resume_with_doc_conversion,
     _reject_injected_text,
     _process_single_resume,
+    _is_parse_failure_result,
     _check_and_increment_usage,
     _process_with_semaphore,
     _spawn_background_narrative,
@@ -795,12 +796,6 @@ async def analyze_stream_endpoint(
     _validate_optional_analyze_payloads(scoring_weights, skill_overrides)
     _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
-    # ─── CHECK AND INCREMENT USAGE (after validation) ─────────────────────────
-    async with _get_tenant_lock(current_user.tenant_id):
-        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=message)
-
     weights = None
     if scoring_weights:
         try:
@@ -887,6 +882,11 @@ async def analyze_stream_endpoint(
             yield "data: [DONE]\n\n"
         return StreamingResponse(_error_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
 
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
@@ -1957,12 +1957,6 @@ async def batch_analyze_endpoint(
     _validate_optional_analyze_payloads(scoring_weights)
     _assert_custom_weights_allowed_if_provided(db, current_user.tenant_id, scoring_weights)
 
-    # ─── CHECK AND INCREMENT USAGE (after validation, before processing) ────────
-    async with _get_tenant_lock(current_user.tenant_id):
-        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=message)
-
     weights = None
     if scoring_weights:
         try:
@@ -1993,11 +1987,11 @@ async def batch_analyze_endpoint(
     failed_items = []
     
     for raw, (content, filename) in zip(raw_results, file_data):
-        if isinstance(raw, Exception):
-            # Track failure
+        if isinstance(raw, Exception) or _is_parse_failure_result(raw):
+            err = str(raw) if isinstance(raw, Exception) else "; ".join(raw.get("pipeline_errors") or ["unreadable"])
             failed_items.append(BatchFailedItem(
                 filename=filename,
-                error=str(raw)
+                error=err,
             ))
             continue
         
@@ -2052,6 +2046,14 @@ async def batch_analyze_endpoint(
         BatchAnalysisResult(rank=i + 1, filename=r["filename"], result=r["result"])
         for i, r in enumerate(batch_results)
     ]
+
+    if ranked:
+        async with _get_tenant_lock(current_user.tenant_id):
+            allowed, message = _check_and_increment_usage(
+                db, current_user.tenant_id, current_user.id, len(ranked),
+            )
+        if not allowed:
+            raise HTTPException(status_code=429, detail=message)
     
     return BatchAnalysisResponse(
         results=ranked,

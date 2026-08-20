@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -302,6 +302,74 @@ def create_req(
         resource_type="requisition",
         resource_id=req.id,
         details={"title": req.title},
+    )
+    db.commit()
+    return _to_out(db, req, current_user.tenant_id, current_user=current_user)
+
+
+@router.post("/from-file", response_model=RequisitionOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("requisitions"))])
+async def create_req_from_file(
+    title: str = Form(...),
+    jd_file: UploadFile = File(...),
+    tags: str | None = Form(None),
+    scoring_weights: str | None = Form(None),
+    status: str = Form("draft"),
+    current_user: User = Depends(require_recruiter_or_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a requisition from an uploaded JD file (PDF/DOCX/TXT)."""
+    from app.backend.services.parser_service import extract_jd_text
+
+    jd_bytes = await jd_file.read()
+    if not jd_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        jd_text = extract_jd_text(jd_bytes, jd_file.filename)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to extract text from file: {exc}") from exc
+    if not jd_text or not jd_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file")
+
+    weights = None
+    if scoring_weights:
+        try:
+            weights = json.loads(scoring_weights)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid scoring_weights JSON")
+
+    parsed_tags = tags
+    if tags:
+        try:
+            loaded = json.loads(tags)
+            if isinstance(loaded, list):
+                parsed_tags = ",".join(str(t) for t in loaded)
+            elif isinstance(loaded, str):
+                parsed_tags = loaded
+        except (json.JSONDecodeError, TypeError):
+            parsed_tags = tags
+
+    req = create_requisition(
+        db,
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        title=title.strip(),
+        jd_text=jd_text,
+        scoring_weights=weights,
+        tags=parsed_tags,
+        assigned_recruiter_id=current_user.id,
+        status=status,
+    )
+    db.commit()
+    db.refresh(req)
+    log_tenant_event(
+        db,
+        actor=current_user,
+        action="requisition.create",
+        resource_type="requisition",
+        resource_id=req.id,
+        details={"title": req.title, "source": "file"},
     )
     db.commit()
     return _to_out(db, req, current_user.tenant_id, current_user=current_user)
@@ -724,10 +792,19 @@ def add_candidates(
         if existing:
             out.append(RequisitionCandidateOut(**req_candidate_to_dict(existing, cand)))
             continue
+        sr_id = result_map.get(cid)
+        if sr_id:
+            sr = db.query(ScreeningResult).filter(
+                ScreeningResult.id == sr_id,
+                ScreeningResult.candidate_id == cid,
+                ScreeningResult.tenant_id == current_user.tenant_id,
+            ).first()
+            if not sr:
+                sr_id = None
         rc = RequisitionCandidate(
             requisition_id=req_id,
             candidate_id=cid,
-            screening_result_id=result_map.get(cid),
+            screening_result_id=sr_id,
             added_by=current_user.id,
         )
         db.add(rc)
